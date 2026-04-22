@@ -229,7 +229,7 @@ export default function ScreenReview({ showToast }: Props) {
                   {lastCode || '—'}
                 </div>
                 <div className="font-bold mb-2 leading-tight" style={{ fontSize: 16, color: '#1a2b6b', fontFamily: 'Roboto, sans-serif' }}>
-                  {lastProduct ? lastProduct.name : lastCode ? 'Producto no identificado' : 'Esperando escaneo...'}
+                  {lastProduct ? lastProduct.name : lastCode ? lastCode : 'Esperando escaneo...'}
                 </div>
                 {lastCode && !lastProduct && (
                   <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium mb-2"

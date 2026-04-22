@@ -38,6 +38,7 @@ export const PRODUCT_CATALOG: Record<string, Product> = {
   'AM-445': { code: 'AM-445', name: 'Amortiguador Trasero Nissan Sentra 2020',     category: 'Suspensión',   img: null },
   'BC-118': { code: 'BC-118', name: 'Bobina de Encendido VW Jetta 2.5',            category: 'Encendido',    img: null },
   'RD-772': { code: 'RD-772', name: 'Radiador Completo Chevrolet Aveo 1.6',        category: 'Enfriamiento', img: null },
+  'XX-999': { code: 'XX-999', name: 'Cinta Aislante Negra 3M',                       category: 'Accesorios',   img: null },
 };
 
 export const ORDERS_DB: Record<string, Order> = {
