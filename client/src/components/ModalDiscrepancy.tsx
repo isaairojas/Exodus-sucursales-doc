@@ -1,11 +1,20 @@
 // ============================================================
-// APYMSA — Modal B: Discrepancias (Screen 4a)
+// APYMSA — Modal: Diferencias de Pedido
 // Design: Enterprise Precision
-// Includes: re-scan confirmation for "Producto incorrecto"
+//
+// Logic per row type:
+//   Sobrante  → must rescan the extra unit to confirm it exists,
+//               then authorize (or remove it to match qty)
+//   Faltante  → can authorize the shortage (with motivo) OR
+//               "remove" the missing piece from count (adjust down)
+//   Incorrecto → must rescan the product in THIS modal to confirm
+//                physical removal; then row is resolved
+//
+// Confirm button enabled only when ALL rows are resolved.
 // ============================================================
 import { useState, useRef, useEffect } from 'react';
 
-interface Discrepancy {
+export interface Discrepancy {
   code: string;
   name: string;
   req: number;
@@ -13,6 +22,21 @@ interface Discrepancy {
   diff: number;
   tipo: 'Sobrante' | 'Faltante' | 'Producto incorrecto';
 }
+
+interface RowState {
+  // shared
+  resolved: boolean;
+  // authorization
+  authorized: boolean;
+  motivo: string;
+  // rescan (sobrante / incorrecto)
+  rescanValue: string;
+  rescanConfirmed: boolean;
+  // faltante: "remove piece" path
+  removedPiece: boolean;
+}
+
+const MOTIVOS = ['Etiqueta errónea', 'Error de surtido', 'Merma', 'Otro'];
 
 interface Props {
   discrepancies: Discrepancy[];
@@ -22,16 +46,71 @@ interface Props {
 }
 
 export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, showToast }: Props) {
-  // Track which "Producto incorrecto" rows have been confirmed via re-scan
-  const [confirmedRemoval, setConfirmedRemoval] = useState<Record<string, boolean>>({});
-  const [rescanValues, setRescanValues] = useState<Record<string, string>>({});
-  // For normal discrepancies (Sobrante/Faltante) re-scan confirmation
-  const [confirmedCount, setConfirmedCount] = useState<Record<string, boolean>>({});
-  const [countRescan, setCountRescan] = useState<Record<string, string>>({});
+  const initRows = (): Record<string, RowState> => {
+    const r: Record<string, RowState> = {};
+    discrepancies.forEach(d => {
+      r[d.code] = { resolved: false, authorized: false, motivo: '', rescanValue: '', rescanConfirmed: false, removedPiece: false };
+    });
+    return r;
+  };
 
-  const incorrectRows = discrepancies.filter(d => d.tipo === 'Producto incorrecto');
-  const allIncorrectConfirmed = incorrectRows.every(d => confirmedRemoval[d.code]);
-  const canProceed = allIncorrectConfirmed;
+  const [rows, setRows] = useState<Record<string, RowState>>(initRows);
+  const firstRescanRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    firstRescanRef.current?.focus();
+  }, []);
+
+  const update = (code: string, patch: Partial<RowState>) => {
+    setRows(prev => ({ ...prev, [code]: { ...prev[code], ...patch } }));
+  };
+
+  // ── Sobrante: rescan to confirm the extra unit, then authorize ──
+  const handleSobranteRescan = (d: Discrepancy, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const val = rows[d.code].rescanValue.trim().toUpperCase();
+    if (val === d.code) {
+      update(d.code, { rescanConfirmed: true, rescanValue: '' });
+      showToast(`Sobrante de ${d.code} confirmado. Puede autorizar.`, 'info');
+    } else if (val) {
+      showToast(`Código incorrecto. Escanee: ${d.code}`, 'warning');
+      update(d.code, { rescanValue: '' });
+    }
+  };
+
+  const handleSobranteAuthorize = (d: Discrepancy) => {
+    if (!rows[d.code].motivo) { showToast('Seleccione un motivo antes de autorizar.', 'warning'); return; }
+    update(d.code, { authorized: true, resolved: true });
+    showToast(`Sobrante de ${d.code} autorizado.`, 'success');
+  };
+
+  // ── Faltante: authorize shortage OR remove piece ──
+  const handleFaltanteAuthorize = (d: Discrepancy) => {
+    if (!rows[d.code].motivo) { showToast('Seleccione un motivo antes de autorizar.', 'warning'); return; }
+    update(d.code, { authorized: true, resolved: true });
+    showToast(`Faltante de ${d.code} autorizado.`, 'success');
+  };
+
+  const handleFaltanteRemove = (d: Discrepancy) => {
+    // "Remove" means we accept the lower count — resolves without authorization
+    update(d.code, { removedPiece: true, resolved: true });
+    showToast(`Pieza de ${d.code} retirada del conteo.`, 'success');
+  };
+
+  // ── Incorrecto: rescan in this modal to confirm physical removal ──
+  const handleIncorrectoRescan = (d: Discrepancy, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const val = rows[d.code].rescanValue.trim().toUpperCase();
+    if (val === d.code) {
+      update(d.code, { rescanConfirmed: true, rescanValue: '', resolved: true });
+      showToast(`Producto ${d.code} confirmado para retiro del pedido.`, 'success');
+    } else if (val) {
+      showToast(`Código incorrecto. Escanee: ${d.code}`, 'warning');
+      update(d.code, { rescanValue: '' });
+    }
+  };
+
+  const allResolved = discrepancies.every(d => rows[d.code]?.resolved);
 
   const TIPO_COLOR: Record<string, string> = {
     Sobrante: '#16a34a',
@@ -39,183 +118,240 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
     'Producto incorrecto': '#d97706',
   };
 
-  const handleRescanRemoval = (code: string, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const val = rescanValues[code]?.trim().toUpperCase();
-      if (val === code) {
-        setConfirmedRemoval(prev => ({ ...prev, [code]: true }));
-        showToast(`Producto ${code} confirmado para retiro del pedido.`, 'success');
-      } else if (val) {
-        showToast(`Código incorrecto. Escanee: ${code}`, 'warning');
-      }
-      setRescanValues(prev => ({ ...prev, [code]: '' }));
-    }
-  };
-
-  const handleRescanCount = (code: string, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const val = countRescan[code]?.trim().toUpperCase();
-      if (val === code) {
-        setConfirmedCount(prev => ({ ...prev, [code]: true }));
-        showToast(`Conteo de ${code} re-confirmado.`, 'success');
-      } else if (val) {
-        showToast(`Código incorrecto. Escanee: ${code}`, 'warning');
-      }
-      setCountRescan(prev => ({ ...prev, [code]: '' }));
-    }
-  };
+  const incorrectCount = discrepancies.filter(d => d.tipo === 'Producto incorrecto').length;
+  const confirmedCount = discrepancies.filter(d => rows[d.code]?.resolved).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.45)', animation: 'screenFadeIn 0.2s ease' }}>
+      style={{ background: 'rgba(0,0,0,0.48)', animation: 'screenFadeIn 0.2s ease' }}>
       <div className="bg-white rounded-xl flex flex-col"
-        style={{ width: '92%', maxWidth: 960, maxHeight: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', animation: 'modalIn 0.25s ease' }}>
+        style={{ width: '94%', maxWidth: 1020, maxHeight: '90vh', boxShadow: '0 20px 60px rgba(0,0,0,0.22)', animation: 'modalIn 0.25s ease' }}>
 
         {/* Header */}
-        <div className="flex items-center gap-2 px-6 py-4" style={{ borderBottom: '1px solid #e5e7eb' }}>
-          <span className="material-symbols-outlined" style={{ color: '#d97706', fontSize: 22 }}>warning</span>
-          <span className="font-bold text-base" style={{ color: '#1a2b6b', fontFamily: 'Roboto, sans-serif' }}>
-            Se detectaron diferencias en el pedido
-          </span>
+        <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid #e5e7eb' }}>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined" style={{ color: '#d97706', fontSize: 22 }}>warning</span>
+            <span className="font-bold text-base" style={{ color: '#1a2b6b', fontFamily: 'Roboto, sans-serif' }}>
+              Diferencias detectadas en el pedido
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs" style={{ color: '#6b7280' }}>
+            <span className="font-semibold" style={{ color: confirmedCount === discrepancies.length ? '#16a34a' : '#374151' }}>
+              {confirmedCount}/{discrepancies.length} resueltas
+            </span>
+            <div className="w-24 h-2 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+              <div className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${(confirmedCount / discrepancies.length) * 100}%`, background: confirmedCount === discrepancies.length ? '#16a34a' : '#2563eb' }} />
+            </div>
+          </div>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-6">
 
-          {/* Alert for unknown products */}
-          {incorrectRows.length > 0 && (
-            <div className="flex items-start gap-3 p-4 rounded-lg mb-5"
+          {/* Info banner */}
+          {incorrectCount > 0 && (
+            <div className="flex items-start gap-3 p-3 rounded-lg mb-4"
               style={{ background: '#fffbeb', border: '1.5px solid #fbbf24' }}>
-              <span className="material-symbols-outlined flex-shrink-0" style={{ color: '#d97706', fontSize: 22, marginTop: 1 }}>warning</span>
-              <div>
-                <p className="text-sm font-bold mb-1" style={{ color: '#92400e' }}>
-                  Productos ajenos al pedido detectados
-                </p>
-                <p className="text-xs" style={{ color: '#92400e' }}>
-                  Los productos marcados como <strong>Producto incorrecto</strong> deben ser retirados físicamente del pedido.
-                  Para confirmar el retiro, escanee el código de barras de cada producto en el campo correspondiente.
-                  {!allIncorrectConfirmed && (
-                    <span className="block mt-1 font-semibold">
-                      ⚠ Debe confirmar todos los retiros antes de continuar.
-                    </span>
-                  )}
-                </p>
-              </div>
+              <span className="material-symbols-outlined flex-shrink-0 mt-0.5" style={{ color: '#d97706', fontSize: 18 }}>info</span>
+              <p className="text-xs" style={{ color: '#92400e' }}>
+                Los productos <strong>incorrectos</strong> deben retirarse físicamente y escanearse aquí para confirmar.
+                Los <strong>sobrantes</strong> requieren re-escaneo y autorización.
+                Los <strong>faltantes</strong> pueden autorizarse o retirarse del conteo.
+              </p>
             </div>
           )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 13, fontFamily: 'Roboto, sans-serif' }}>
-              <thead>
-                <tr style={{ background: '#f9fafb' }}>
-                  {['No. Producto', 'Descripción', 'Requerido', 'Conteo', 'Diferencia', 'Tipo', 'Acción requerida'].map(h => (
-                    <th key={h} className="text-left px-3 py-2"
-                      style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #d1d5db' }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {discrepancies.map(d => {
-                  const diffStr = d.req === 0 ? `+${d.conteo}` : d.diff > 0 ? `+${d.diff}` : `${d.diff}`;
-                  const diffColor = d.diff > 0 ? '#16a34a' : '#dc2626';
-                  const isIncorrect = d.tipo === 'Producto incorrecto';
-                  const isRemovedConfirmed = confirmedRemoval[d.code];
-                  const isCountConfirmed = confirmedCount[d.code];
+          <div className="flex flex-col gap-3">
+            {discrepancies.map((d, idx) => {
+              const row = rows[d.code];
+              const diffStr = d.req === 0 ? `+${d.conteo}` : d.diff > 0 ? `+${d.diff}` : `${d.diff}`;
+              const diffColor = d.diff > 0 ? '#16a34a' : '#dc2626';
 
-                  return (
-                    <tr key={d.code}
-                      style={{ background: isRemovedConfirmed ? '#f0fdf4' : isIncorrect ? '#fffbeb' : 'transparent' }}>
-                      <td className="px-3 py-3" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: isIncorrect ? '#d97706' : '#111827' }}>
-                        {d.code}
-                      </td>
-                      <td className="px-3 py-3" style={{ borderBottom: '1px solid #f0f0f0', color: isIncorrect ? '#d97706' : '#374151' }}>
-                        {d.name}
-                      </td>
-                      <td className="px-3 py-3 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: '#374151' }}>
-                        {d.req === 0 ? '—' : d.req}
-                      </td>
-                      <td className="px-3 py-3 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: '#374151' }}>
-                        {d.conteo}
-                      </td>
-                      <td className="px-3 py-3 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: isIncorrect ? '#d97706' : diffColor }}>
-                        {diffStr}
-                      </td>
-                      <td className="px-3 py-3" style={{ borderBottom: '1px solid #f0f0f0' }}>
-                        <span className="text-xs font-semibold" style={{ color: TIPO_COLOR[d.tipo] }}>{d.tipo}</span>
-                      </td>
+              return (
+                <div key={d.code}
+                  className="rounded-lg border overflow-hidden"
+                  style={{
+                    border: row.resolved ? '1.5px solid #86efac' : d.tipo === 'Producto incorrecto' ? '1.5px solid #fbbf24' : '1.5px solid #e5e7eb',
+                    background: row.resolved ? '#f0fdf4' : d.tipo === 'Producto incorrecto' ? '#fffbeb' : 'white',
+                    transition: 'all 0.3s',
+                  }}>
 
-                      {/* Action column */}
-                      <td className="px-3 py-3" style={{ borderBottom: '1px solid #f0f0f0', minWidth: 260 }}>
-                        {isIncorrect ? (
-                          isRemovedConfirmed ? (
-                            /* Confirmed removal */
-                            <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: '#16a34a' }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
-                              Retiro confirmado — separar del pedido
-                            </div>
-                          ) : (
-                            /* Needs rescan to confirm removal */
-                            <div className="flex flex-col gap-2">
-                              <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: '#92400e' }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#d97706' }}>qr_code_scanner</span>
-                                Escanee para confirmar retiro:
-                              </div>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={rescanValues[d.code] || ''}
-                                  onChange={e => setRescanValues(prev => ({ ...prev, [d.code]: e.target.value }))}
-                                  onKeyDown={e => handleRescanRemoval(d.code, e)}
-                                  placeholder={`Escanear ${d.code}...`}
-                                  className="flex-1 px-2 py-1.5 rounded border text-xs outline-none"
-                                  style={{ border: '1.5px solid #fbbf24', fontFamily: 'Roboto, sans-serif', background: '#fffbeb' }}
-                                  autoFocus={discrepancies.indexOf(d) === 0}
-                                />
-                              </div>
-                              <p className="text-xs" style={{ color: '#9ca3af' }}>
-                                Retire el producto físicamente y escanéelo para confirmar.
-                              </p>
-                            </div>
-                          )
-                        ) : (
-                          /* Normal discrepancy: optional recount confirmation */
-                          isCountConfirmed ? (
-                            <div className="flex items-center gap-1 text-xs font-semibold" style={{ color: '#16a34a' }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
-                              Conteo re-confirmado
-                            </div>
-                          ) : (
-                            <div className="flex gap-2">
+                  {/* Row header */}
+                  <div className="flex items-center gap-4 px-4 py-3" style={{ borderBottom: row.resolved ? '1px solid #bbf7d0' : '1px solid #f0f0f0' }}>
+                    <div className="flex-1 flex items-center gap-3 flex-wrap">
+                      <span className="font-bold text-sm" style={{ color: '#111827', minWidth: 70 }}>{d.code}</span>
+                      <span className="text-sm" style={{ color: '#374151' }}>{d.name}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm flex-shrink-0">
+                      <div className="text-center">
+                        <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Requerido</div>
+                        <div className="font-bold" style={{ color: '#374151' }}>{d.req === 0 ? '—' : d.req}</div>
+                      </div>
+                      <div className="text-center">
+                        <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Conteo</div>
+                        <div className="font-bold" style={{ color: '#374151' }}>{d.conteo}</div>
+                      </div>
+                      <div className="text-center">
+                        <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Diferencia</div>
+                        <div className="font-bold" style={{ color: d.tipo === 'Producto incorrecto' ? '#d97706' : diffColor }}>{diffStr}</div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                        style={{ background: d.tipo === 'Producto incorrecto' ? '#fef3c7' : d.tipo === 'Sobrante' ? '#dcfce7' : '#fee2e2', color: TIPO_COLOR[d.tipo] }}>
+                        {d.tipo}
+                      </span>
+                      {row.resolved && (
+                        <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: '#16a34a' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
+                          Resuelto
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row action area */}
+                  {!row.resolved && (
+                    <div className="px-4 py-3">
+
+                      {/* ── SOBRANTE ── */}
+                      {d.tipo === 'Sobrante' && (
+                        <div className="flex flex-wrap items-end gap-4">
+                          {!row.rescanConfirmed ? (
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-medium" style={{ color: '#374151' }}>
+                                1. Escanee la pieza sobrante para confirmar:
+                              </label>
                               <input
+                                ref={idx === 0 ? firstRescanRef : undefined}
                                 type="text"
-                                value={countRescan[d.code] || ''}
-                                onChange={e => setCountRescan(prev => ({ ...prev, [d.code]: e.target.value }))}
-                                onKeyDown={e => handleRescanCount(d.code, e)}
-                                placeholder="Re-escanear (opcional)..."
-                                className="flex-1 px-2 py-1.5 rounded border text-xs outline-none"
-                                style={{ border: '1.5px solid #d1d5db', fontFamily: 'Roboto, sans-serif' }}
+                                value={row.rescanValue}
+                                onChange={e => update(d.code, { rescanValue: e.target.value })}
+                                onKeyDown={e => handleSobranteRescan(d, e)}
+                                placeholder={`Escanear ${d.code}...`}
+                                className="px-3 py-2 rounded-lg border text-sm outline-none"
+                                style={{ border: '1.5px solid #2563eb', width: 220, fontFamily: 'Roboto, sans-serif' }}
                               />
                             </div>
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2 text-xs font-medium" style={{ color: '#16a34a' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>
+                                Pieza sobrante confirmada
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium" style={{ color: '#374151' }}>2. Motivo de autorización:</label>
+                                <select
+                                  value={row.motivo}
+                                  onChange={e => update(d.code, { motivo: e.target.value })}
+                                  className="px-2 py-2 rounded-lg border text-sm outline-none"
+                                  style={{ border: '1.5px solid #d1d5db', fontFamily: 'Roboto, sans-serif', minWidth: 200 }}>
+                                  <option value="">Seleccionar motivo...</option>
+                                  {MOTIVOS.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                              </div>
+                              <button
+                                onClick={() => handleSobranteAuthorize(d)}
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
+                                style={{ background: row.motivo ? '#1a2b6b' : '#9ca3af', cursor: row.motivo ? 'pointer' : 'not-allowed', fontFamily: 'Roboto, sans-serif' }}
+                                onMouseEnter={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
+                                onMouseLeave={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#1a2b6b'; }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>verified</span>
+                                Autorizar sobrante
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── FALTANTE ── */}
+                      {d.tipo === 'Faltante' && (
+                        <div className="flex flex-wrap items-end gap-4">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium" style={{ color: '#374151' }}>Motivo de autorización:</label>
+                            <select
+                              value={row.motivo}
+                              onChange={e => update(d.code, { motivo: e.target.value })}
+                              className="px-2 py-2 rounded-lg border text-sm outline-none"
+                              style={{ border: '1.5px solid #d1d5db', fontFamily: 'Roboto, sans-serif', minWidth: 200 }}>
+                              <option value="">Seleccionar motivo...</option>
+                              {MOTIVOS.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <button
+                            onClick={() => handleFaltanteAuthorize(d)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
+                            style={{ background: row.motivo ? '#1a2b6b' : '#9ca3af', cursor: row.motivo ? 'pointer' : 'not-allowed', fontFamily: 'Roboto, sans-serif' }}
+                            onMouseEnter={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
+                            onMouseLeave={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#1a2b6b'; }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>verified</span>
+                            Autorizar faltante
+                          </button>
+                          <div className="flex items-center gap-2 text-xs" style={{ color: '#6b7280' }}>
+                            <span>— o —</span>
+                          </div>
+                          <button
+                            onClick={() => handleFaltanteRemove(d)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all"
+                            style={{ border: '1.5px solid #dc2626', color: '#dc2626', background: 'white', fontFamily: 'Roboto, sans-serif' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fef2f2'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'white'; }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>remove_circle</span>
+                            Retirar pieza del conteo
+                          </button>
+                        </div>
+                      )}
+
+                      {/* ── PRODUCTO INCORRECTO ── */}
+                      {d.tipo === 'Producto incorrecto' && (
+                        <div className="flex flex-wrap items-end gap-4">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium" style={{ color: '#92400e' }}>
+                              Retire el producto físicamente y escanéelo aquí para confirmar:
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                ref={idx === 0 ? firstRescanRef : undefined}
+                                type="text"
+                                value={row.rescanValue}
+                                onChange={e => update(d.code, { rescanValue: e.target.value })}
+                                onKeyDown={e => handleIncorrectoRescan(d, e)}
+                                placeholder={`Escanear ${d.code} para confirmar retiro...`}
+                                className="px-3 py-2 rounded-lg border text-sm outline-none"
+                                style={{ border: '1.5px solid #fbbf24', background: '#fffbeb', width: 300, fontFamily: 'Roboto, sans-serif' }}
+                              />
+                            </div>
+                            <p className="text-xs" style={{ color: '#9ca3af' }}>
+                              Presione Enter después de escanear
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+
+                  {/* Resolved summary */}
+                  {row.resolved && (
+                    <div className="px-4 py-2 text-xs" style={{ color: '#16a34a' }}>
+                      {d.tipo === 'Producto incorrecto' && '✓ Producto retirado físicamente y confirmado por escaneo.'}
+                      {d.tipo === 'Sobrante' && row.authorized && `✓ Sobrante autorizado — Motivo: ${row.motivo}`}
+                      {d.tipo === 'Faltante' && row.authorized && `✓ Faltante autorizado — Motivo: ${row.motivo}`}
+                      {d.tipo === 'Faltante' && row.removedPiece && '✓ Pieza retirada del conteo — diferencia eliminada.'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4" style={{ borderTop: '1px solid #e5e7eb' }}>
           <div>
-            {!canProceed && incorrectRows.length > 0 && (
+            {!allResolved && (
               <p className="text-xs" style={{ color: '#d97706' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: 'middle' }}>warning</span>
-                {' '}Confirme el retiro de todos los productos incorrectos para continuar.
+                {' '}Resuelva todas las diferencias para continuar ({discrepancies.length - confirmedCount} pendientes).
               </p>
             )}
           </div>
@@ -229,15 +365,15 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
               Regresar a revisión
             </button>
             <button
-              onClick={canProceed ? onConfirm : () => showToast('Confirme el retiro de productos incorrectos primero.', 'warning')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
+              onClick={allResolved ? onConfirm : () => showToast('Resuelva todas las diferencias primero.', 'warning')}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium text-white transition-all"
               style={{
-                background: canProceed ? '#1a2b6b' : '#9ca3af',
-                cursor: canProceed ? 'pointer' : 'not-allowed',
+                background: allResolved ? '#16a34a' : '#9ca3af',
+                cursor: allResolved ? 'pointer' : 'not-allowed',
                 fontFamily: 'Roboto, sans-serif',
               }}
-              onMouseEnter={e => { if (canProceed) (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
-              onMouseLeave={e => { if (canProceed) (e.currentTarget as HTMLButtonElement).style.background = '#1a2b6b'; }}>
+              onMouseEnter={e => { if (allResolved) (e.currentTarget as HTMLButtonElement).style.background = '#15803d'; }}
+              onMouseLeave={e => { if (allResolved) (e.currentTarget as HTMLButtonElement).style.background = '#16a34a'; }}>
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
               Confirmar y continuar
             </button>
@@ -247,5 +383,3 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
     </div>
   );
 }
-
-export type { Discrepancy };

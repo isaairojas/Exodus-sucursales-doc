@@ -1,9 +1,12 @@
 // ============================================================
 // APYMSA — Screen 3: Blind Review (Main scanning screen)
 // Design: Enterprise Precision — asymmetric split panel
-// Includes: auto-scan simulation, unknown product alert
+// Interaction:
+//   - Click product row → simulates scanning that product
+//   - Click scanner input → fires one unknown product scan (XX-999)
+//   - Manual typing + Enter still works
 // ============================================================
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { ORDERS_DB, PRODUCT_CATALOG } from '@/lib/data';
 import ModalAuthorize from './ModalAuthorize';
@@ -13,22 +16,7 @@ interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
 }
 
-// Simulation sequence: products in order + 1 unknown product at the end
-// Each call to simulateScan() fires the next code in the queue
-const buildSimQueue = (orderId: string): string[] => {
-  const order = ORDERS_DB[orderId];
-  if (!order) return [];
-  const queue: string[] = [];
-  order.partidas.forEach(p => {
-    // Scan each product qty-1 times (intentionally one short to trigger discrepancy)
-    for (let i = 0; i < Math.max(1, p.qty - 1); i++) {
-      queue.push(p.code);
-    }
-  });
-  // Add one unknown product at the end
-  queue.push('XX-999');
-  return queue;
-};
+const UNKNOWN_CODE = 'XX-999';
 
 export default function ScreenReview({ showToast }: Props) {
   const { state, processScan, goToScreen, finalizeReview } = useApp();
@@ -36,62 +24,43 @@ export default function ScreenReview({ showToast }: Props) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showDiscModal, setShowDiscModal] = useState(false);
   const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>([]);
-  const [lastBump, setLastBump] = useState(false);
-  const [simQueue, setSimQueue] = useState<string[]>([]);
-  const [simIndex, setSimIndex] = useState(0);
-  const [isSimRunning, setIsSimRunning] = useState(false);
+  const [lastBump, setLastBump] = useState<string | null>(null);
+  const [unknownFired, setUnknownFired] = useState(false);
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   const order = state.selectedOrderId ? ORDERS_DB[state.selectedOrderId] : null;
 
-  // Build sim queue when order loads
-  useEffect(() => {
-    if (state.selectedOrderId) {
-      setSimQueue(buildSimQueue(state.selectedOrderId));
-      setSimIndex(0);
-    }
-  }, [state.selectedOrderId]);
-
-  // Keep scanner focused when modals are closed
   const refocusScanner = useCallback(() => {
     setTimeout(() => scanInputRef.current?.focus(), 80);
   }, []);
 
-  useEffect(() => {
-    if (!showAuthModal && !showDiscModal) refocusScanner();
-  }, [showAuthModal, showDiscModal, refocusScanner]);
-
+  // Core scan dispatcher
   const fireScan = useCallback((code: string) => {
     const isInOrder = order?.partidas.some(p => p.code === code);
     if (!isInOrder) {
       showToast(`Producto ${code} no pertenece al pedido — separar físicamente`, 'warning');
     }
     processScan(code);
-    setLastBump(true);
-    setTimeout(() => setLastBump(false), 300);
+    setLastBump(code);
+    setTimeout(() => setLastBump(null), 400);
   }, [order, processScan, showToast]);
 
-  // Auto-run simulation: fire one scan every 1.1s while running
-  useEffect(() => {
-    if (!isSimRunning) return;
-    if (simIndex >= simQueue.length) {
-      setIsSimRunning(false);
-      showToast('Simulación completada. Revise el conteo.', 'info');
-      return;
-    }
-    const t = setTimeout(() => {
-      fireScan(simQueue[simIndex]);
-      setSimIndex(i => i + 1);
-    }, 1100);
-    return () => clearTimeout(t);
-  }, [isSimRunning, simIndex, simQueue, fireScan, showToast]);
-
-  const handleStartSim = () => {
-    if (isSimRunning) return;
-    setIsSimRunning(true);
-    showToast('Iniciando simulación de escaneo...', 'info');
+  // Click on a product row → scan it once
+  const handleRowClick = (code: string) => {
+    fireScan(code);
+    refocusScanner();
   };
 
+  // Click on the scanner input → fire unknown product (only once per session to keep it realistic)
+  const handleInputClick = () => {
+    if (!unknownFired) {
+      setUnknownFired(true);
+      fireScan(UNKNOWN_CODE);
+      showToast(`Producto desconocido ${UNKNOWN_CODE} detectado`, 'warning');
+    }
+  };
+
+  // Manual scan via keyboard
   const handleManualScan = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const code = scanValue.trim().toUpperCase();
@@ -155,9 +124,6 @@ export default function ScreenReview({ showToast }: Props) {
     if (item.conteo > 0) { totalPartidas++; totalUnidades += item.conteo; }
   });
 
-  const simDone = simIndex >= simQueue.length;
-  const simProgress = simQueue.length > 0 ? Math.round((simIndex / simQueue.length) * 100) : 0;
-
   return (
     <>
       <div className="flex-1 flex flex-col overflow-hidden" style={{ animation: 'screenFadeIn 0.3s ease' }}>
@@ -214,7 +180,8 @@ export default function ScreenReview({ showToast }: Props) {
                   value={scanValue}
                   onChange={e => setScanValue(e.target.value)}
                   onKeyDown={handleManualScan}
-                  placeholder="Escanear producto..."
+                  onClick={handleInputClick}
+                  placeholder="Clic aquí o escanear producto..."
                   autoFocus
                   autoComplete="off"
                   className="w-full pl-10 pr-4 py-3 rounded-lg text-sm outline-none"
@@ -222,53 +189,15 @@ export default function ScreenReview({ showToast }: Props) {
                     border: '2px solid #2563eb',
                     fontFamily: 'Roboto, sans-serif',
                     animation: 'scannerPulse 2s ease-in-out infinite',
+                    cursor: 'pointer',
                   }}
                   onFocus={e => { e.target.style.animation = 'none'; e.target.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.18)'; }}
                   onBlur={e => { e.target.style.animation = 'scannerPulse 2s ease-in-out infinite'; e.target.style.boxShadow = ''; }}
                 />
               </div>
-              <p className="text-xs" style={{ color: '#9ca3af' }}>Presione Enter o escanee para registrar</p>
-            </div>
-
-            {/* Simulation control */}
-            <div className="rounded-lg p-4 flex flex-col gap-3"
-              style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe' }}>
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#2563eb' }}>play_circle</span>
-                <span className="text-sm font-bold" style={{ color: '#1a2b6b' }}>Simulación de escaneo</span>
-              </div>
-              <p className="text-xs" style={{ color: '#374151' }}>
-                Simula el escaneo automático de los productos del pedido (incluye un producto ajeno al final).
+              <p className="text-xs" style={{ color: '#9ca3af' }}>
+                Clic en el campo para simular producto no reconocido · Clic en fila para escanear
               </p>
-
-              {/* Progress bar */}
-              {simIndex > 0 && (
-                <div>
-                  <div className="flex justify-between text-xs mb-1" style={{ color: '#6b7280' }}>
-                    <span>Progreso</span>
-                    <span>{simIndex}/{simQueue.length}</span>
-                  </div>
-                  <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: '#dbeafe' }}>
-                    <div className="h-full rounded-full transition-all duration-300"
-                      style={{ width: `${simProgress}%`, background: simDone ? '#16a34a' : '#2563eb' }} />
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={handleStartSim}
-                disabled={isSimRunning || simDone}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-all"
-                style={{
-                  background: isSimRunning ? '#93c5fd' : simDone ? '#d1d5db' : '#2563eb',
-                  cursor: isSimRunning || simDone ? 'not-allowed' : 'pointer',
-                  fontFamily: 'Roboto, sans-serif',
-                }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                  {isSimRunning ? 'hourglass_empty' : simDone ? 'check_circle' : 'play_arrow'}
-                </span>
-                {isSimRunning ? 'Escaneando...' : simDone ? 'Simulación completada' : 'Iniciar simulación'}
-              </button>
             </div>
 
             {/* Stats */}
@@ -299,7 +228,7 @@ export default function ScreenReview({ showToast }: Props) {
                 <div className="text-xs font-medium uppercase tracking-wide mb-1" style={{ color: '#6b7280' }}>
                   {lastCode || '—'}
                 </div>
-                <div className="font-bold mb-3 leading-tight" style={{ fontSize: 16, color: '#1a2b6b', fontFamily: 'Roboto, sans-serif' }}>
+                <div className="font-bold mb-2 leading-tight" style={{ fontSize: 16, color: '#1a2b6b', fontFamily: 'Roboto, sans-serif' }}>
                   {lastProduct ? lastProduct.name : lastCode ? 'Producto no identificado' : 'Esperando escaneo...'}
                 </div>
                 {lastCode && !lastProduct && (
@@ -318,14 +247,14 @@ export default function ScreenReview({ showToast }: Props) {
                     fontSize: 52,
                     color: lastCode && !lastProduct ? '#d97706' : '#1a2b6b',
                     fontFamily: 'Roboto, sans-serif',
-                    animation: lastBump ? 'countBump 0.3s ease' : 'none',
+                    animation: lastBump === lastCode ? 'countBump 0.3s ease' : 'none',
                   }}>
                   {lastItem ? lastItem.conteo : 0}
                 </div>
               </div>
             </div>
 
-            {/* Scanned table */}
+            {/* Scanned table — clickable rows */}
             <div className="bg-white rounded-lg overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.10)' }}>
               <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid #e5e7eb' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#2563eb' }}>table_rows</span>
@@ -333,7 +262,7 @@ export default function ScreenReview({ showToast }: Props) {
                   Registro de conteo — Modo Ciego
                 </span>
                 <span className="ml-auto text-xs" style={{ color: '#9ca3af' }}>
-                  La cantidad requerida se revela al finalizar
+                  Haz clic en una fila para escanear ese producto
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -352,9 +281,19 @@ export default function ScreenReview({ showToast }: Props) {
                     {order.partidas.map(p => {
                       const item = state.scannedItems[p.code];
                       const isLast = state.lastScannedCode === p.code;
+                      const isBumping = lastBump === p.code;
                       return (
-                        <tr key={p.code}
-                          style={{ background: isLast && item.conteo > 0 ? '#fffbeb' : 'transparent', transition: 'background 0.3s' }}>
+                        <tr
+                          key={p.code}
+                          onClick={() => handleRowClick(p.code)}
+                          title="Clic para simular escaneo"
+                          style={{
+                            background: isLast && item.conteo > 0 ? '#fffbeb' : 'transparent',
+                            transition: 'background 0.3s',
+                            cursor: 'pointer',
+                          }}
+                          onMouseEnter={e => { if (!isLast) (e.currentTarget as HTMLTableRowElement).style.background = '#eff6ff'; }}
+                          onMouseLeave={e => { if (!isLast) (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}>
                           <td className="px-3 py-2.5 text-center italic"
                             style={{ borderBottom: '1px solid #f0f0f0', color: '#9ca3af', borderLeft: isLast && item.conteo > 0 ? '3px solid #fbbf24' : '3px solid transparent' }}>
                             —
@@ -365,7 +304,7 @@ export default function ScreenReview({ showToast }: Props) {
                               style={{
                                 minWidth: 28, height: 28, padding: '0 8px',
                                 background: isLast ? '#2563eb' : item.conteo > 0 ? '#1a2b6b' : '#d1d5db',
-                                animation: isLast ? 'badgePop 0.3s ease' : 'none',
+                                animation: isBumping ? 'badgePop 0.3s ease' : 'none',
                                 transition: 'background 0.3s',
                               }}>
                               {item.conteo}
@@ -399,15 +338,17 @@ export default function ScreenReview({ showToast }: Props) {
                         {state.unknownProducts.map(code => {
                           const item = state.scannedItems[code];
                           const isLast = state.lastScannedCode === code;
+                          const isBumping = lastBump === code;
                           return (
-                            <tr key={code} style={{ background: '#fff7ed' }}>
+                            <tr key={code}
+                              style={{ background: '#fff7ed', cursor: 'default' }}>
                               <td className="px-3 py-2.5 text-center italic"
                                 style={{ borderBottom: '1px solid #fde68a', color: '#9ca3af', borderLeft: '3px solid #fbbf24' }}>
                                 —
                               </td>
                               <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #fde68a' }}>
                                 <span className="inline-flex items-center justify-center rounded-full text-white font-bold text-sm"
-                                  style={{ minWidth: 28, height: 28, padding: '0 8px', background: '#d97706', animation: isLast ? 'badgePop 0.3s ease' : 'none' }}>
+                                  style={{ minWidth: 28, height: 28, padding: '0 8px', background: '#d97706', animation: isBumping ? 'badgePop 0.3s ease' : 'none' }}>
                                   {item.conteo}
                                 </span>
                               </td>
