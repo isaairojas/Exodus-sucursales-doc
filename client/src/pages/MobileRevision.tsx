@@ -1,7 +1,15 @@
 /**
  * MobileRevision — Pantalla de revisión ciega (versión móvil)
- * Lógica idéntica al escritorio: clic en fila = escaneo, clic en input = producto desconocido XX-999
- * Diseño: fondo oscuro navy, tarjetas con estado visual, botones táctiles grandes
+ *
+ * Diseño compacto para pantallas reales de celular (375×667+):
+ *  - Header: 52px fijo
+ *  - Barra de progreso: 3px
+ *  - Zona de último escaneado: 56px fijo (compacta, sin ícono grande)
+ *  - Lista de partidas: flex-1 con overflow-y-auto → ocupa todo el espacio restante
+ *  - Barra inferior: 72px fijo (botones grandes táctiles)
+ *
+ * Interacción: toca una fila → suma 1 al conteo de esa partida (simula escaneo).
+ * El input oculto permite escáner físico Bluetooth/USB.
  */
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
@@ -14,12 +22,11 @@ const UNKNOWN_CODE = "XX-999";
 
 export default function MobileRevision() {
   const [, navigate] = useLocation();
-  const { state, processScan, goToScreen, finalizeReview } = useApp();
+  const { state, processScan, finalizeReview } = useApp();
   const [scanValue, setScanValue] = useState("");
   const [showDiscModal, setShowDiscModal] = useState(false);
   const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>([]);
   const [lastBump, setLastBump] = useState<string | null>(null);
-  const [unknownFired, setUnknownFired] = useState(false);
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   const order = state.selectedOrderId ? ORDERS_DB[state.selectedOrderId] : null;
@@ -32,7 +39,7 @@ export default function MobileRevision() {
     (code: string) => {
       processScan(code);
       setLastBump(code);
-      setTimeout(() => setLastBump(null), 400);
+      setTimeout(() => setLastBump(null), 350);
     },
     [processScan]
   );
@@ -40,13 +47,6 @@ export default function MobileRevision() {
   const handleRowClick = (code: string) => {
     fireScan(code);
     refocusScanner();
-  };
-
-  const handleInputClick = () => {
-    if (!unknownFired) {
-      setUnknownFired(true);
-      fireScan(UNKNOWN_CODE);
-    }
   };
 
   const handleManualScan = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -64,13 +64,13 @@ export default function MobileRevision() {
     const discs: Discrepancy[] = [];
     order.partidas.forEach((p) => {
       const item = state.scannedItems[p.code];
-      const diff = item.conteo - p.qty;
-      if (diff !== 0 && !item.authorized) {
+      const diff = (item?.conteo ?? 0) - p.qty;
+      if (diff !== 0 && !item?.authorized) {
         discs.push({
           code: p.code,
           name: PRODUCT_CATALOG[p.code]?.name || p.code,
           req: p.qty,
-          conteo: item.conteo,
+          conteo: item?.conteo ?? 0,
           diff,
           tipo: diff > 0 ? "Sobrante" : "Faltante",
         });
@@ -78,13 +78,13 @@ export default function MobileRevision() {
     });
     state.unknownProducts.forEach((code) => {
       const item = state.scannedItems[code];
-      if (!item.authorized) {
+      if (!item?.authorized) {
         discs.push({
           code,
           name: PRODUCT_CATALOG[code]?.name || "Producto no identificado",
           req: 0,
-          conteo: item.conteo,
-          diff: item.conteo,
+          conteo: item?.conteo ?? 0,
+          diff: item?.conteo ?? 0,
           tipo: "Producto incorrecto",
         });
       }
@@ -107,11 +107,11 @@ export default function MobileRevision() {
   if (!order) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "#1a1f3e" }}>
-        <div className="text-center">
-          <p className="text-white mb-4">No hay pedido seleccionado</p>
+        <div className="text-center px-6">
+          <p className="text-white mb-4 text-sm">No hay pedido seleccionado</p>
           <button
             onClick={() => navigate("/mobile/revision")}
-            className="px-6 py-3 rounded-xl text-white font-bold"
+            className="px-6 py-3 rounded-xl text-white font-bold text-sm"
             style={{ background: "#1a2b6b" }}
           >
             Volver a selección
@@ -125,7 +125,6 @@ export default function MobileRevision() {
   const lastProduct = lastCode ? PRODUCT_CATALOG[lastCode] : null;
   const lastItem = lastCode ? state.scannedItems[lastCode] : null;
 
-  // Compute progress
   let completedPartidas = 0;
   order.partidas.forEach((p) => {
     const item = state.scannedItems[p.code];
@@ -134,147 +133,171 @@ export default function MobileRevision() {
   const totalPartidas = order.partidas.length;
   const progressPct = totalPartidas > 0 ? Math.round((completedPartidas / totalPartidas) * 100) : 0;
 
+  if (showDiscModal) {
+    return (
+      <MobileDiscrepancy
+        discrepancies={discrepancies}
+        onConfirm={handleConfirmDisc}
+        onBack={() => setShowDiscModal(false)}
+      />
+    );
+  }
+
   return (
-    <>
+    <div
+      className="flex flex-col"
+      style={{
+        background: "#1a1f3e",
+        fontFamily: "'Roboto', sans-serif",
+        height: "100dvh",          // usa dvh para respetar barra de navegación del browser
+        maxHeight: "100dvh",
+        overflow: "hidden",
+      }}
+    >
+      {/* ── HEADER (52px) ── */}
       <div
-        className="min-h-screen flex flex-col"
-        style={{ background: "#1a1f3e", fontFamily: "'Roboto', sans-serif" }}
+        className="flex items-center gap-2 px-3 flex-shrink-0"
+        style={{
+          height: 52,
+          background: "linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)",
+        }}
       >
-        {/* Header */}
-        <div
-          className="flex items-center gap-3 px-4 py-4"
-          style={{ background: "linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)" }}
+        <button
+          onClick={() => navigate("/mobile/revision")}
+          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ background: "rgba(255,255,255,0.12)" }}
         >
-          <button
-            onClick={() => navigate("/mobile/revision")}
-            className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.1)" }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} className="w-5 h-5">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <div className="flex-1">
-            <div className="text-xs text-blue-300 uppercase tracking-widest">Revisión ciega</div>
-            <h1 className="text-white font-bold text-lg leading-tight">Pedido #{order.id}</h1>
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} className="w-4 h-4">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="text-white font-bold text-sm leading-tight truncate">
+            Pedido #{order.id}
           </div>
-          <div className="text-right">
-            <div className="text-xs text-blue-300">Progreso</div>
-            <div className="text-white font-bold text-sm">{completedPartidas}/{totalPartidas}</div>
-          </div>
+          <div className="text-blue-300 text-xs truncate">{order.cliente}</div>
         </div>
-
-        {/* Progress bar */}
-        <div className="h-1.5" style={{ background: "rgba(255,255,255,0.1)" }}>
-          <div
-            className="h-full transition-all duration-500"
-            style={{
-              width: `${progressPct}%`,
-              background: progressPct === 100
-                ? "linear-gradient(90deg, #16a34a, #22c55e)"
-                : "linear-gradient(90deg, #1e4fc2, #06b6d4)",
-            }}
-          />
+        {/* Progress badge */}
+        <div
+          className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-bold"
+          style={{
+            background: progressPct === 100 ? "rgba(22,163,74,0.25)" : "rgba(255,255,255,0.1)",
+            color: progressPct === 100 ? "#4ade80" : "white",
+          }}
+        >
+          {completedPartidas}/{totalPartidas}
         </div>
+      </div>
 
-        {/* Scanner input (hidden but focusable) */}
-        <input
-          ref={scanInputRef}
-          type="text"
-          value={scanValue}
-          onChange={(e) => setScanValue(e.target.value)}
-          onKeyDown={handleManualScan}
-          onClick={handleInputClick}
-          className="opacity-0 absolute w-0 h-0"
-          style={{ position: "absolute", left: -9999 }}
-          autoFocus
+      {/* ── PROGRESS BAR (3px) ── */}
+      <div className="flex-shrink-0" style={{ height: 3, background: "rgba(255,255,255,0.08)" }}>
+        <div
+          className="h-full transition-all duration-500"
+          style={{
+            width: `${progressPct}%`,
+            background: progressPct === 100
+              ? "linear-gradient(90deg,#16a34a,#22c55e)"
+              : "linear-gradient(90deg,#1e4fc2,#06b6d4)",
+          }}
         />
+      </div>
 
-        {/* Last scanned product card */}
-        <div className="px-4 pt-3 pb-2">
-          <div
-            className="rounded-2xl px-4 py-3 flex items-center gap-3 transition-all duration-300"
-            style={{
-              background: lastCode
-                ? lastItem && !lastItem.fromOrder
-                  ? "rgba(217,119,6,0.15)"
-                  : "rgba(22,163,74,0.15)"
-                : "rgba(255,255,255,0.04)",
-              border: lastCode
-                ? lastItem && !lastItem.fromOrder
-                  ? "1px solid rgba(217,119,6,0.4)"
-                  : "1px solid rgba(22,163,74,0.4)"
-                : "1px solid rgba(255,255,255,0.08)",
-            }}
-          >
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{
-                background: lastCode
-                  ? lastItem && !lastItem.fromOrder
-                    ? "rgba(217,119,6,0.3)"
-                    : "rgba(22,163,74,0.3)"
-                  : "rgba(255,255,255,0.08)",
-              }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke={lastCode ? (lastItem && !lastItem.fromOrder ? "#f59e0b" : "#4ade80") : "rgba(255,255,255,0.3)"} strokeWidth={2} className="w-5 h-5">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
-              </svg>
-            </div>
-            <div className="flex-1 min-w-0">
-              {lastCode ? (
-                <>
-                  <div className="font-bold text-sm" style={{ color: lastItem && !lastItem.fromOrder ? "#f59e0b" : "#4ade80" }}>
-                    {lastCode}
-                  </div>
-                  <div className="text-xs text-gray-300 truncate">
-                    {lastProduct?.name || "Producto no identificado"}
-                  </div>
-                </>
-              ) : (
-                <div className="text-gray-500 text-sm">Toca una fila para escanear</div>
-              )}
-            </div>
-            {lastCode && lastItem && (
-              <div
-                className="text-lg font-black flex-shrink-0"
-                style={{
-                  color: lastItem && !lastItem.fromOrder ? "#f59e0b" : "#4ade80",
-                  animation: lastBump === lastCode ? "badgePop 0.3s ease" : "none",
-                }}
-              >
-                ×{lastItem.conteo}
-              </div>
-            )}
-          </div>
+      {/* ── LAST SCANNED STRIP (48px) ── */}
+      <div
+        className="flex items-center gap-2 px-3 flex-shrink-0"
+        style={{
+          height: 48,
+          background: lastCode
+            ? lastItem && !lastItem.fromOrder
+              ? "rgba(217,119,6,0.18)"
+              : "rgba(22,163,74,0.14)"
+            : "rgba(255,255,255,0.03)",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          transition: "background 0.3s",
+        }}
+      >
+        {/* Scanner icon */}
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{
+            background: lastCode
+              ? lastItem && !lastItem.fromOrder ? "rgba(217,119,6,0.3)" : "rgba(22,163,74,0.3)"
+              : "rgba(255,255,255,0.07)",
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke={lastCode ? (lastItem && !lastItem.fromOrder ? "#f59e0b" : "#4ade80") : "rgba(255,255,255,0.25)"} strokeWidth={2} className="w-3.5 h-3.5">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18M9 3v18" />
+          </svg>
         </div>
 
-        {/* Tap to scan hint */}
-        <div className="px-4 pb-2">
-          <button
-            onClick={() => scanInputRef.current?.click()}
-            className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all active:scale-95"
+        {/* Last scanned info */}
+        <div className="flex-1 min-w-0">
+          {lastCode ? (
+            <div className="flex items-center gap-1.5">
+              <span
+                className="font-bold text-xs"
+                style={{ color: lastItem && !lastItem.fromOrder ? "#f59e0b" : "#4ade80" }}
+              >
+                {lastCode}
+              </span>
+              <span className="text-gray-400 text-xs truncate">
+                {lastProduct?.name || "Producto no identificado"}
+              </span>
+            </div>
+          ) : (
+            <span className="text-gray-500 text-xs">Toca una partida para registrar</span>
+          )}
+        </div>
+
+        {/* Count + scanner button */}
+        {lastCode && lastItem ? (
+          <div
+            className="flex-shrink-0 font-black text-base"
             style={{
-              background: "rgba(6,182,212,0.1)",
+              color: lastItem && !lastItem.fromOrder ? "#f59e0b" : "#4ade80",
+              animation: lastBump === lastCode ? "badgePop 0.3s ease" : "none",
+            }}
+          >
+            ×{lastItem.conteo}
+          </div>
+        ) : (
+          <button
+            onClick={() => scanInputRef.current?.focus()}
+            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1"
+            style={{
+              background: "rgba(6,182,212,0.12)",
               border: "1px dashed rgba(6,182,212,0.4)",
               color: "#06b6d4",
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3 h-3">
               <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2" />
-              <rect x="7" y="7" width="10" height="10" rx="1" />
             </svg>
-            Activar escáner
+            Escáner
           </button>
+        )}
+      </div>
+
+      {/* Hidden scanner input */}
+      <input
+        ref={scanInputRef}
+        type="text"
+        value={scanValue}
+        onChange={(e) => setScanValue(e.target.value)}
+        onKeyDown={handleManualScan}
+        style={{ position: "absolute", left: -9999, width: 0, height: 0, opacity: 0 }}
+        autoFocus
+      />
+
+      {/* ── PARTIDAS LIST (flex-1, scrollable) ── */}
+      <div className="flex-1 overflow-y-auto px-3 py-2" style={{ WebkitOverflowScrolling: "touch" }}>
+        {/* Section label */}
+        <div className="text-xs text-gray-500 uppercase tracking-widest mb-2 px-0.5">
+          Partidas — toca para escanear
         </div>
 
-        {/* Order partidas list */}
-        <div className="flex-1 px-4 pb-4 flex flex-col gap-2 overflow-y-auto">
-          <div className="text-xs text-gray-500 uppercase tracking-widest mb-1 px-1">
-            Partidas del pedido — toca para escanear
-          </div>
-
+        <div className="flex flex-col gap-1.5">
           {order.partidas.map((p) => {
             const item = state.scannedItems[p.code];
             const product = PRODUCT_CATALOG[p.code];
@@ -286,78 +309,73 @@ export default function MobileRevision() {
               <button
                 key={p.code}
                 onClick={() => handleRowClick(p.code)}
-                className="w-full text-left rounded-2xl px-4 py-3 flex items-center gap-3 transition-all active:scale-95"
+                className="w-full text-left rounded-xl px-3 py-2.5 flex items-center gap-3 transition-all active:scale-98"
                 style={{
                   background: isComplete
-                    ? "rgba(22,163,74,0.12)"
+                    ? "rgba(22,163,74,0.1)"
                     : "rgba(255,255,255,0.04)",
                   border: isComplete
-                    ? "1px solid rgba(22,163,74,0.35)"
-                    : "1px solid rgba(255,255,255,0.08)",
+                    ? "1px solid rgba(22,163,74,0.3)"
+                    : "1px solid rgba(255,255,255,0.07)",
                   transform: isBumping ? "scale(0.97)" : "scale(1)",
+                  transition: "transform 0.15s, background 0.2s",
                 }}
               >
                 {/* Count badge */}
                 <div
-                  className="w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 font-black text-lg"
+                  className="w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0 font-black text-base leading-none"
                   style={{
                     background: isComplete
-                      ? "rgba(22,163,74,0.25)"
+                      ? "rgba(22,163,74,0.2)"
                       : conteo > 0
-                      ? "rgba(30,79,194,0.3)"
-                      : "rgba(255,255,255,0.06)",
-                    color: isComplete ? "#4ade80" : conteo > 0 ? "#93c5fd" : "rgba(255,255,255,0.3)",
+                      ? "rgba(30,79,194,0.25)"
+                      : "rgba(255,255,255,0.05)",
+                    color: isComplete ? "#4ade80" : conteo > 0 ? "#93c5fd" : "rgba(255,255,255,0.25)",
                     animation: isBumping ? "badgePop 0.3s ease" : "none",
                   }}
                 >
-                  {conteo}
-                  <div className="text-xs font-normal opacity-60">/{p.qty}</div>
+                  <span>{conteo}</span>
+                  <span className="text-xs font-normal opacity-50">/{p.qty}</span>
                 </div>
 
                 {/* Product info */}
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm" style={{ color: isComplete ? "#4ade80" : "white" }}>
+                  <div
+                    className="font-bold text-sm leading-tight"
+                    style={{ color: isComplete ? "#4ade80" : "white" }}
+                  >
                     {p.code}
                   </div>
-                  <div className="text-xs text-gray-400 truncate">
+                  <div className="text-xs text-gray-400 truncate mt-0.5">
                     {product?.name || "Producto no identificado"}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: isComplete ? "#4ade80" : "rgba(255,255,255,0.3)" }}>
-                    Req: {p.qty} unidades
                   </div>
                 </div>
 
-                {/* Status icon */}
-                <div className="flex-shrink-0">
+                {/* Status */}
+                <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center"
+                  style={{
+                    background: isComplete ? "rgba(22,163,74,0.2)" : "rgba(255,255,255,0.05)",
+                  }}
+                >
                   {isComplete ? (
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center"
-                      style={{ background: "rgba(22,163,74,0.25)" }}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth={2.5} className="w-4 h-4">
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
-                    </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth={3} className="w-3 h-3">
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
                   ) : (
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center"
-                      style={{ background: "rgba(255,255,255,0.06)" }}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={2} className="w-4 h-4">
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                    </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={2.5} className="w-3 h-3">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
                   )}
                 </div>
               </button>
             );
           })}
 
-          {/* Unknown products section */}
+          {/* Unknown products */}
           {state.unknownProducts.length > 0 && (
             <>
-              <div className="text-xs text-amber-400 uppercase tracking-widest mt-2 mb-1 px-1">
-                Productos no pertenecientes al pedido
+              <div className="text-xs text-amber-400 uppercase tracking-widest mt-2 mb-1 px-0.5">
+                Productos ajenos al pedido
               </div>
               {state.unknownProducts.map((code) => {
                 const item = state.scannedItems[code];
@@ -365,15 +383,15 @@ export default function MobileRevision() {
                 return (
                   <div
                     key={code}
-                    className="rounded-2xl px-4 py-3 flex items-center gap-3"
+                    className="rounded-xl px-3 py-2.5 flex items-center gap-3"
                     style={{
-                      background: "rgba(217,119,6,0.1)",
-                      border: "1px solid rgba(217,119,6,0.3)",
+                      background: "rgba(217,119,6,0.08)",
+                      border: "1px solid rgba(217,119,6,0.25)",
                     }}
                   >
                     <div
-                      className="w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 font-black text-lg"
-                      style={{ background: "rgba(217,119,6,0.2)", color: "#f59e0b" }}
+                      className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-black text-base"
+                      style={{ background: "rgba(217,119,6,0.18)", color: "#f59e0b" }}
                     >
                       {item?.conteo ?? 0}
                     </div>
@@ -382,75 +400,62 @@ export default function MobileRevision() {
                       <div className="text-xs text-gray-400 truncate">
                         {product?.name || "Producto no identificado"}
                       </div>
-                      <div className="text-xs mt-0.5 text-amber-500">No pertenece al pedido</div>
                     </div>
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                      style={{ background: "rgba(217,119,6,0.2)" }}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={2} className="w-4 h-4">
-                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                        <line x1="12" y1="9" x2="12" y2="13" />
-                        <line x1="12" y1="17" x2="12.01" y2="17" />
-                      </svg>
-                    </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={2} className="w-4 h-4 flex-shrink-0">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
                   </div>
                 );
               })}
             </>
           )}
         </div>
-
-        {/* Bottom action bar */}
-        <div
-          className="px-4 pb-8 pt-3 flex flex-col gap-2"
-          style={{ background: "rgba(26,31,62,0.95)", borderTop: "1px solid rgba(255,255,255,0.08)" }}
-        >
-          <div className="flex gap-2">
-            <button
-              onClick={() => navigate("/mobile/revision")}
-              className="flex-1 py-3.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
-              style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "rgba(255,255,255,0.7)",
-              }}
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleFinalize}
-              className="flex-[2] py-3.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
-              style={{
-                background: "linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)",
-                boxShadow: "0 4px 15px rgba(30,79,194,0.4)",
-              }}
-            >
-              Finalizar revisión
-            </button>
-          </div>
-        </div>
       </div>
 
-      {/* Discrepancy modal */}
-      {showDiscModal && (
-        <MobileDiscrepancy
-          discrepancies={discrepancies}
-          onConfirm={handleConfirmDisc}
-          onBack={() => {
-            setShowDiscModal(false);
-            refocusScanner();
+      {/* ── BOTTOM BAR (72px) ── */}
+      <div
+        className="flex gap-2 px-3 flex-shrink-0"
+        style={{
+          height: 72,
+          alignItems: "center",
+          background: "rgba(20,24,50,0.97)",
+          borderTop: "1px solid rgba(255,255,255,0.07)",
+        }}
+      >
+        <button
+          onClick={() => navigate("/mobile/revision")}
+          className="flex-1 rounded-xl text-sm font-semibold transition-all active:scale-95"
+          style={{
+            height: 48,
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "rgba(255,255,255,0.65)",
           }}
-        />
-      )}
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={handleFinalize}
+          className="flex-[2] rounded-xl text-sm font-bold text-white transition-all active:scale-95"
+          style={{
+            height: 48,
+            background: "linear-gradient(135deg,#1a2b6b 0%,#1e4fc2 100%)",
+            boxShadow: "0 4px 14px rgba(30,79,194,0.35)",
+          }}
+        >
+          Finalizar revisión
+        </button>
+      </div>
 
       <style>{`
         @keyframes badgePop {
-          0% { transform: scale(1); }
-          50% { transform: scale(1.3); }
+          0%   { transform: scale(1); }
+          50%  { transform: scale(1.25); }
           100% { transform: scale(1); }
         }
       `}</style>
-    </>
+    </div>
   );
 }
