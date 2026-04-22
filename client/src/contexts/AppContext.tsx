@@ -130,7 +130,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               };
             }
           }
-          // Sobrante and Incorrecto don't affect order partidas in the summary
+          if (r.tipo === 'Sobrante') {
+            // User physically removed the excess — adjust conteo down to required qty
+            const order = s.selectedOrderId ? ORDERS_DB[s.selectedOrderId] : null;
+            const partida = order?.partidas.find(p => p.code === r.code);
+            const req = partida?.qty ?? item.conteo;
+            newItems[r.code] = {
+              ...item,
+              conteo: req,
+              removedFromCount: true,
+              denied: false,
+              authorized: false,
+              authMotivo: '',
+            };
+          }
+          // Incorrecto doesn't affect order partidas in the summary
         });
       }
 
