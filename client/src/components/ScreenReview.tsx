@@ -283,28 +283,29 @@ export default function ScreenReview({ showToast }: Props) {
                       const item = state.scannedItems[p.code];
                       const isLast = state.lastScannedCode === p.code;
                       const isBumping = lastBump === p.code;
+                      const isComplete = item.conteo >= p.qty && p.qty > 0;
                       return (
                         <tr
                           key={p.code}
                           onClick={() => handleRowClick(p.code)}
                           title="Clic para simular escaneo"
                           style={{
-                            background: isLast && item.conteo > 0 ? '#fffbeb' : 'transparent',
+                            background: isComplete ? '#f0fdf4' : isLast && item.conteo > 0 ? '#fffbeb' : 'transparent',
                             transition: 'background 0.3s',
                             cursor: 'pointer',
                           }}
-                          onMouseEnter={e => { if (!isLast) (e.currentTarget as HTMLTableRowElement).style.background = '#eff6ff'; }}
-                          onMouseLeave={e => { if (!isLast) (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}>
-                          <td className="px-3 py-2.5 text-center italic"
-                            style={{ borderBottom: '1px solid #f0f0f0', color: '#9ca3af', borderLeft: isLast && item.conteo > 0 ? '3px solid #fbbf24' : '3px solid transparent' }}>
-                            —
+                          onMouseEnter={e => { if (!isComplete && !isLast) (e.currentTarget as HTMLTableRowElement).style.background = '#eff6ff'; }}
+                          onMouseLeave={e => { if (!isComplete && !isLast) (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}>
+                          <td className="px-3 py-2.5 text-center font-bold"
+                            style={{ borderBottom: '1px solid #f0f0f0', color: isComplete ? '#16a34a' : '#374151', borderLeft: isComplete ? '3px solid #16a34a' : isLast && item.conteo > 0 ? '3px solid #fbbf24' : '3px solid transparent' }}>
+                            {p.qty}
                           </td>
                           <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #f0f0f0' }}>
                             <span
                               className="inline-flex items-center justify-center rounded-full text-white font-bold text-sm"
                               style={{
                                 minWidth: 28, height: 28, padding: '0 8px',
-                                background: isLast ? '#2563eb' : item.conteo > 0 ? '#1a2b6b' : '#d1d5db',
+                                background: isComplete ? '#16a34a' : isLast ? '#2563eb' : item.conteo > 0 ? '#1a2b6b' : '#d1d5db',
                                 animation: isBumping ? 'badgePop 0.3s ease' : 'none',
                                 transition: 'background 0.3s',
                               }}>
