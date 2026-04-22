@@ -8,13 +8,22 @@ import {
   ORDERS_DB, PRODUCT_CATALOG,
 } from '@/lib/data';
 
+// Resolution map passed from ModalDiscrepancy on confirm
+export interface DiscrepancyResolution {
+  code: string;
+  tipo: 'Sobrante' | 'Faltante' | 'Producto incorrecto';
+  removedFromCount: boolean; // Faltante: "Retirar pieza del conteo"
+  denied: boolean;           // Faltante: "Autorizar faltante" with motivo
+  motivo: string;
+}
+
 interface AppContextValue {
   state: AppState;
   goToScreen: (screen: AppScreen) => void;
   loadOrder: (orderId: string) => void;
   processScan: (code: string) => void;
   toggleAuthorize: (code: string, qty: number, motivo: string) => void;
-  finalizeReview: () => void;
+  finalizeReview: (resolutions?: DiscrepancyResolution[]) => void;
   resetReview: () => void;
   setPreSelectedOrder: (id: string | null) => void;
 }
@@ -38,7 +47,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const scannedItems: Record<string, ScannedItem> = {};
     order.partidas.forEach(p => {
       scannedItems[p.code] = {
-        conteo: 0, authorized: false, authMotivo: '', observacion: '', fromOrder: true,
+        conteo: 0, authorized: false, authMotivo: '', observacion: '',
+        fromOrder: true, removedFromCount: false, denied: false,
       };
     });
     setState(s => ({
@@ -61,7 +71,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newUnknown = [...s.unknownProducts];
 
       if (!newItems[code]) {
-        newItems[code] = { conteo: 0, authorized: false, authMotivo: '', observacion: '', fromOrder: isInOrder };
+        newItems[code] = {
+          conteo: 0, authorized: false, authMotivo: '', observacion: '',
+          fromOrder: isInOrder, removedFromCount: false, denied: false,
+        };
       }
       newItems[code] = { ...newItems[code], conteo: newItems[code].conteo + 1 };
 
@@ -83,15 +96,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const finalizeReview = useCallback(() => {
-    setState(s => ({ ...s, reviewEndTime: new Date() }));
+  // Apply discrepancy resolutions from ModalDiscrepancy before going to summary
+  const finalizeReview = useCallback((resolutions?: DiscrepancyResolution[]) => {
+    setState(s => {
+      let newItems = { ...s.scannedItems };
+
+      if (resolutions) {
+        resolutions.forEach(r => {
+          const item = newItems[r.code];
+          if (!item) return;
+          if (r.tipo === 'Faltante') {
+            if (r.removedFromCount) {
+              // Treat as if the right quantity was scanned — set conteo = req
+              const order = s.selectedOrderId ? ORDERS_DB[s.selectedOrderId] : null;
+              const partida = order?.partidas.find(p => p.code === r.code);
+              const req = partida?.qty ?? item.conteo;
+              newItems[r.code] = {
+                ...item,
+                conteo: req,
+                removedFromCount: true,
+                denied: false,
+                authorized: false,
+                authMotivo: '',
+              };
+            } else if (r.denied) {
+              // Authorized faltante → mark as denied (status "Producto negado")
+              newItems[r.code] = {
+                ...item,
+                denied: true,
+                authorized: true,
+                authMotivo: r.motivo,
+                removedFromCount: false,
+              };
+            }
+          }
+          // Sobrante and Incorrecto don't affect order partidas in the summary
+        });
+      }
+
+      return { ...s, scannedItems: newItems, reviewEndTime: new Date() };
+    });
   }, []);
 
+  // Reset review but keep completedOrderIds so selection list hides reviewed orders
   const resetReview = useCallback(() => {
-    setState({
+    setState(s => ({
       ...initialAppState,
       currentScreen: 'select',
-    });
+      completedOrderIds: s.selectedOrderId
+        ? [...s.completedOrderIds, s.selectedOrderId]
+        : s.completedOrderIds,
+    }));
   }, []);
 
   return (

@@ -4,14 +4,13 @@
 //
 // Logic per row type:
 //   Sobrante    → rescan the product = confirmation of action taken
-//                 (no motivo, no authorize button needed)
-//   Faltante    → authorize with motivo OR remove piece from count
-//   Incorrecto  → rescan the product in THIS modal to confirm
-//                 physical removal
+//   Faltante    → authorize with motivo (denied) OR remove piece from count
+//   Incorrecto  → rescan the product in THIS modal to confirm physical removal
 //
-// Confirm button enabled only when ALL rows are resolved.
+// onConfirm receives resolution details for each discrepancy.
 // ============================================================
 import { useState, useRef, useEffect } from 'react';
+import { DiscrepancyResolution } from '@/contexts/AppContext';
 
 export interface Discrepancy {
   code: string;
@@ -24,11 +23,9 @@ export interface Discrepancy {
 
 interface RowState {
   resolved: boolean;
-  // Faltante only
   authorized: boolean;
   motivo: string;
   removedPiece: boolean;
-  // Sobrante / Incorrecto: rescan
   rescanValue: string;
   rescanConfirmed: boolean;
 }
@@ -37,7 +34,7 @@ const MOTIVOS = ['Etiqueta errónea', 'Error de surtido', 'Merma', 'Otro'];
 
 interface Props {
   discrepancies: Discrepancy[];
-  onConfirm: () => void;
+  onConfirm: (resolutions: DiscrepancyResolution[]) => void;
   onBack: () => void;
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
 }
@@ -57,14 +54,12 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
   const [rows, setRows] = useState<Record<string, RowState>>(initRows);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    firstInputRef.current?.focus();
-  }, []);
+  useEffect(() => { firstInputRef.current?.focus(); }, []);
 
   const update = (code: string, patch: Partial<RowState>) =>
     setRows(prev => ({ ...prev, [code]: { ...prev[code], ...patch } }));
 
-  // ── SOBRANTE: rescan = confirmation, no motivo needed ──
+  // ── SOBRANTE ──
   const handleSobranteRescan = (d: Discrepancy, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
     const val = rows[d.code].rescanValue.trim().toUpperCase();
@@ -77,7 +72,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
     }
   };
 
-  // ── FALTANTE: authorize with motivo ──
+  // ── FALTANTE: authorize (denied) ──
   const handleFaltanteAuthorize = (d: Discrepancy) => {
     if (!rows[d.code].motivo) { showToast('Seleccione un motivo antes de autorizar.', 'warning'); return; }
     update(d.code, { authorized: true, resolved: true });
@@ -90,7 +85,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
     showToast(`Pieza de ${d.code} retirada del conteo.`, 'success');
   };
 
-  // ── INCORRECTO: rescan to confirm physical removal ──
+  // ── INCORRECTO ──
   const handleIncorrectoRescan = (d: Discrepancy, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
     const val = rows[d.code].rescanValue.trim().toUpperCase();
@@ -106,13 +101,23 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
   const allResolved = discrepancies.every(d => rows[d.code]?.resolved);
   const confirmedCount = discrepancies.filter(d => rows[d.code]?.resolved).length;
 
-  const TIPO_STYLE: Record<string, { bg: string; color: string; border: string }> = {
-    Sobrante:             { bg: '#f0fdf4', color: '#16a34a', border: '#86efac' },
-    Faltante:             { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5' },
-    'Producto incorrecto':{ bg: '#fffbeb', color: '#d97706', border: '#fbbf24' },
+  const handleConfirm = () => {
+    const resolutions: DiscrepancyResolution[] = discrepancies.map(d => ({
+      code: d.code,
+      tipo: d.tipo,
+      removedFromCount: rows[d.code]?.removedPiece ?? false,
+      denied: rows[d.code]?.authorized ?? false,
+      motivo: rows[d.code]?.motivo ?? '',
+    }));
+    onConfirm(resolutions);
   };
 
-  // Index of first unresolved row (to autofocus its input)
+  const TIPO_STYLE: Record<string, { bg: string; color: string; border: string }> = {
+    Sobrante:              { bg: '#f0fdf4', color: '#16a34a', border: '#86efac' },
+    Faltante:              { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5' },
+    'Producto incorrecto': { bg: '#fffbeb', color: '#d97706', border: '#fbbf24' },
+  };
+
   const firstUnresolvedIdx = discrepancies.findIndex(d => !rows[d.code]?.resolved);
 
   return (
@@ -142,14 +147,12 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-6">
-
-          {/* Legend */}
           <div className="flex items-start gap-3 p-3 rounded-lg mb-4"
             style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
             <span className="material-symbols-outlined flex-shrink-0 mt-0.5" style={{ color: '#64748b', fontSize: 16 }}>info</span>
             <p className="text-xs" style={{ color: '#475569' }}>
               <strong>Sobrante:</strong> escanee la pieza para confirmar que fue retirada del pedido. &nbsp;
-              <strong>Faltante:</strong> seleccione un motivo y autorice, o retire la pieza del conteo. &nbsp;
+              <strong>Faltante:</strong> seleccione un motivo y autorice (producto negado), o retire la pieza del conteo. &nbsp;
               <strong>Producto incorrecto:</strong> retírelo físicamente y escanéelo aquí para confirmar.
             </p>
           </div>
@@ -162,8 +165,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
               const isFirstUnresolved = idx === firstUnresolvedIdx;
 
               return (
-                <div key={d.code}
-                  className="rounded-lg overflow-hidden"
+                <div key={d.code} className="rounded-lg overflow-hidden"
                   style={{
                     border: row.resolved ? '1.5px solid #86efac' : `1.5px solid ${style.border}`,
                     background: row.resolved ? '#f0fdf4' : style.bg,
@@ -205,11 +207,11 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                     </div>
                   </div>
 
-                  {/* Action area — only shown when not yet resolved */}
+                  {/* Action area */}
                   {!row.resolved && (
                     <div className="px-4 py-3">
 
-                      {/* ── SOBRANTE: just rescan to confirm ── */}
+                      {/* SOBRANTE */}
                       {d.tipo === 'Sobrante' && (
                         <div className="flex flex-wrap items-end gap-4">
                           <div className="flex flex-col gap-1">
@@ -231,7 +233,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                         </div>
                       )}
 
-                      {/* ── FALTANTE: motivo + authorize OR remove ── */}
+                      {/* FALTANTE */}
                       {d.tipo === 'Faltante' && (
                         <div className="flex flex-wrap items-end gap-4">
                           <div className="flex flex-col gap-1">
@@ -256,8 +258,8 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                             }}
                             onMouseEnter={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
                             onMouseLeave={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#1a2b6b'; }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>verified</span>
-                            Autorizar faltante
+                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>block</span>
+                            Negar producto
                           </button>
                           <span className="text-xs self-center" style={{ color: '#9ca3af' }}>— o —</span>
                           <button
@@ -272,7 +274,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                         </div>
                       )}
 
-                      {/* ── PRODUCTO INCORRECTO: rescan to confirm removal ── */}
+                      {/* INCORRECTO */}
                       {d.tipo === 'Producto incorrecto' && (
                         <div className="flex flex-wrap items-end gap-4">
                           <div className="flex flex-col gap-1">
@@ -296,11 +298,11 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                     </div>
                   )}
 
-                  {/* Resolved summary line */}
+                  {/* Resolved summary */}
                   {row.resolved && (
                     <div className="px-4 py-2 text-xs" style={{ color: '#16a34a' }}>
                       {d.tipo === 'Sobrante' && '✓ Pieza sobrante escaneada y confirmada — retirada del pedido.'}
-                      {d.tipo === 'Faltante' && row.authorized && `✓ Faltante autorizado — Motivo: ${row.motivo}`}
+                      {d.tipo === 'Faltante' && row.authorized && `✓ Producto negado — Motivo: ${row.motivo}`}
                       {d.tipo === 'Faltante' && row.removedPiece && '✓ Pieza retirada del conteo — diferencia eliminada.'}
                       {d.tipo === 'Producto incorrecto' && '✓ Producto retirado físicamente y confirmado por escaneo.'}
                     </div>
@@ -331,7 +333,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
               Regresar a revisión
             </button>
             <button
-              onClick={allResolved ? onConfirm : () => showToast('Resuelva todas las diferencias primero.', 'warning')}
+              onClick={allResolved ? handleConfirm : () => showToast('Resuelva todas las diferencias primero.', 'warning')}
               className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium text-white transition-all"
               style={{
                 background: allResolved ? '#16a34a' : '#9ca3af',

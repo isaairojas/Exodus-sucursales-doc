@@ -11,6 +11,7 @@ import { useApp } from '@/contexts/AppContext';
 import { ORDERS_DB, PRODUCT_CATALOG } from '@/lib/data';
 import ModalAuthorize from './ModalAuthorize';
 import ModalDiscrepancy, { Discrepancy } from './ModalDiscrepancy';
+import { DiscrepancyResolution } from '@/contexts/AppContext';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -107,9 +108,9 @@ export default function ScreenReview({ showToast }: Props) {
     }
   };
 
-  const handleConfirmDisc = () => {
+  const handleConfirmDisc = (resolutions: DiscrepancyResolution[]) => {
     setShowDiscModal(false);
-    finalizeReview();
+    finalizeReview(resolutions);
     goToScreen('summary');
   };
 

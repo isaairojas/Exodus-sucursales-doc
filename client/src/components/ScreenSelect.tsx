@@ -19,11 +19,11 @@ const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
 };
 
 export default function ScreenSelect({ showToast }: Props) {
-  const { goToScreen, loadOrder } = useApp();
+  const { goToScreen, loadOrder, state } = useApp();
   const [filter, setFilter] = useState('');
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
 
-  const orders = Object.values(ORDERS_DB);
+  const orders = Object.values(ORDERS_DB).filter(o => !state.completedOrderIds.includes(o.id));
   const lf = filter.toLowerCase();
   const filtered = orders.filter(o =>
     !lf ||

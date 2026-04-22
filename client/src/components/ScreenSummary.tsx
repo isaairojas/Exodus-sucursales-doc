@@ -1,8 +1,15 @@
 // ============================================================
 // APYMSA — Screen 4b: Summary
-// Design: Enterprise Precision — green checkmark, full table
-// Changes: exclude removed unknown products, reviewer = Isai,
-//          Facturar button opens ModalFacturacion
+// Design: Enterprise Precision
+//
+// Status logic per scanned item:
+//   removedFromCount → diff 0, "✓ Correcto" (pieza retirada del conteo)
+//   denied           → diff negative, "✗ Producto negado (motivo)"
+//   authorized       → diff as-is, "⚠ Autorizado (motivo)"  [sobrante]
+//   diff === 0       → "✓ Correcto"
+//   else             → "✗ Con diferencia"
+//
+// resetReview adds order to completedOrderIds → hidden from selection
 // ============================================================
 import { useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
@@ -19,20 +26,23 @@ export default function ScreenSummary({ showToast }: Props) {
   const order = state.selectedOrderId ? ORDERS_DB[state.selectedOrderId] : null;
   if (!order) return null;
 
-  let totalReq = 0, totalCont = 0, autorizadas = 0;
+  let totalReq = 0, totalCont = 0, negados = 0;
   order.partidas.forEach(p => {
     totalReq += p.qty;
-    totalCont += state.scannedItems[p.code]?.conteo || 0;
-    if (state.scannedItems[p.code]?.authorized) autorizadas++;
+    const item = state.scannedItems[p.code];
+    // If removed from count, effective conteo = req (no diff)
+    const effectiveConteo = item?.removedFromCount ? p.qty : (item?.conteo ?? 0);
+    totalCont += effectiveConteo;
+    if (item?.denied) negados++;
   });
 
-  // Unknown products that were removed (confirmed via rescan) should NOT appear in summary
-  // We track this via state.resolvedUnknown (set by ModalDiscrepancy → AppContext)
-  // For now we simply exclude ALL unknownProducts from the summary table since they were
-  // all handled in the discrepancy modal before reaching this screen.
+  // Has incidencias only if there are denied products (negados) or sobrantes
   const hasIncidencias = order.partidas.some(p => {
     const item = state.scannedItems[p.code];
-    return item && item.conteo !== p.qty;
+    if (!item) return false;
+    if (item.removedFromCount) return false; // resolved cleanly
+    if (item.denied) return true;
+    return item.conteo !== p.qty;
   });
 
   const handleClose = () => resetReview();
@@ -92,7 +102,7 @@ export default function ScreenSummary({ showToast }: Props) {
             { label: 'Cliente', value: order.cliente, large: false },
             { label: 'Total productos requeridos', value: String(totalReq), large: true },
             { label: 'Total productos contados', value: String(totalCont), large: true },
-            { label: 'Partidas autorizadas con diferencia', value: String(autorizadas), large: true },
+            { label: 'Productos negados', value: String(negados), large: true },
             {
               label: 'Resultado', value: '', large: false,
               custom: hasIncidencias ? (
@@ -146,17 +156,32 @@ export default function ScreenSummary({ showToast }: Props) {
               <tbody>
                 {order.partidas.map(p => {
                   const item = state.scannedItems[p.code];
-                  const diff = item.conteo - p.qty;
+
+                  // Effective values after resolution
+                  const effectiveConteo = item?.removedFromCount ? p.qty : (item?.conteo ?? 0);
+                  const diff = effectiveConteo - p.qty;
                   const diffStr = diff === 0 ? '—' : diff > 0 ? `+${diff}` : `${diff}`;
                   const diffColor = diff > 0 ? '#16a34a' : diff < 0 ? '#dc2626' : '#6b7280';
-                  let statusEl;
-                  if (diff === 0) {
+
+                  let statusEl: React.ReactNode;
+                  if (item?.removedFromCount) {
+                    // Piece was removed from count → treat as correct
                     statusEl = <span className="font-semibold" style={{ color: '#16a34a' }}>✓ Correcto</span>;
-                  } else if (item.authorized) {
+                  } else if (item?.denied) {
+                    // Faltante authorized → product negado
+                    statusEl = (
+                      <span className="font-semibold" style={{ color: '#dc2626' }}>
+                        ✗ Producto negado{item.authMotivo ? ` (${item.authMotivo})` : ''}
+                      </span>
+                    );
+                  } else if (diff === 0) {
+                    statusEl = <span className="font-semibold" style={{ color: '#16a34a' }}>✓ Correcto</span>;
+                  } else if (item?.authorized) {
                     statusEl = <span className="font-semibold" style={{ color: '#d97706' }}>⚠ Autorizado ({item.authMotivo || 'sin motivo'})</span>;
                   } else {
                     statusEl = <span className="font-semibold" style={{ color: '#dc2626' }}>✗ Con diferencia</span>;
                   }
+
                   return (
                     <tr key={p.code}>
                       <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: '#111827' }}>{p.code}</td>
@@ -164,7 +189,7 @@ export default function ScreenSummary({ showToast }: Props) {
                         {PRODUCT_CATALOG[p.code]?.name || p.code}
                       </td>
                       <td className="px-3 py-2.5 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: '#374151' }}>{p.qty}</td>
-                      <td className="px-3 py-2.5 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: '#374151' }}>{item.conteo}</td>
+                      <td className="px-3 py-2.5 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: '#374151' }}>{effectiveConteo}</td>
                       <td className="px-3 py-2.5 text-center" style={{ borderBottom: '1px solid #f0f0f0', fontWeight: 600, color: diffColor }}>{diffStr}</td>
                       <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #f0f0f0' }}>{statusEl}</td>
                     </tr>
@@ -182,8 +207,8 @@ export default function ScreenSummary({ showToast }: Props) {
             style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white', fontFamily: 'Roboto, sans-serif' }}
             onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
             onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
-            Cerrar
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_back</span>
+            Volver a selección
           </button>
           <button onClick={handlePrint}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium border transition-all"
@@ -208,7 +233,7 @@ export default function ScreenSummary({ showToast }: Props) {
       {showFactura && (
         <ModalFacturacion
           order={order}
-          onClose={() => setShowFactura(false)}
+          onClose={() => { setShowFactura(false); handleClose(); }}
           showToast={showToast}
         />
       )}
