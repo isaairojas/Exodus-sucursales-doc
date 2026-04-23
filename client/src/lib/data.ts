@@ -110,7 +110,7 @@ export const PRODUCT_CATALOG: Record<string, Product> = {
 // ── Orders database (8 real orders from system) ──────────────
 export const ORDERS_DB: Record<string, Order> = {
   '1064772': {
-    id: '1064772', clienteId: '1', cliente: 'CLIENTE MOSTRADOR',
+    id: '1064772', clienteId: '10241', cliente: 'AUTOPARTES COBIAN',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
     total: '$1,837.12', status: 'Activo',
     elaboro: 'Ángel', origen: 'Exodus ERP', observaciones: '',
@@ -123,7 +123,7 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064834': {
-    id: '1064834', clienteId: '1', cliente: 'CLIENTE MOSTRADOR',
+    id: '1064834', clienteId: '10242', cliente: 'AUTOPARTES BELTRAN',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
     total: '$2,456.97', status: 'Surtido',
     elaboro: 'Ángel', origen: 'Exodus ERP', observaciones: '',
@@ -135,7 +135,7 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064838': {
-    id: '1064838', clienteId: '1', cliente: 'CLIENTE MOSTRADOR',
+    id: '1064838', clienteId: '10243', cliente: 'AUTOPARTES PENICHE',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
     total: '$860.09', status: 'Revisado',
     elaboro: 'Ángel', origen: 'Exodus ERP', observaciones: '',
@@ -147,10 +147,11 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064844': {
-    id: '1064844', clienteId: '713115', cliente: 'CLIENTE MOSTRADOR CONTACT CENTER',
+    id: '1064844', clienteId: '10244', cliente: 'AUTOPARTES ISAI',
     vendedorId: '79076', vendedor: 'ND REFACCIONARIAS PELICANO', plazo: '',
     total: '$757.12', status: 'Documentado',
     elaboro: 'Ángel', origen: 'Epico', observaciones: '',
+
     fechaCaptura: '2026-04-22 14:32', fechaEntrega: '2026-04-22', horaEntrega: '14:32', horaReparto: '14:32', zona: '', local: false,
     horaInicioSurtido: '14:35', horaFinSurtido: '14:55',
     partidas: [
@@ -159,7 +160,7 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064847': {
-    id: '1064847', clienteId: '85622', cliente: 'HUMBERTO NAVA ARIAS',
+    id: '1064847', clienteId: '10245', cliente: 'AUTOPARTES MARIO',
     vendedorId: '1786', vendedor: 'Razo Alvarez Luis', plazo: '30 días',
     total: '$1,937.82', status: 'Documentado',
     elaboro: 'Ángel', origen: 'Samsung', observaciones: '',
@@ -172,7 +173,7 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064848': {
-    id: '1064848', clienteId: '85622', cliente: 'HUMBERTO NAVA ARIAS',
+    id: '1064848', clienteId: '10246', cliente: 'AUTOPARTES MONTSERRAT',
     vendedorId: '1786', vendedor: 'Razo Alvarez Luis', plazo: '30 días',
     total: '$919.03', status: 'Documentado',
     elaboro: 'Ángel', origen: 'Samsung', observaciones: '',
@@ -184,7 +185,7 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064851': {
-    id: '1064851', clienteId: '644268', cliente: 'LUCIA GARCIA MORALES',
+    id: '1064851', clienteId: '10247', cliente: 'AUTOPARTES RODRIGUEZ',
     vendedorId: '1786', vendedor: 'Razo Alvarez Luis', plazo: '',
     total: '$596.41', status: 'Enviado',
     elaboro: 'Ángel', origen: 'Samsung', observaciones: '',
@@ -196,7 +197,7 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064853': {
-    id: '1064853', clienteId: '116127', cliente: 'SERVIELEX',
+    id: '1064853', clienteId: '10248', cliente: 'AUTOPARTES GARCIA',
     vendedorId: '78265', vendedor: 'Directos Cedis Refaccionarias', plazo: '60 días',
     total: '$1,386.64', status: 'Facturado',
     elaboro: 'Ángel', origen: 'Epico', observaciones: '',

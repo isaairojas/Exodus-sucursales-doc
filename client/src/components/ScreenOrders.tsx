@@ -613,7 +613,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-                {['Origen','PedidoID','Fecha Captura','Fecha Entrega','Hora Entrega','Zona','Local','ClienteID','Cliente','VendedorID','Vendedor','Plazo','Total','Status'].map(col => (
+                {['Origen','Status','PedidoID','Fecha Captura','Fecha Entrega','Hora Entrega','Zona','Local','ClienteID','Cliente','VendedorID','Vendedor','Plazo','Total'].map(col => (
                   <th
                     key={col}
                     className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
@@ -653,6 +653,9 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
                       }}
                     >
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{order.origen}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <StatusBadge status={order.status} />
+                      </td>
                       <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.id}</td>
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaCaptura}</td>
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaEntrega || '—'}</td>
@@ -671,9 +674,6 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[160px] truncate">{order.vendedor}</td>
                       <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{order.plazo || '—'}</td>
                       <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.total}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <StatusBadge status={order.status} />
-                      </td>
                     </tr>
                   );
                 })
