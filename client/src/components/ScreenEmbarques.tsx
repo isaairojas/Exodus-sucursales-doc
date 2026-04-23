@@ -853,6 +853,55 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
   );
 }
 
+// ── HuellaConfirmModal ──────────────────────────────────────
+function HuellaConfirmModal({ tipo, onConfirm, onCancel }: { tipo: 'salida' | 'entrega'; onConfirm: () => void; onCancel: () => void }) {
+  const [phase, setPhase] = useState<'idle' | 'scanning' | 'success'>('idle');
+  const isSalida = tipo === 'salida';
+  const accentColor = isSalida ? '#7c3aed' : '#16a34a';
+  const handleScan = () => {
+    if (phase !== 'idle') return;
+    setPhase('scanning');
+    setTimeout(() => {
+      setPhase('success');
+      setTimeout(onConfirm, 600);
+    }, 1400);
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4 text-center">
+        <h2 className="text-lg font-bold mb-1" style={{ color: '#1a2b6b' }}>
+          {isSalida ? 'Confirmar salida a reparto' : 'Confirmar entrega al cliente'}
+        </h2>
+        <p className="text-sm text-gray-500 mb-6">
+          {isSalida ? 'Registre su huella para confirmar la salida del embarque' : 'Registre su huella para confirmar la entrega al cliente'}
+        </p>
+        <div className="relative flex flex-col items-center mb-6">
+          <div
+            className="w-24 h-24 rounded-full flex items-center justify-center cursor-pointer transition-all"
+            style={{ background: phase === 'success' ? 'rgba(22,163,74,0.1)' : phase === 'scanning' ? `rgba(${isSalida ? '124,58,237' : '37,99,235'},0.1)` : 'rgba(26,43,107,0.06)', border: `2px solid ${phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#d1d5db'}` }}
+            onClick={handleScan}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 48, color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#1a2b6b' }}>
+              {phase === 'success' ? 'check_circle' : 'fingerprint'}
+            </span>
+          </div>
+          {phase === 'scanning' && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-24 h-24 rounded-full animate-ping" style={{ background: `${accentColor}22` }} />
+            </div>
+          )}
+        </div>
+        <p className="text-sm font-medium mb-6" style={{ color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#6b7280' }}>
+          {phase === 'success' ? 'Identidad confirmada' : phase === 'scanning' ? 'Verificando...' : 'Toque el ícono para escanear'}
+        </p>
+        {phase === 'idle' && (
+          <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main ScreenEmbarques ──────────────────────────────────────
 export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack }: Props) {
   const { state, updateOrderStatus } = useApp();
@@ -864,6 +913,10 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   const [showUberModal, setShowUberModal] = useState(false);
   const [showBlueGoModal, setShowBlueGoModal] = useState(false);
   const [guias, setGuias] = useState<Record<string, string>>({});
+  // Manual dispatch flow
+  const [showConfirmEnvio, setShowConfirmEnvio] = useState(false);
+  const [showHuellaModal, setShowHuellaModal] = useState<'salida' | 'entrega' | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Auto-select shipment when navigating from a specific order
   useEffect(() => {
@@ -895,6 +948,7 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   const handleEnviarSolicitud = () => {
     if (!selectedShipment) return;
     const p = selectedShipment.paqueteria;
+    const s = selectedShipment.status;
     if (p === 'Estafeta') {
       setShowGuiaModal(true);
     } else if (p === 'Uber') {
@@ -902,15 +956,46 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     } else if (p === 'BlueGo') {
       setShowBlueGoModal(true);
     } else {
-      setShipments(prev => prev.map(s => s.id === selectedShipment.id ? { ...s, status: 'En tránsito' } : s));
-      showToast(`Embarque #${selectedShipment.id} marcado En tránsito`, 'success');
+      // Manual paqueterías: step-by-step flow
+      if (s === 'Generado') {
+        setShowConfirmEnvio(true);
+      } else if (s === 'En reparto') {
+        setShowHuellaModal('entrega');
+      }
     }
   };
+  const handleConfirmEnvio = () => {
+    setShowConfirmEnvio(false);
+    setShowHuellaModal('salida');
+  };
+  const handleHuellaConfirm = (tipo: 'salida' | 'entrega') => {
+    if (!selectedShipment) return;
+    if (tipo === 'salida') {
+      setShipments(prev => prev.map(s =>
+        s.id === selectedShipment.id ? { ...s, status: 'En reparto' } : s
+      ));
+      selectedShipment.pedidos.forEach(pid => updateOrderStatus(pid, 'En reparto' as any));
+      showToast(`Embarque #${selectedShipment.id} — Salida a reparto confirmada`, 'success');
+    } else {
+      setShipments(prev => prev.map(s =>
+        s.id === selectedShipment.id ? { ...s, status: 'Entregado' } : s
+      ));
+      selectedShipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Entregado' as any));
+      showToast(`Embarque #${selectedShipment.id} — Entrega confirmada`, 'success');
+    }
+    setShowHuellaModal(null);
+  };
 
-  const canEnviar = selectedShipment !== null &&
-    (selectedShipment.paqueteria === 'Estafeta'
+  const isManualPaqueteria = selectedShipment !== null &&
+    (selectedShipment.paqueteria === 'Transporte Interno' || selectedShipment.paqueteria === 'MEXICO EXPRESS');
+  const canEnviar = selectedShipment !== null && (
+    selectedShipment.paqueteria === 'Estafeta'
       ? (selectedShipment.status === 'Generado' || selectedShipment.status === 'Solicitado')
-      : (selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo'));
+      : selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo'
+      ? true
+      : isManualPaqueteria && selectedShipment.status !== 'Entregado'
+  );
+  const canEditar = selectedShipment !== null && selectedShipment.status === 'Generado';
 
   const shipmentTotal = selectedShipment
     ? selectedShipment.pedidos.reduce((sum, pid) => {
@@ -924,10 +1009,24 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   const getEnviarLabel = () => {
     if (!selectedShipment) return 'Enviar solicitud';
     const p = selectedShipment.paqueteria;
+    const s = selectedShipment.status;
     if (p === 'Estafeta') return 'Generar guía Estafeta';
     if (p === 'Uber') return 'Ver solicitud Uber';
     if (p === 'BlueGo') return 'Ver solicitud BlueGo';
-    return 'Enviar solicitud';
+    // Manual paqueterías
+    if (s === 'Generado') return 'Confirmar envío';
+    if (s === 'En reparto') return 'Confirmar entrega';
+    return 'Confirmar envío';
+  };
+  const getEnviarColor = () => {
+    if (!selectedShipment) return '#6b7280';
+    const p = selectedShipment.paqueteria;
+    const s = selectedShipment.status;
+    if (p === 'Estafeta') return '#cc0000';
+    if (p === 'Uber') return '#111';
+    if (p === 'BlueGo') return '#1a2b6b';
+    if (s === 'En reparto') return '#16a34a';
+    return '#7c3aed';
   };
 
   return (
@@ -1100,26 +1199,34 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
               {/* Action section */}
               <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
                 <h3 className="text-sm font-bold text-gray-700 mb-3">Acciones de envío</h3>
-                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 flex-wrap">
                   <button
                     onClick={handleEnviarSolicitud}
                     disabled={!canEnviar}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all"
                     style={canEnviar
-                      ? { background: selectedShipment.paqueteria === 'Estafeta' ? '#cc0000' : selectedShipment.paqueteria === 'Uber' ? '#111' : '#1a2b6b', color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }
+                      ? { background: getEnviarColor(), color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }
                       : { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
                     }
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
                     {getEnviarLabel()}
                   </button>
-
-
+                  {canEditar && (
+                    <button
+                      onClick={() => setShowEditModal(true)}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+                      style={{ background: 'transparent', color: '#1a2b6b', border: '1.5px solid #1a2b6b' }}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Editar embarque
+                    </button>
+                  )}
                 </div>
-                {!canEnviar && selectedShipment && (
+                {!canEnviar && selectedShipment && selectedShipment.status !== 'Entregado' && (
                   <p className="text-xs text-gray-400 mt-2">
                     {selectedShipment.paqueteria !== 'Estafeta' && selectedShipment.paqueteria !== 'Uber' && selectedShipment.paqueteria !== 'BlueGo'
-                      ? 'Esta paquetería no tiene web service disponible'
+                      ? 'Use el botón Confirmar envío para registrar la salida a reparto'
                       : `Solo disponible para embarques Estafeta en estado Generado o Solicitado`
                     }
                   </p>
@@ -1150,6 +1257,59 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
       )}
       {showUberModal && <ModalUberTracking onClose={() => setShowUberModal(false)} shipment={selectedShipment} />}
       {showBlueGoModal && <ModalBlueGoTracking onClose={() => setShowBlueGoModal(false)} shipment={selectedShipment} />}
+
+      {/* Confirm envio modal */}
+      {showConfirmEnvio && selectedShipment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(124,58,237,0.12)' }}>
+                <svg className="w-5 h-5" style={{ color: '#7c3aed' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-bold" style={{ color: '#1a2b6b' }}>Confirmar envío</h2>
+                <p className="text-xs text-gray-500">Embarque #{selectedShipment.id} — {selectedShipment.paqueteria}</p>
+              </div>
+            </div>
+            <div className="rounded-xl p-4 mb-6" style={{ background: '#f4f6fa', border: '1px solid #e5e7eb' }}>
+              <p className="text-sm text-gray-700 mb-2">Al confirmar, el embarque pasará a estado <strong>En reparto</strong> y se registrará la salida a reparto.</p>
+              <div className="flex gap-6 mt-3">
+                <div><p className="text-xs text-gray-500">Pedidos</p><p className="font-bold text-sm" style={{ color: '#1a2b6b' }}>{selectedShipment.pedidos.length}</p></div>
+                <div><p className="text-xs text-gray-500">Cajas</p><p className="font-bold text-sm" style={{ color: '#1a2b6b' }}>{selectedShipment.cajas}</p></div>
+                <div><p className="text-xs text-gray-500">Peso</p><p className="font-bold text-sm" style={{ color: '#1a2b6b' }}>{selectedShipment.peso} kg</p></div>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowConfirmEnvio(false)} className="flex-1 py-2.5 rounded-lg text-sm font-bold" style={{ background: '#f3f4f6', color: '#6b7280' }}>Cancelar</button>
+              <button onClick={handleConfirmEnvio} className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white" style={{ background: '#7c3aed', boxShadow: '0 2px 8px rgba(124,58,237,0.3)' }}>Confirmar envío</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Huella modal for salida/entrega */}
+      {showHuellaModal && selectedShipment && (
+        <HuellaConfirmModal
+          tipo={showHuellaModal}
+          onConfirm={() => handleHuellaConfirm(showHuellaModal!)}
+          onCancel={() => setShowHuellaModal(null)}
+        />
+      )}
+
+      {/* Edit embarque modal */}
+      {showEditModal && selectedShipment && (
+        <ModalCrearEmbarque
+          onClose={() => setShowEditModal(false)}
+          onCreated={(updated, orderIds) => {
+            setShipments(prev => prev.map(s => s.id === selectedShipment.id ? { ...updated, id: selectedShipment.id, pedidos: s.pedidos } : s));
+            setShowEditModal(false);
+            showToast('Embarque actualizado', 'success');
+          }}
+          showToast={showToast}
+          preOrderId={selectedShipment.pedidos[0]}
+          orderStatuses={state.orderStatuses}
+        />
+      )}
     </div>
   );
 }

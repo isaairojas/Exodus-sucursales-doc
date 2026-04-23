@@ -48,7 +48,7 @@ export interface Order {
   partidas: OrderPartida[];
 }
 
-export type ShipmentStatus = 'Generado' | 'Solicitado' | 'En tránsito' | 'Entregado';
+export type ShipmentStatus = 'Generado' | 'Solicitado' | 'En tránsito' | 'En reparto' | 'Entregado';
 
 export interface UberData {
   uberId: string;
@@ -296,5 +296,6 @@ export const SHIPMENT_STATUS_COLORS: Record<ShipmentStatus, { bg: string; text: 
   'Generado':    { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
   'Solicitado':  { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
   'En tránsito': { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
+  'En reparto':  { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
   'Entregado':   { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
 };
