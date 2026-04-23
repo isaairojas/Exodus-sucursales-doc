@@ -69,6 +69,14 @@ export interface BlueGoData {
   salidasVehiculosId: string;
 }
 
+export interface BoxItem {
+  id: string;          // 'C1', 'C2', ...
+  pedidoId: string;
+  peso: number;        // kg
+  largo?: number;      // cm
+  ancho?: number;      // cm
+  alto?: number;       // cm
+}
 export interface Shipment {
   id: string;
   paqueteria: string;
@@ -81,6 +89,7 @@ export interface Shipment {
   peso: number;
   usuario: string;
   guia?: string;
+  boxes?: BoxItem[];
   uberData?: UberData;
   blueGoData?: BlueGoData;
 }
@@ -206,6 +215,10 @@ export const SHIPMENTS_DB_INITIAL: Shipment[] = [
   {
     id: '88516', paqueteria: 'Uber', pedidos: ['1064847'], observaciones: 'zarate',
     status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Auto', cajas: 2, peso: 6.5, usuario: 'JMORENO11',
+    boxes: [
+      { id: 'C1', pedidoId: '1064847', peso: 3.8 },
+      { id: 'C2', pedidoId: '1064847', peso: 2.7 },
+    ],
     uberData: {
       uberId: '97415', estatus: 'En proceso de entrega',
       direccion: 'AV NOGALES 205 A La Venta Del Astillero, Zapopan',
@@ -216,6 +229,9 @@ export const SHIPMENTS_DB_INITIAL: Shipment[] = [
   {
     id: '88517', paqueteria: 'BlueGo', pedidos: ['1064851'], observaciones: 'quiroga',
     status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Motocicleta', cajas: 1, peso: 3.2, usuario: 'JMORENO11',
+    boxes: [
+      { id: 'C1', pedidoId: '1064851', peso: 3.2 },
+    ],
     blueGoData: {
       solicitudId: '1018062', estatusExodus: 'En proceso de entrega',
       tiempoEstimado: '45 min', tiempoTranscurrido: '28 min',
@@ -225,8 +241,23 @@ export const SHIPMENTS_DB_INITIAL: Shipment[] = [
   {
     id: '88518', paqueteria: 'Estafeta', pedidos: ['1064844'], observaciones: 'mexico',
     status: 'Generado', fecha: '2026-04-22', tipoVehiculo: 'Camión', cajas: 3, peso: 18.0, usuario: 'JMORENO11',
+    boxes: [
+      { id: 'C1', pedidoId: '1064844', peso: 6.5 },
+      { id: 'C2', pedidoId: '1064844', peso: 7.2, largo: 40, ancho: 30, alto: 25 },
+      { id: 'C3', pedidoId: '1064844', peso: 4.3 },
+    ],
   },
-  { id: '88509', paqueteria: 'Transporte Interno', pedidos: ['1064838'], observaciones: 'alonzo', status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 5, peso: 28.0, usuario: 'JMORENO11' },
+  {
+    id: '88509', paqueteria: 'Transporte Interno', pedidos: ['1064838'], observaciones: 'alonzo',
+    status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 5, peso: 28.0, usuario: 'JMORENO11',
+    boxes: [
+      { id: 'C1', pedidoId: '1064838', peso: 5.2 },
+      { id: 'C2', pedidoId: '1064838', peso: 6.1, largo: 50, ancho: 40, alto: 30 },
+      { id: 'C3', pedidoId: '1064838', peso: 5.8 },
+      { id: 'C4', pedidoId: '1064838', peso: 6.4 },
+      { id: 'C5', pedidoId: '1064838', peso: 4.5 },
+    ],
+  },
   { id: '88514', paqueteria: 'Transporte Interno', pedidos: ['1064853'], observaciones: 'borjas',  status: 'Entregado',   fecha: '2026-04-22', tipoVehiculo: 'Camión',    cajas: 8, peso: 45.2, usuario: 'JMORENO11' },
 ];
 
