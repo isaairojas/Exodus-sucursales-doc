@@ -1253,38 +1253,34 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
 
   const handleGuiaGenerada = (shipmentId: string, guia: string) => {
     setGuias(prev => ({ ...prev, [shipmentId]: guia }));
+    // Estafeta: al generar guía cambia automáticamente a 'En tránsito' (reparto iniciado)
     setShipments(prev => prev.map(s => s.id === shipmentId ? { ...s, status: 'En tránsito' } : s));
+    // También actualizar los pedidos incluidos
+    const shipment = shipments.find(s => s.id === shipmentId);
+    if (shipment) shipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Enviado' as any));
   };
 
   const handleEnviarSolicitud = () => {
     if (!selectedShipment) return;
     const p = selectedShipment.paqueteria;
     const s = selectedShipment.status;
+
     if (p === 'Estafeta') {
+      // Estafeta: solo generar guía (disponible en Generado/Solicitado)
       setShowGuiaModal(true);
     } else if (p === 'Uber') {
-      if (s === 'En tránsito' || s === 'En reparto') {
-        // Confirmar entrega directamente con huella
-        setShowHuellaModal('entrega');
-      } else if (selectedShipment.uberData) {
-        setShowUberModal(true);
-      } else {
-        // Sin solicitud generada → abrir modal de solicitud
-        setShowUberModal(true);
-      }
+      // Uber: solo rastreo — no hay confirmación manual de entrega
+      setShowUberModal(true);
     } else if (p === 'BlueGo') {
-      if (s === 'En tránsito' || s === 'En reparto') {
-        setShowHuellaModal('entrega');
-      } else if (selectedShipment.blueGoData) {
-        setShowBlueGoModal(true);
-      } else {
-        setShowBlueGoModal(true);
-      }
+      // BlueGo: solo rastreo — no hay confirmación manual de entrega
+      setShowBlueGoModal(true);
     } else {
-      // Manual paqueterías: step-by-step flow
+      // Transporte Interno / MEXICO EXPRESS: flujo manual completo
       if (s === 'Generado') {
+        // Paso 1: confirmar salida a reparto (con huella)
         setShowConfirmEnvio(true);
       } else if (s === 'En reparto') {
+        // Paso 2: confirmar entrega al cliente (con huella)
         setShowHuellaModal('entrega');
       }
     }
@@ -1315,13 +1311,20 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     (selectedShipment.paqueteria === 'Transporte Interno' || selectedShipment.paqueteria === 'MEXICO EXPRESS');
   const isUberOrBluego = selectedShipment !== null &&
     (selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo');
+
+  // Reglas de disponibilidad del botón de acción principal:
+  // - Estafeta: solo si está en Generado o Solicitado (para generar guía)
+  // - Uber/BlueGo: solo si está en Generado (para generar/ver solicitud); En tránsito solo rastreo
+  // - Transporte Interno: disponible en Generado (confirmar salida) y En reparto (confirmar entrega)
   const canEnviar = selectedShipment !== null && (
     selectedShipment.paqueteria === 'Estafeta'
       ? (selectedShipment.status === 'Generado' || selectedShipment.status === 'Solicitado')
       : isUberOrBluego
-      ? selectedShipment.status !== 'Entregado'
-      : isManualPaqueteria && selectedShipment.status !== 'Entregado'
+      ? (selectedShipment.status === 'Generado' || selectedShipment.status === 'Solicitado' || selectedShipment.status === 'En tránsito')
+      : isManualPaqueteria && (selectedShipment.status === 'Generado' || selectedShipment.status === 'En reparto')
   );
+
+  // Edición solo disponible en estado Generado (antes de enviar por cualquier medio)
   const canEditar = selectedShipment !== null && selectedShipment.status === 'Generado';
 
   const shipmentTotal = selectedShipment
@@ -1337,38 +1340,57 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     if (!selectedShipment) return 'Enviar solicitud';
     const p = selectedShipment.paqueteria;
     const s = selectedShipment.status;
+
+    // Estafeta: siempre generar guía
     if (p === 'Estafeta') return 'Generar guía Estafeta';
-    // Uber / BlueGo: si ya tiene solicitud generada → ver tracking; si no → generar solicitud
+
+    // Uber: generar solicitud (Generado) o rastrear (En tránsito)
     if (p === 'Uber') {
-      if (s === 'En tránsito' || s === 'En reparto') return 'Confirmar entrega';
+      if (s === 'En tránsito') return 'Rastrear Uber';
       if (selectedShipment.uberData) return 'Ver solicitud Uber';
       return 'Generar solicitud Uber';
     }
+
+    // BlueGo: generar solicitud (Generado) o rastrear (En tránsito)
     if (p === 'BlueGo') {
-      if (s === 'En tránsito' || s === 'En reparto') return 'Confirmar entrega';
+      if (s === 'En tránsito') return 'Rastrear BlueGo';
       if (selectedShipment.blueGoData) return 'Ver solicitud BlueGo';
       return 'Generar solicitud BlueGo';
     }
-    // Manual paqueterías
-    if (s === 'Generado') return 'Confirmar envío';
-    if (s === 'En reparto') return 'Confirmar entrega';
-    return 'Confirmar envío';
+
+    // Transporte Interno / MEXICO EXPRESS: flujo manual
+    if (s === 'Generado') return 'Confirmar salida a reparto';
+    if (s === 'En reparto') return 'Confirmar entrega al cliente';
+    return 'Confirmar salida a reparto';
   };
+
   const getEnviarColor = () => {
     if (!selectedShipment) return '#6b7280';
     const p = selectedShipment.paqueteria;
     const s = selectedShipment.status;
     if (p === 'Estafeta') return '#cc0000';
-    if (p === 'Uber') {
-      if (s === 'En tránsito' || s === 'En reparto') return '#16a34a';
-      return '#111';
+    if (p === 'Uber') return '#111';
+    if (p === 'BlueGo') return '#1a2b6b';
+    // Transporte Interno
+    if (s === 'En reparto') return '#16a34a'; // verde para confirmar entrega
+    return '#7c3aed'; // morado para confirmar salida
+  };
+
+  // Texto de estado informativo para Uber/BlueGo en tránsito
+  const getStatusInfoText = () => {
+    if (!selectedShipment) return null;
+    const p = selectedShipment.paqueteria;
+    const s = selectedShipment.status;
+    if ((p === 'Uber' || p === 'BlueGo') && s === 'En tránsito') {
+      return `El estado se actualiza automáticamente desde ${p}. Use el botón para rastrear.`;
     }
-    if (p === 'BlueGo') {
-      if (s === 'En tránsito' || s === 'En reparto') return '#16a34a';
-      return '#1a2b6b';
+    if ((p === 'Uber' || p === 'BlueGo') && s === 'Entregado') {
+      return `Entrega confirmada automáticamente por ${p}.`;
     }
-    if (s === 'En reparto') return '#16a34a';
-    return '#7c3aed';
+    if (p === 'Estafeta' && s === 'En tránsito') {
+      return 'Guía generada. El reparto está en curso.';
+    }
+    return null;
   };
 
   return (
@@ -1522,19 +1544,33 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
               {/* Action section */}
               <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
                 <h3 className="text-sm font-bold text-gray-700 mb-3">Acciones de envío</h3>
-                  <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    onClick={handleEnviarSolicitud}
-                    disabled={!canEnviar}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all"
-                    style={canEnviar
-                      ? { background: getEnviarColor(), color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }
-                      : { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
-                    }
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-                    {getEnviarLabel()}
-                  </button>
+
+                {/* Info banner para Uber/BlueGo en tránsito o entregado */}
+                {getStatusInfoText() && (
+                  <div className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.15)' }}>
+                    <svg className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#2563eb' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                    <p className="text-xs" style={{ color: '#1d4ed8' }}>{getStatusInfoText()}</p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 flex-wrap">
+                  {canEnviar && (
+                    <button
+                      onClick={handleEnviarSolicitud}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all"
+                      style={{ background: getEnviarColor(), color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
+                    >
+                      {/* Ícono según tipo de acción */}
+                      {(selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo') && selectedShipment.status === 'En tránsito' ? (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                      ) : selectedShipment.status === 'En reparto' ? (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="20 6 9 17 4 12"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+                      )}
+                      {getEnviarLabel()}
+                    </button>
+                  )}
                   {canEditar && (
                     <button
                       onClick={() => setShowEditModal(true)}
@@ -1545,15 +1581,13 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
                       Editar embarque
                     </button>
                   )}
+                  {!canEnviar && !canEditar && selectedShipment.status === 'Entregado' && (
+                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg" style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.2)' }}>
+                      <svg className="w-4 h-4" style={{ color: '#16a34a' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="20 6 9 17 4 12"/></svg>
+                      <span className="text-sm font-semibold" style={{ color: '#15803d' }}>Embarque entregado</span>
+                    </div>
+                  )}
                 </div>
-                {!canEnviar && selectedShipment && selectedShipment.status !== 'Entregado' && (
-                  <p className="text-xs text-gray-400 mt-2">
-                    {selectedShipment.paqueteria !== 'Estafeta' && selectedShipment.paqueteria !== 'Uber' && selectedShipment.paqueteria !== 'BlueGo'
-                      ? 'Use el botón Confirmar envío para registrar la salida a reparto'
-                      : `Solo disponible para embarques Estafeta en estado Generado o Solicitado`
-                    }
-                  </p>
-                )}
               </div>
             </div>
           )}

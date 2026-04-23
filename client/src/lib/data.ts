@@ -249,7 +249,7 @@ export const SHIPMENTS_DB_INITIAL: Shipment[] = [
   },
   {
     id: '88509', paqueteria: 'Transporte Interno', pedidos: ['1064838'], observaciones: 'alonzo',
-    status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 5, peso: 28.0, usuario: 'JMORENO11',
+    status: 'En reparto', fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 5, peso: 28.0, usuario: 'JMORENO11',
     boxes: [
       { id: 'C1', pedidoId: '1064838', peso: 5.2 },
       { id: 'C2', pedidoId: '1064838', peso: 6.1, largo: 50, ancho: 40, alto: 30 },
