@@ -641,6 +641,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
                         setSelectedId(order.id);
                         if (order.status === 'Surtido') setShowAuthModal(true);
                         else if (order.status === 'Revisado' || order.status === 'Revisado con incidencias') setShowEmbarcarModal(true);
+                        else if (order.status === 'Documentado' || order.status === 'Enviado') onNavigateToEmbarques(order.id);
                       }}
                       className="cursor-pointer transition-colors"
                       style={{
@@ -688,7 +689,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
           Se encontraron <strong className="text-gray-700">{filteredOrders.length}</strong> pedidos
           {selectedOrder
             ? <> | Pedido <strong className="text-blue-700">#{selectedOrder.id}</strong> seleccionado — {selectedOrder.status}</>
-            : ' | Presiona doble clic sobre cualquier pedido para ver sus partidas | F3 - Editar Pedido'
+            : ' | Doble clic: Surtido→Revisar · Revisado→Embarcar · Documentado→Ver embarque | F3 - Editar Pedido'
           }
         </p>
       </div>

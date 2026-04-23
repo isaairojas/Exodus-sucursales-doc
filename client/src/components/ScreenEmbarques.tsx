@@ -908,8 +908,9 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   };
 
   const canEnviar = selectedShipment !== null &&
-    (selectedShipment.status === 'Generado' || selectedShipment.status === 'Solicitado') &&
-    (selectedShipment.paqueteria === 'Estafeta' || selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo');
+    (selectedShipment.paqueteria === 'Estafeta'
+      ? (selectedShipment.status === 'Generado' || selectedShipment.status === 'Solicitado')
+      : (selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo'));
 
   const shipmentTotal = selectedShipment
     ? selectedShipment.pedidos.reduce((sum, pid) => {
@@ -924,8 +925,8 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     if (!selectedShipment) return 'Enviar solicitud';
     const p = selectedShipment.paqueteria;
     if (p === 'Estafeta') return 'Generar guía Estafeta';
-    if (p === 'Uber') return 'Ver seguimiento Uber';
-    if (p === 'BlueGo') return 'Ver seguimiento BlueGo';
+    if (p === 'Uber') return 'Ver solicitud Uber';
+    if (p === 'BlueGo') return 'Ver solicitud BlueGo';
     return 'Enviar solicitud';
   };
 
@@ -1113,22 +1114,13 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
                     {getEnviarLabel()}
                   </button>
 
-                  {selectedShipment.paqueteria === 'Uber' && (
-                    <button onClick={() => setShowUberModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold border-2 transition-all" style={{ borderColor: '#111', color: '#111', background: '#fff' }}>
-                      Seguimiento UBER
-                    </button>
-                  )}
-                  {selectedShipment.paqueteria === 'BlueGo' && (
-                    <button onClick={() => setShowBlueGoModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold border-2 transition-all" style={{ borderColor: '#1a2b6b', color: '#1a2b6b', background: '#fff' }}>
-                      Seguimiento BlueGo
-                    </button>
-                  )}
+
                 </div>
                 {!canEnviar && selectedShipment && (
                   <p className="text-xs text-gray-400 mt-2">
                     {selectedShipment.paqueteria !== 'Estafeta' && selectedShipment.paqueteria !== 'Uber' && selectedShipment.paqueteria !== 'BlueGo'
                       ? 'Esta paquetería no tiene web service disponible'
-                      : `Solo disponible para embarques en estado Generado o Solicitado`
+                      : `Solo disponible para embarques Estafeta en estado Generado o Solicitado`
                     }
                   </p>
                 )}

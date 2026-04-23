@@ -128,7 +128,7 @@ export const ORDERS_DB: Record<string, Order> = {
   '1064838': {
     id: '1064838', clienteId: '1', cliente: 'CLIENTE MOSTRADOR',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
-    total: '$860.09', status: 'Documentado',
+    total: '$860.09', status: 'Revisado',
     elaboro: 'Ángel', origen: 'Exodus ERP', observaciones: '',
     fechaCaptura: '2026-04-22 14:13', fechaEntrega: '', horaEntrega: '', horaReparto: '', zona: '', local: false,
     horaInicioSurtido: '14:20', horaFinSurtido: '14:45',
