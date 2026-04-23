@@ -206,7 +206,7 @@ function vitePluginStorageProxy(): Plugin {
 const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
 
 export default defineConfig({
-  base: process.env.GITHUB_PAGES ? '/Revisi-nn/' : '/',
+  base: process.env.GITHUB_PAGES ? '/Exodus-sucursales-doc/' : '/',
   plugins,
   resolve: {
     alias: {

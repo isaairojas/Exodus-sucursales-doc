@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>APYMSA — Módulo de Revisión</title>
+    <script>
+      // GitHub Pages SPA redirect trick
+      // Stores the current path in sessionStorage and redirects to index.html
+      // so the React router can handle it on load.
+      var repo = '/Exodus-sucursales-doc';
+      var l = window.location;
+      var path = l.pathname.slice(repo.length) || '/';
+      sessionStorage.redirect = path + l.search + l.hash;
+      l.replace(repo + '/?p=1');
+    </script>
+  </head>
+  <body></body>
+</html>
