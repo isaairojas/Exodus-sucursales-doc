@@ -6,9 +6,10 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL } from '@/lib/data';
+import ModalFacturacion from '@/components/ModalFacturacion';
 
 interface Props {
-  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
   onNavigateToEmbarques: (orderId?: string) => void;
 }
 
@@ -765,6 +766,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
+  // Facturación modal state
+  const [showFacturaModal, setShowFacturaModal] = useState(false);
 
   // Embarcar modal state
   const [showEmbarcarModal, setShowEmbarcarModal] = useState(false);
@@ -812,7 +815,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   const canSurtir       = selectedOrder?.status === 'Activo';
   const canRevisar      = selectedOrder?.status === 'Surtido';
   const canFacturar     = selectedOrder?.status === 'Revisado' || selectedOrder?.status === 'Revisado con incidencias';
-  const canDocumentar   = selectedOrder?.status === 'Revisado' || selectedOrder?.status === 'Revisado con incidencias';
+  // Solo se puede documentar (crear embarque) si el pedido ya fue facturado
+  const canDocumentar   = selectedOrder?.status === 'Facturado';
   const canVerEmbarques = selectedOrder?.status === 'Documentado' || selectedOrder?.status === 'Enviado';
 
   const handleSurtir = () => {
@@ -987,7 +991,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
                       onDoubleClick={() => {
                         setSelectedId(order.id);
                         if (order.status === 'Surtido') setShowAuthModal(true);
-                        else if (order.status === 'Revisado' || order.status === 'Revisado con incidencias') setShowEmbarcarModal(true); // Documentar
+                        else if (order.status === 'Revisado' || order.status === 'Revisado con incidencias') setShowFacturaModal(true); // Facturar
+                        else if (order.status === 'Facturado') setShowEmbarcarModal(true); // Documentar
                         else if (order.status === 'Documentado' || order.status === 'Enviado') onNavigateToEmbarques(order.id);
                       }}
                       className="cursor-pointer transition-colors"
@@ -1086,7 +1091,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
 
           {/* Facturar */}
           <button
-            onClick={() => showToast(`Abriendo facturación para pedido #${selectedOrder?.id}`, 'info')}
+            onClick={() => setShowFacturaModal(true)}
             disabled={!canFacturar}
             className={btnBase}
             style={canFacturar
@@ -1149,6 +1154,15 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
           orderId={selectedOrder.id}
           onConfirm={handleAuthConfirm}
           onClose={() => setShowAuthModal(false)}
+        />
+      )}
+
+      {/* Facturación modal */}
+      {showFacturaModal && selectedOrder && (
+        <ModalFacturacion
+          order={selectedOrder}
+          showToast={showToast}
+          onClose={() => setShowFacturaModal(false)}
         />
       )}
 
