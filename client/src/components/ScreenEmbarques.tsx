@@ -4,7 +4,7 @@
 // Design: Enterprise Precision — two-panel split, light theme
 // Carriers: Estafeta (web-service guía), BlueGo, Uber (solicitud)
 // ============================================================
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
   ORDERS_DB, Order, OrderStatus, STATUS_COLORS,
@@ -325,20 +325,43 @@ function ModalGuiaEstafeta({ shipment, onClose, onGuiaGenerada, showToast }: Mod
 // ── Modal Seguimiento Uber Direct ─────────────────────────────
 interface ModalUberTrackingProps {
   onClose: () => void;
+  shipment?: Shipment | null;
 }
 
-const UBER_SOLICITUDES = [
-  { embarqueId: '88516', uberId: '97415', estatus: 'En proceso de entre...', clienteId: '372895', direccion: 'AV NOGALES 205 A La Venta Del Ast...', fechaSolicitud: '22/04/2026 - 12:04:50 PM', fechaEstimada: '22/04/2026 - 12:45:21 PM', fechaRecoleccion: '22/04/2026 - 12:18:12 PM', fechaRealEntrega: '', tracking: 'https://www.uber.com/track/97415' },
-  { embarqueId: '88517', uberId: '8A30D', estatus: 'En proceso de entre...', clienteId: '51849', direccion: 'VALLE DE TESISTAN 172 TESISTAN...', fechaSolicitud: '22/04/2026 - 12:13:25 PM', fechaEstimada: '22/04/2026 - 12:34:03 PM', fechaRecoleccion: '22/04/2026 - 12:20:38 PM', fechaRealEntrega: '', tracking: 'https://www.uber.com/track/8A30D' },
+const UBER_SOLICITUDES_DEMO = [
+  { embarqueId: '88516', uberId: '97415', estatus: 'En proceso de entrega', clienteId: '85622', direccion: 'AV NOGALES 205 A La Venta Del Astillero, Zapopan', fechaSolicitud: '22/04/2026 - 12:04:50 PM', fechaEstimada: '22/04/2026 - 12:45:21 PM', fechaRecoleccion: '22/04/2026 - 12:18:12 PM', fechaRealEntrega: '', tracking: 'https://www.uber.com/track/97415' },
+  { embarqueId: '88517', uberId: '8A30D', estatus: 'En proceso de entrega', clienteId: '51849', direccion: 'VALLE DE TESISTAN 172 TESISTAN...', fechaSolicitud: '22/04/2026 - 12:13:25 PM', fechaEstimada: '22/04/2026 - 12:34:03 PM', fechaRecoleccion: '22/04/2026 - 12:20:38 PM', fechaRealEntrega: '', tracking: 'https://www.uber.com/track/8A30D' },
 ];
 
-function ModalUberTracking({ onClose }: ModalUberTrackingProps) {
-  const [selectedIdx, setSelectedIdx] = useState(0);
+function ModalUberTracking({ onClose, shipment }: ModalUberTrackingProps) {
   const [tab, setTab] = useState<'activo' | 'historico'>('activo');
   const [fechaInicial, setFechaInicial] = useState('2026-04-20');
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
 
-  const selected = UBER_SOLICITUDES[selectedIdx];
+  // Build list: if a specific shipment is passed, show it first; always include demo data
+  const allSolicitudes = useMemo(() => {
+    if (shipment?.uberData) {
+      const ud = shipment.uberData;
+      const fromShipment = {
+        embarqueId: shipment.id,
+        uberId: ud.uberId,
+        estatus: ud.estatus,
+        clienteId: ORDERS_DB[shipment.pedidos[0]]?.clienteId ?? '—',
+        direccion: ud.direccion,
+        fechaSolicitud: ud.fechaSolicitud,
+        fechaEstimada: ud.fechaEstimada,
+        fechaRecoleccion: ud.fechaRecoleccion,
+        fechaRealEntrega: ud.fechaEntregaReal,
+        tracking: `https://www.uber.com/track/${ud.uberId}`,
+      };
+      const rest = UBER_SOLICITUDES_DEMO.filter(s => s.embarqueId !== shipment.id);
+      return [fromShipment, ...rest];
+    }
+    return UBER_SOLICITUDES_DEMO;
+  }, [shipment]);
+
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const selected = allSolicitudes[selectedIdx];
 
   return (
     <div
@@ -406,7 +429,7 @@ function ModalUberTracking({ onClose }: ModalUberTrackingProps) {
                 </tr>
               </thead>
               <tbody>
-                {UBER_SOLICITUDES.map((s, i) => (
+                {allSolicitudes.map((s, i) => (
                   <tr
                     key={s.embarqueId}
                     onClick={() => setSelectedIdx(i)}
@@ -502,13 +525,33 @@ function ModalUberTracking({ onClose }: ModalUberTrackingProps) {
 // ── Modal Seguimiento BlueGo ──────────────────────────────────
 interface ModalBlueGoTrackingProps {
   onClose: () => void;
+  shipment?: Shipment | null;
 }
 
-const BLUEGO_SOLICITUDES = [
-  { embarqueId: '83275', salidasVehiculosId: '', solicitudId: '1018062', estatusExodus: 'Buscando Repartidor', tiempoEstimado: '', tiempoTranscurrido: '', fechaInicio: '' },
+const BLUEGO_SOLICITUDES_DEMO = [
+  { embarqueId: '88517', salidasVehiculosId: '83275', solicitudId: '1018062', estatusExodus: 'En proceso de entrega', tiempoEstimado: '45 min', tiempoTranscurrido: '28 min', fechaInicio: '22/04/2026 - 12:13:25 PM' },
 ];
 
-function ModalBlueGoTracking({ onClose }: ModalBlueGoTrackingProps) {
+function ModalBlueGoTracking({ onClose, shipment }: ModalBlueGoTrackingProps) {
+  // Build list: if a specific shipment is passed, show it first
+  const allBluego = useMemo(() => {
+    if (shipment?.blueGoData) {
+      const bg = shipment.blueGoData;
+      const fromShipment = {
+        embarqueId: shipment.id,
+        salidasVehiculosId: bg.salidasVehiculosId,
+        solicitudId: bg.solicitudId,
+        estatusExodus: bg.estatusExodus,
+        tiempoEstimado: bg.tiempoEstimado,
+        tiempoTranscurrido: bg.tiempoTranscurrido,
+        fechaInicio: bg.fechaInicio,
+      };
+      const rest = BLUEGO_SOLICITUDES_DEMO.filter(s => s.embarqueId !== shipment.id);
+      return [fromShipment, ...rest];
+    }
+    return BLUEGO_SOLICITUDES_DEMO;
+  }, [shipment]);
+
   const [fechaInicial, setFechaInicial] = useState('2026-04-20');
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
   const [ofertaServicio, setOfertaServicio] = useState('');
@@ -588,7 +631,7 @@ function ModalBlueGoTracking({ onClose }: ModalBlueGoTrackingProps) {
                 </tr>
               </thead>
               <tbody>
-                {BLUEGO_SOLICITUDES.map((s, i) => (
+                {allBluego.map((s, i) => (
                   <tr
                     key={s.embarqueId}
                     style={{
@@ -821,6 +864,20 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   const [showUberModal, setShowUberModal] = useState(false);
   const [showBlueGoModal, setShowBlueGoModal] = useState(false);
   const [guias, setGuias] = useState<Record<string, string>>({});
+
+  // Auto-select shipment when navigating from a specific order
+  useEffect(() => {
+    if (!preSelectedOrderId) return;
+    const match = shipments.find(s => s.pedidos.includes(preSelectedOrderId));
+    if (match) {
+      setSelectedShipmentId(match.id);
+      // Auto-open the tracking panel based on paquetería
+      if (match.paqueteria === 'Uber') setShowUberModal(true);
+      else if (match.paqueteria === 'BlueGo') setShowBlueGoModal(true);
+      else if (match.paqueteria === 'Estafeta' && !match.guia) setShowGuiaModal(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preSelectedOrderId]);
 
   const selectedShipment = shipments.find(s => s.id === selectedShipmentId) ?? null;
 
@@ -1099,8 +1156,8 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
           showToast={showToast}
         />
       )}
-      {showUberModal && <ModalUberTracking onClose={() => setShowUberModal(false)} />}
-      {showBlueGoModal && <ModalBlueGoTracking onClose={() => setShowBlueGoModal(false)} />}
+      {showUberModal && <ModalUberTracking onClose={() => setShowUberModal(false)} shipment={selectedShipment} />}
+      {showBlueGoModal && <ModalBlueGoTracking onClose={() => setShowBlueGoModal(false)} shipment={selectedShipment} />}
     </div>
   );
 }

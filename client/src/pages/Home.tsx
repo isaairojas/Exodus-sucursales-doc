@@ -42,7 +42,7 @@ export default function Home() {
         {(state.currentScreen === 'orders' || state.currentScreen === 'select') && desktopView === 'orders' && (
           <ScreenOrders
             showToast={showToast}
-            onNavigateToEmbarques={() => handleNavigateToEmbarques()}
+            onNavigateToEmbarques={handleNavigateToEmbarques}
           />
         )}
 

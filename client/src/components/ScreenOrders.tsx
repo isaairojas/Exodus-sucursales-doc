@@ -9,7 +9,7 @@ import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus,
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
-  onNavigateToEmbarques: () => void;
+  onNavigateToEmbarques: (orderId?: string) => void;
 }
 
 const ALL_STATUSES: OrderStatus[] = ['Activo', 'Surtido', 'Revisado', 'Revisado con incidencias', 'Documentado', 'Enviado', 'Facturado', 'Cancelado'];
@@ -274,22 +274,16 @@ function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarPr
                   {PAQUETERIAS.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 font-medium mb-1">Tipo de envío</label>
-                <div className="flex gap-3 mt-1">
-                  {['BlueGo', 'Uber', 'Interno'].map(t => (
-                    <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="tipoEnvio"
-                        checked={paqueteria === t || (t === 'Interno' && paqueteria !== 'BlueGo' && paqueteria !== 'Uber' && paqueteria !== '')}
-                        onChange={() => setPaqueteria(t === 'Interno' ? 'Transporte Interno' : t)}
-                        className="accent-blue-700"
-                      />
-                      <span className="text-xs text-gray-600">{t}</span>
-                    </label>
-                  ))}
-                </div>
+              <div className="flex flex-col justify-end">
+                {paqueteria && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                    style={{ background: paqueteria === 'Uber' ? 'rgba(0,0,0,0.06)' : paqueteria === 'BlueGo' ? 'rgba(37,99,235,0.08)' : paqueteria === 'Estafeta' ? 'rgba(220,38,38,0.07)' : 'rgba(26,43,107,0.06)', color: '#374151' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                      {paqueteria === 'Uber' ? 'local_taxi' : paqueteria === 'BlueGo' ? 'electric_moped' : paqueteria === 'Estafeta' ? 'local_shipping' : 'warehouse'}
+                    </span>
+                    {paqueteria}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -505,11 +499,12 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
 
   const handleDocumentar = () => {
     if (!selectedOrder) return;
-    onNavigateToEmbarques();
+    onNavigateToEmbarques(selectedOrder.id);
   };
 
   const handleVerEmbarques = () => {
-    onNavigateToEmbarques();
+    if (!selectedOrder) return;
+    onNavigateToEmbarques(selectedOrder.id);
   };
 
   const handleEmbarcarCreated = (shipment: Shipment) => {

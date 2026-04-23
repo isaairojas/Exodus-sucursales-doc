@@ -50,6 +50,25 @@ export interface Order {
 
 export type ShipmentStatus = 'Generado' | 'Solicitado' | 'En tránsito' | 'Entregado';
 
+export interface UberData {
+  uberId: string;
+  estatus: string;
+  direccion: string;
+  fechaSolicitud: string;
+  fechaEstimada: string;
+  fechaRecoleccion: string;
+  fechaEntregaReal: string;
+}
+
+export interface BlueGoData {
+  solicitudId: string;
+  estatusExodus: string;
+  tiempoEstimado: string;
+  tiempoTranscurrido: string;
+  fechaInicio: string;
+  salidasVehiculosId: string;
+}
+
 export interface Shipment {
   id: string;
   paqueteria: string;
@@ -61,6 +80,9 @@ export interface Shipment {
   cajas: number;
   peso: number;
   usuario: string;
+  guia?: string;
+  uberData?: UberData;
+  blueGoData?: BlueGoData;
 }
 
 // ── Product catalog ──────────────────────────────────────────
@@ -106,7 +128,7 @@ export const ORDERS_DB: Record<string, Order> = {
   '1064838': {
     id: '1064838', clienteId: '1', cliente: 'CLIENTE MOSTRADOR',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
-    total: '$860.09', status: 'Revisado',
+    total: '$860.09', status: 'Documentado',
     elaboro: 'Ángel', origen: 'Exodus ERP', observaciones: '',
     fechaCaptura: '2026-04-22 14:13', fechaEntrega: '', horaEntrega: '', horaReparto: '', zona: '', local: false,
     horaInicioSurtido: '14:20', horaFinSurtido: '14:45',
@@ -130,7 +152,7 @@ export const ORDERS_DB: Record<string, Order> = {
   '1064847': {
     id: '1064847', clienteId: '85622', cliente: 'HUMBERTO NAVA ARIAS',
     vendedorId: '1786', vendedor: 'Razo Alvarez Luis', plazo: '30 días',
-    total: '$1,937.82', status: 'Surtido',
+    total: '$1,937.82', status: 'Documentado',
     elaboro: 'Ángel', origen: 'Samsung', observaciones: '',
     fechaCaptura: '2026-04-22 15:12', fechaEntrega: '2026-04-24', horaEntrega: '17:22', horaReparto: '17:00', zona: 'Sur', local: false,
     horaInicioSurtido: '15:15', horaFinSurtido: '15:48',
@@ -181,10 +203,31 @@ export const ORDERS_DB: Record<string, Order> = {
 
 // ── Shipments database ────────────────────────────────────────
 export const SHIPMENTS_DB_INITIAL: Shipment[] = [
-  { id: '88509', paqueteria: 'Transporte Interno', pedidos: ['1064851'], observaciones: 'borjas',  status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Van',      cajas: 3, peso: 12.5, usuario: 'JMORENO11' },
-  { id: '88511', paqueteria: 'Transporte Interno', pedidos: ['1064838','1064844'], observaciones: 'alonzo', status: 'Generado',    fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 5, peso: 28.0, usuario: 'JMORENO11' },
-  { id: '88514', paqueteria: 'MEXICO EXPRESS',     pedidos: ['1064853'], observaciones: 'mexico',  status: 'Entregado',   fecha: '2026-04-22', tipoVehiculo: 'Camión',    cajas: 8, peso: 45.2, usuario: 'JMORENO11' },
-  { id: '88515', paqueteria: 'Transporte Interno', pedidos: ['1064848'], observaciones: 'quiroga', status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Sedan',     cajas: 2, peso: 8.0,  usuario: 'JMORENO11' },
+  {
+    id: '88516', paqueteria: 'Uber', pedidos: ['1064847'], observaciones: 'zarate',
+    status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Auto', cajas: 2, peso: 6.5, usuario: 'JMORENO11',
+    uberData: {
+      uberId: '97415', estatus: 'En proceso de entrega',
+      direccion: 'AV NOGALES 205 A La Venta Del Astillero, Zapopan',
+      fechaSolicitud: '2026-04-22 12:04:50 PM', fechaEstimada: '2026-04-22 12:45:21 PM',
+      fechaRecoleccion: '2026-04-22 12:18:12 PM', fechaEntregaReal: '',
+    },
+  },
+  {
+    id: '88517', paqueteria: 'BlueGo', pedidos: ['1064851'], observaciones: 'quiroga',
+    status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Motocicleta', cajas: 1, peso: 3.2, usuario: 'JMORENO11',
+    blueGoData: {
+      solicitudId: '1018062', estatusExodus: 'En proceso de entrega',
+      tiempoEstimado: '45 min', tiempoTranscurrido: '28 min',
+      fechaInicio: '2026-04-22 12:13:25 PM', salidasVehiculosId: '83275',
+    },
+  },
+  {
+    id: '88518', paqueteria: 'Estafeta', pedidos: ['1064844'], observaciones: 'mexico',
+    status: 'Generado', fecha: '2026-04-22', tipoVehiculo: 'Camión', cajas: 3, peso: 18.0, usuario: 'JMORENO11',
+  },
+  { id: '88509', paqueteria: 'Transporte Interno', pedidos: ['1064838'], observaciones: 'alonzo', status: 'En tránsito', fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 5, peso: 28.0, usuario: 'JMORENO11' },
+  { id: '88514', paqueteria: 'Transporte Interno', pedidos: ['1064853'], observaciones: 'borjas',  status: 'Entregado',   fecha: '2026-04-22', tipoVehiculo: 'Camión',    cajas: 8, peso: 45.2, usuario: 'JMORENO11' },
 ];
 
 // ── App state types ───────────────────────────────────────────
