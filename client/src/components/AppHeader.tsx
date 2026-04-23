@@ -23,7 +23,6 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
     fontSize: 13,
     fontWeight: active ? 700 : 500,
     color: active ? '#fff' : 'rgba(255,255,255,0.55)',
-    borderBottom: active ? '2px solid #60a5fa' : '2px solid transparent',
     cursor: 'pointer' as const,
     transition: 'all 0.15s',
     background: 'transparent',

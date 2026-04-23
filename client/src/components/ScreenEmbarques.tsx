@@ -375,17 +375,50 @@ interface ModalUberTrackingProps {
   shipment?: Shipment | null;
 }
 
+// Uber defaults for pre-filling the request form (last delivery to this client)
+const UBER_DEFAULTS = {
+  direccion: 'SANTA ESTHER 227 Y 229',
+  dpto: 'Interior',
+  referencias: 'TALLER ELECTRICO FRENTE CARNITAS LA PIEDAD',
+  receptor: 'ARROYO LUJAN PABLO ALBERTO',
+  telefono: '6461883377',
+  descripcion: 'Varios',
+};
+
 const UBER_SOLICITUDES_DEMO = [
   { embarqueId: '88516', uberId: '97415', estatus: 'En proceso de entrega', clienteId: '85622', direccion: 'AV NOGALES 205 A La Venta Del Astillero, Zapopan', fechaSolicitud: '22/04/2026 - 12:04:50 PM', fechaEstimada: '22/04/2026 - 12:45:21 PM', fechaRecoleccion: '22/04/2026 - 12:18:12 PM', fechaRealEntrega: '', tracking: 'https://www.uber.com/track/97415' },
   { embarqueId: '88517', uberId: '8A30D', estatus: 'En proceso de entrega', clienteId: '51849', direccion: 'VALLE DE TESISTAN 172 TESISTAN...', fechaSolicitud: '22/04/2026 - 12:13:25 PM', fechaEstimada: '22/04/2026 - 12:34:03 PM', fechaRecoleccion: '22/04/2026 - 12:20:38 PM', fechaRealEntrega: '', tracking: 'https://www.uber.com/track/8A30D' },
 ];
 
-function ModalUberTracking({ onClose, shipment }: ModalUberTrackingProps) {
+interface ModalUberTrackingProps {
+  onClose: () => void;
+  shipment?: Shipment | null;
+  onSolicitudGenerada?: (shipmentId: string) => void;
+}
+
+function ModalUberTracking({ onClose, shipment, onSolicitudGenerada }: ModalUberTrackingProps) {
+  // Mode: 'generar' when shipment is Generado with no uberData; 'consulta' when already has solicitud
+  const isConsulta = !!(shipment?.uberData || shipment?.status === 'En tránsito');
+
+  // ── Generar mode state ──
+  const [uberForm, setUberForm] = useState({ ...UBER_DEFAULTS });
+  const [packageType, setPackageType] = useState<'Bolsa' | 'Paquete' | ''>('');
+  const updateForm = (key: keyof typeof UBER_DEFAULTS, val: string) =>
+    setUberForm(prev => ({ ...prev, [key]: val }));
+
+  const handleAceptar = () => {
+    if (!packageType) return;
+    if (shipment && onSolicitudGenerada) {
+      onSolicitudGenerada(shipment.id);
+    }
+    onClose();
+  };
+
+  // ── Consulta mode state ──
   const [tab, setTab] = useState<'activo' | 'historico'>('activo');
   const [fechaInicial, setFechaInicial] = useState('2026-04-20');
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
 
-  // Build list: if a specific shipment is passed, show it first; always include demo data
   const allSolicitudes = useMemo(() => {
     if (shipment?.uberData) {
       const ud = shipment.uberData;
@@ -417,8 +450,8 @@ function ModalUberTracking({ onClose, shipment }: ModalUberTrackingProps) {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-full max-w-3xl rounded-2xl overflow-hidden flex flex-col"
-        style={{ background: '#fff', maxHeight: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+        className="w-full rounded-2xl overflow-hidden flex flex-col"
+        style={{ background: '#fff', maxHeight: '90vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', maxWidth: isConsulta ? 780 : 520 }}
       >
         {/* Header */}
         <div
@@ -427,142 +460,233 @@ function ModalUberTracking({ onClose, shipment }: ModalUberTrackingProps) {
         >
           <div className="flex items-center gap-3">
             <span className="font-black text-white text-lg tracking-tight">UBER</span>
-            <span className="text-gray-400 text-sm">Solicitudes de Uber Direct</span>
+            <span className="text-gray-400 text-sm">
+              {isConsulta ? 'Rastreo de solicitud' : 'Confirmar solicitud Uber'}
+            </span>
+            {shipment && <span className="text-gray-500 text-xs ml-2">Embarque #{shipment.id}</span>}
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-4 px-5 py-3" style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Fecha inicial</span>
-            <input type="date" value={fechaInicial} onChange={e => setFechaInicial(e.target.value)} className="border border-gray-200 rounded px-2 py-1 text-xs" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Fecha final</span>
-            <input type="date" value={fechaFinal} onChange={e => setFechaFinal(e.target.value)} className="border border-gray-200 rounded px-2 py-1 text-xs" />
-          </div>
-          <div className="flex rounded-lg overflow-hidden border border-gray-200">
-            {(['activo', 'historico'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className="px-4 py-1.5 text-xs font-semibold capitalize transition-all"
-                style={tab === t ? { background: '#111', color: '#fff' } : { background: '#fff', color: '#6b7280' }}
-              >
-                {t === 'activo' ? 'Activo' : 'Histórico'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
-          {/* Hint */}
-          <div className="text-xs text-gray-400 text-center py-1" style={{ background: '#f8f9fb', borderRadius: 4 }}>
-            F4 - Limpiar Filtro, F5 - Filtros, Esc - Cancelar Acción
-          </div>
-
-          {/* Top table */}
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ background: '#f0f4ff', borderBottom: '1px solid #e5e7eb' }}>
-                  {['EmbarqueID', 'UberID', 'Estatus', 'ClienteID', 'Dirección', 'Fecha hora solicitud', 'Fecha hora estimada'].map(h => (
-                    <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {allSolicitudes.map((s, i) => (
-                  <tr
-                    key={s.embarqueId}
-                    onClick={() => setSelectedIdx(i)}
-                    className="cursor-pointer transition-colors"
-                    style={{
-                      background: selectedIdx === i ? 'rgba(26,43,107,0.08)' : '#fff',
-                      borderBottom: '1px solid #f0f0f0',
-                      borderLeft: selectedIdx === i ? '3px solid #1a2b6b' : '3px solid transparent',
-                    }}
-                  >
-                    <td className="px-3 py-2 font-semibold">{s.embarqueId}</td>
-                    <td className="px-3 py-2 font-mono">{s.uberId}</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: 'rgba(37,99,235,0.1)', color: '#2563eb' }}>
-                        {s.estatus}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">{s.clienteId}</td>
-                    <td className="px-3 py-2 max-w-[160px] truncate">{s.direccion}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{s.fechaSolicitud}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{s.fechaEstimada}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Bottom detail table */}
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-            <div className="text-xs text-gray-400 text-center py-1" style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
-              F4 - Limpiar Filtro, F5 - Filtros, Esc - Cancelar Acción
+        {/* ── MODO GENERAR ── */}
+        {!isConsulta && (
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+            <div className="flex items-center gap-2 mb-1">
+              <svg className="w-5 h-5" style={{ color: '#2563eb' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span className="text-sm font-bold" style={{ color: '#1a2b6b' }}>Confirmar solicitud Uber</span>
             </div>
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ background: '#f0f4ff', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Fecha hora estimada', 'Fecha hora recolección', 'Fecha hora real entrega', 'Tracking'].map(h => (
-                    <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ background: 'rgba(26,43,107,0.08)', borderLeft: '3px solid #1a2b6b' }}>
-                  <td className="px-3 py-2 whitespace-nowrap">{selected.fechaEstimada}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{selected.fechaRecoleccion}</td>
-                  <td className="px-3 py-2">{selected.fechaRealEntrega || '—'}</td>
-                  <td className="px-3 py-2">
-                    <a
-                      href={selected.tracking}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold hover:underline"
-                      style={{ color: '#2563eb' }}
-                    >
-                      Consultar
-                    </a>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <p className="text-xs" style={{ color: '#6b7280' }}>
+              Datos prellenados con el último envío a esta dirección del cliente. Verifique y edite si es necesario.
+            </p>
+
+            {/* EmbarqueID */}
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: '#374151' }}>EmbarqueID</label>
+              <input readOnly value={shipment ? `#${shipment.id}` : 'EMB-NUEVO'}
+                className="w-full px-2.5 py-1.5 rounded border text-sm"
+                style={{ border: '1px solid #d1d5db', background: '#f9fafb', fontFamily: 'Roboto, sans-serif' }} />
+            </div>
+
+            <p className="text-xs font-medium" style={{ color: '#2563eb' }}>
+              Por favor, valida la información de envío, y si es correcta, selecciona cada uno de los cuadros vacíos.
+            </p>
+
+            {/* Uber fields */}
+            {([
+              { key: 'direccion', label: 'Dirección de entrega' },
+              { key: 'dpto', label: 'Dpto/Oficina/Piso' },
+              { key: 'referencias', label: 'Referencias de la dirección' },
+              { key: 'receptor', label: 'Nombre de quién recibe' },
+              { key: 'telefono', label: 'Teléfono de quién recibe' },
+              { key: 'descripcion', label: 'Descripción de artículo' },
+            ] as { key: keyof typeof UBER_DEFAULTS; label: string }[]).map(f => (
+              <div key={f.key} className="flex items-start gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium mb-1" style={{ color: '#374151' }}>{f.label}</label>
+                  <input
+                    value={uberForm[f.key]}
+                    onChange={e => updateForm(f.key, e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border text-sm outline-none"
+                    style={{ border: '1.5px solid #d1d5db', fontFamily: 'Roboto, sans-serif' }}
+                    onFocus={e => (e.target.style.borderColor = '#2563eb')}
+                    onBlur={e => (e.target.style.borderColor = '#d1d5db')}
+                  />
+                </div>
+                <div className="mt-6">
+                  <input type="checkbox" defaultChecked className="w-4 h-4" style={{ accentColor: '#1a2b6b' }} />
+                </div>
+              </div>
+            ))}
+
+            {/* Package type */}
+            <div>
+              <label className="block text-xs font-medium mb-2" style={{ color: '#374151' }}>
+                Tipo de paquete <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <div className="flex gap-4">
+                {(['Bolsa', 'Paquete'] as const).map(t => (
+                  <label key={t} className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: '#374151' }}>
+                    <input type="radio" name="uberPackageType" value={t}
+                      checked={packageType === t}
+                      onChange={() => setPackageType(t)}
+                      style={{ accentColor: '#1a2b6b', width: 16, height: 16 }} />
+                    {t}
+                  </label>
+                ))}
+              </div>
+              {!packageType && (
+                <p className="text-xs mt-1" style={{ color: '#dc2626' }}>Seleccione el tipo de paquete para continuar.</p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* ── MODO CONSULTA ── */}
+        {isConsulta && (
+          <>
+            {/* Filters */}
+            <div className="flex items-center gap-4 px-5 py-3 flex-shrink-0" style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Fecha inicial</span>
+                <input type="date" value={fechaInicial} onChange={e => setFechaInicial(e.target.value)} className="border border-gray-200 rounded px-2 py-1 text-xs" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Fecha final</span>
+                <input type="date" value={fechaFinal} onChange={e => setFechaFinal(e.target.value)} className="border border-gray-200 rounded px-2 py-1 text-xs" />
+              </div>
+              <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                {(['activo', 'historico'] as const).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className="px-4 py-1.5 text-xs font-semibold capitalize transition-all"
+                    style={tab === t ? { background: '#111', color: '#fff' } : { background: '#fff', color: '#6b7280' }}
+                  >
+                    {t === 'activo' ? 'Activo' : 'Histórico'}
+                  </button>
+                ))}
+              </div>
+              <div className="ml-auto flex items-center gap-2 px-3 py-1 rounded-lg text-xs font-semibold" style={{ background: 'rgba(37,99,235,0.08)', color: '#2563eb' }}>
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                Solo consulta
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+              <div className="text-xs text-gray-400 text-center py-1" style={{ background: '#f8f9fb', borderRadius: 4 }}>
+                F4 - Limpiar Filtro, F5 - Filtros, Esc - Cancelar Acción
+              </div>
+
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ background: '#f0f4ff', borderBottom: '1px solid #e5e7eb' }}>
+                      {['EmbarqueID', 'UberID', 'Estatus', 'ClienteID', 'Dirección', 'Fecha hora solicitud', 'Fecha hora estimada'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allSolicitudes.map((s, i) => (
+                      <tr
+                        key={s.embarqueId}
+                        onClick={() => setSelectedIdx(i)}
+                        className="cursor-pointer transition-colors"
+                        style={{
+                          background: selectedIdx === i ? 'rgba(26,43,107,0.08)' : '#fff',
+                          borderBottom: '1px solid #f0f0f0',
+                          borderLeft: selectedIdx === i ? '3px solid #1a2b6b' : '3px solid transparent',
+                        }}
+                      >
+                        <td className="px-3 py-2 font-semibold">{s.embarqueId}</td>
+                        <td className="px-3 py-2 font-mono">{s.uberId}</td>
+                        <td className="px-3 py-2">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: 'rgba(37,99,235,0.1)', color: '#2563eb' }}>
+                            {s.estatus}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">{s.clienteId}</td>
+                        <td className="px-3 py-2 max-w-[160px] truncate">{s.direccion}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{s.fechaSolicitud}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{s.fechaEstimada}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                <div className="text-xs text-gray-400 text-center py-1" style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
+                  F4 - Limpiar Filtro, F5 - Filtros, Esc - Cancelar Acción
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ background: '#f0f4ff', borderBottom: '1px solid #e5e7eb' }}>
+                      {['Fecha hora estimada', 'Fecha hora recolección', 'Fecha hora real entrega', 'Tracking'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ background: 'rgba(26,43,107,0.08)', borderLeft: '3px solid #1a2b6b' }}>
+                      <td className="px-3 py-2 whitespace-nowrap">{selected.fechaEstimada}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{selected.fechaRecoleccion}</td>
+                      <td className="px-3 py-2">{selected.fechaRealEntrega || '—'}</td>
+                      <td className="px-3 py-2">
+                        <a
+                          href={selected.tracking}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold hover:underline"
+                          style={{ color: '#2563eb' }}
+                        >
+                          Consultar
+                        </a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Footer */}
         <div
           className="flex-shrink-0 flex items-center justify-end gap-3 px-5 py-3"
           style={{ borderTop: '1px solid #e5e7eb', background: '#f8f9fb' }}
         >
-          <button
-            onClick={() => {}}
-            className="px-4 py-2 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition-all text-gray-600"
-          >
-            Cancelar Solicitud
-          </button>
-          <button
-            onClick={() => {}}
-            className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all"
-            style={{ background: '#1a2b6b', boxShadow: '0 2px 8px rgba(26,43,107,0.3)' }}
-          >
-            Solicitar
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition-all text-gray-600"
-          >
-            Cerrar
-          </button>
+          {!isConsulta && (
+            <>
+              <button
+                onClick={onClose}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border"
+                style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white' }}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+                Regresar
+              </button>
+              <button
+                onClick={handleAceptar}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium text-white transition-all"
+                style={{ background: packageType ? '#16a34a' : '#9ca3af', cursor: packageType ? 'pointer' : 'not-allowed' }}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M20 6L9 17l-5-5"/></svg>
+                Aceptar
+              </button>
+            </>
+          )}
+          {isConsulta && (
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition-all text-gray-600"
+            >
+              Cerrar
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1260,6 +1384,14 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     if (shipment) shipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Enviado' as any));
   };
 
+  const handleUberSolicitudGenerada = (shipmentId: string) => {
+    // Al generar solicitud Uber: cambiar estado a En tránsito y actualizar pedidos
+    setShipments(prev => prev.map(s => s.id === shipmentId ? { ...s, status: 'En tránsito' } : s));
+    const shipment = shipments.find(s => s.id === shipmentId);
+    if (shipment) shipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Enviado' as any));
+    showToast(`Embarque #${shipmentId} — Solicitud Uber generada, en tránsito`, 'success');
+  };
+
   const handleEnviarSolicitud = () => {
     if (!selectedShipment) return;
     const p = selectedShipment.paqueteria;
@@ -1612,7 +1744,7 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
           showToast={showToast}
         />
       )}
-      {showUberModal && <ModalUberTracking onClose={() => setShowUberModal(false)} shipment={selectedShipment} />}
+      {showUberModal && <ModalUberTracking onClose={() => setShowUberModal(false)} shipment={selectedShipment} onSolicitudGenerada={handleUberSolicitudGenerada} />}
       {showBlueGoModal && <ModalBlueGoTracking onClose={() => setShowBlueGoModal(false)} shipment={selectedShipment} />}
 
       {/* Confirm envio modal */}
