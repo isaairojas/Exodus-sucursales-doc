@@ -697,7 +697,57 @@ interface ModalCrearEmbarqueProps {
   editShipment?: Shipment | null;  // if provided, edit mode
 }
 
+// ── HuellaCrearModal — huella para confirmar creación/edición de embarque ──
+function HuellaCrearModal({ isEdit, onConfirm, onCancel }: { isEdit: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const [phase, setPhase] = useState<'idle' | 'scanning' | 'success'>('idle');
+  const accentColor = '#1a2b6b';
+  const handleScan = () => {
+    if (phase !== 'idle') return;
+    setPhase('scanning');
+    setTimeout(() => {
+      setPhase('success');
+      setTimeout(onConfirm, 600);
+    }, 1400);
+  };
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4 text-center">
+        <h2 className="text-lg font-bold mb-1" style={{ color: '#1a2b6b' }}>
+          {isEdit ? 'Confirmar actualización' : 'Confirmar embarque'}
+        </h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Registre su huella para {isEdit ? 'guardar los cambios del embarque' : 'crear el embarque'}
+        </p>
+        <div className="relative flex flex-col items-center mb-6">
+          <div
+            className="w-24 h-24 rounded-full flex items-center justify-center cursor-pointer transition-all"
+            style={{ background: phase === 'success' ? 'rgba(22,163,74,0.1)' : phase === 'scanning' ? 'rgba(26,43,107,0.1)' : 'rgba(26,43,107,0.06)', border: `2px solid ${phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#d1d5db'}` }}
+            onClick={handleScan}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 48, color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#1a2b6b' }}>
+              {phase === 'success' ? 'check_circle' : 'fingerprint'}
+            </span>
+          </div>
+          {phase === 'scanning' && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-24 h-24 rounded-full animate-ping" style={{ background: `${accentColor}22` }} />
+            </div>
+          )}
+        </div>
+        <p className="text-sm font-medium mb-6" style={{ color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#6b7280' }}>
+          {phase === 'success' ? 'Identidad confirmada' : phase === 'scanning' ? 'Verificando...' : 'Toque el ícono para escanear'}
+        </p>
+        {phase === 'idle' && (
+          <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderStatuses, editShipment }: ModalCrearEmbarqueProps) {
+  const [showHuellaCrear, setShowHuellaCrear] = useState(false);
+  const [pendingShipment, setPendingShipment] = useState<{ shipment: Shipment; orderIds: string[] } | null>(null);
   const isEditMode = !!editShipment;
 
   // Eligible orders: Revisado/Revisado con incidencias + already in editShipment
@@ -806,14 +856,33 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
       usuario: 'JMORENO11',
       boxes: finalBoxes,
     };
-    onCreated(newShipment, selectedOrders);
+
+    // Show fingerprint confirmation before saving
+    setPendingShipment({ shipment: newShipment, orderIds: selectedOrders });
+    setShowHuellaCrear(true);
+  };
+
+  const handleHuellaCrearConfirm = () => {
+    if (!pendingShipment) return;
+    const { shipment, orderIds } = pendingShipment;
+    onCreated(shipment, orderIds);
     if (!isEditMode && isUberOrBluego) showToast(`Solicitud enviada automáticamente a ${paqueteria}`, 'success');
-    showToast(isEditMode ? `Embarque #${newId} actualizado` : `Embarque #${newId} creado correctamente`, 'success');
+    showToast(isEditMode ? `Embarque #${shipment.id} actualizado` : `Embarque #${shipment.id} creado correctamente`, 'success');
+    setShowHuellaCrear(false);
+    setPendingShipment(null);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <>
+    {showHuellaCrear && (
+      <HuellaCrearModal
+        isEdit={isEditMode}
+        onConfirm={handleHuellaCrearConfirm}
+        onCancel={() => { setShowHuellaCrear(false); setPendingShipment(null); }}
+      />
+    )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget && !showHuellaCrear) onClose(); }}>
       <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col" style={{ background: '#fff', maxHeight: '92vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}>
@@ -1046,6 +1115,7 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
         )}
       </div>
     </div>
+    </>
   );
 }
 
@@ -1115,15 +1185,13 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   const [showEditModal, setShowEditModal] = useState(false);
 
   // Auto-select shipment when navigating from a specific order
+  // Only selects the shipment in the list — does NOT auto-open any tracking/guide modal
   useEffect(() => {
     if (!preSelectedOrderId) return;
     const match = shipments.find(s => s.pedidos.includes(preSelectedOrderId));
     if (match) {
       setSelectedShipmentId(match.id);
-      // Auto-open the tracking panel based on paquetería
-      if (match.paqueteria === 'Uber') setShowUberModal(true);
-      else if (match.paqueteria === 'BlueGo') setShowBlueGoModal(true);
-      else if (match.paqueteria === 'Estafeta' && !match.guia) setShowGuiaModal(true);
+      // No auto-open: user must manually click the action button to generate guide/solicitud
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preSelectedOrderId]);
