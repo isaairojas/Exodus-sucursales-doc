@@ -758,7 +758,6 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   const [fechaInicial, setFechaInicial] = useState('2026-04-22');
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
   const [filterActivo, setFilterActivo] = useState(true);
-  const [filterRevisado, setFilterRevisado] = useState(true);
   const [filterCancelado, setFilterCancelado] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -781,13 +780,21 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   );
 
   // Apply filters
-  // "Activo" = todo lo que aún no ha sido entregado ni facturado (Activo, Surtido, Documentado, Enviado)
-  // "Revisado" = pedidos en estado Revisado o Revisado con incidencias (pendientes de facturar/documentar)
+  // "Activo" = todo lo que NO está retenido y NO está entregado (incluye Revisado, Surtido, Documentado, Enviado, Facturado-pendiente)
+  // "Cancelado" = pedidos cancelados
+  // "Entregado" = pedidos entregados (deshabilitado por ahora)
   const filteredOrders = useMemo(() => {
     const allowedStatuses = new Set<OrderStatus>();
-    if (filterActivo)   { allowedStatuses.add('Activo'); allowedStatuses.add('Surtido'); allowedStatuses.add('Documentado'); allowedStatuses.add('Enviado'); }
-    if (filterRevisado) { allowedStatuses.add('Revisado'); allowedStatuses.add('Revisado con incidencias'); }
-    if (filterCancelado){ allowedStatuses.add('Cancelado'); allowedStatuses.add('Facturado'); }
+    if (filterActivo) {
+      allowedStatuses.add('Activo');
+      allowedStatuses.add('Surtido');
+      allowedStatuses.add('Revisado');
+      allowedStatuses.add('Revisado con incidencias');
+      allowedStatuses.add('Documentado');
+      allowedStatuses.add('Enviado');
+      allowedStatuses.add('Facturado');
+    }
+    if (filterCancelado) { allowedStatuses.add('Cancelado'); }
 
     return allOrders.filter(o => {
       if (!allowedStatuses.has(o.status)) return false;
@@ -797,7 +804,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
       }
       return true;
     });
-  }, [allOrders, filterActivo, filterRevisado, filterCancelado, searchText]);
+  }, [allOrders, filterActivo, filterCancelado, searchText]);
 
   const selectedOrder = selectedId ? filteredOrders.find(o => o.id === selectedId) ?? null : null;
 
@@ -884,25 +891,25 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
           className="flex items-center gap-4 px-4 py-2 rounded-lg"
           style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}
         >
-          {/* Activo = todo no entregado/facturado */}
+          {/* Activo = todo lo que no está retenido ni entregado */}
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
             <input type="checkbox" checked={filterActivo} onChange={e => setFilterActivo(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
             <span className="text-xs text-gray-600 font-medium">Activo</span>
-          </label>
-          {/* Revisado = pendientes de facturar/documentar */}
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
-            <input type="checkbox" checked={filterRevisado} onChange={e => setFilterRevisado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
-            <span className="text-xs text-gray-600 font-medium">Revisado</span>
           </label>
           {/* Retenido — deshabilitado en esta versión */}
           <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
             <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
             <span className="text-xs text-gray-400 font-medium">Retenido</span>
           </label>
-          {/* Cancelado (incluye Facturado) */}
+          {/* Cancelado */}
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
             <input type="checkbox" checked={filterCancelado} onChange={e => setFilterCancelado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
-            <span className="text-xs text-gray-600 font-medium">Cancelado / Facturado</span>
+            <span className="text-xs text-gray-600 font-medium">Cancelado</span>
+          </label>
+          {/* Entregado — deshabilitado (sin pedidos entregados aún) */}
+          <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
+            <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
+            <span className="text-xs text-gray-400 font-medium">Entregado</span>
           </label>
         </div>
 
@@ -936,7 +943,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
             Refrescar
           </button>
           <button
-            onClick={() => { setSearchText(''); setFilterActivo(true); setFilterRevisado(true); setFilterCancelado(false); }}
+            onClick={() => { setSearchText(''); setFilterActivo(true); setFilterCancelado(false); }}
             className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 transition-all"
           >
             Limpiar filtros
