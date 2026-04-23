@@ -41,6 +41,53 @@ function OrderBadge({ status }: { status: OrderStatus }) {
   );
 }
 
+// ── PaqueteriaBadge — badge visual con color de marca ────────
+function PaqueteriaBadge({ paqueteria }: { paqueteria: string }) {
+  const configs: Record<string, { bg: string; text: string; border: string; label: string; icon?: string }> = {
+    'Uber': {
+      bg: '#000', text: '#fff', border: '#000',
+      label: 'Uber',
+      icon: 'U',
+    },
+    'BlueGo': {
+      bg: '#1a2b6b', text: '#fff', border: '#1a2b6b',
+      label: 'BlueGo',
+      icon: 'B',
+    },
+    'Estafeta': {
+      bg: '#cc0000', text: '#fff', border: '#cc0000',
+      label: 'Estafeta',
+      icon: 'E',
+    },
+    'Transporte Interno': {
+      bg: 'rgba(124,58,237,0.12)', text: '#7c3aed', border: 'rgba(124,58,237,0.3)',
+      label: 'Transporte Interno',
+    },
+    'MEXICO EXPRESS': {
+      bg: 'rgba(22,163,74,0.1)', text: '#15803d', border: 'rgba(22,163,74,0.3)',
+      label: 'MEXICO EXPRESS',
+    },
+  };
+  const cfg = configs[paqueteria] ?? { bg: '#f3f4f6', text: '#374151', border: '#d1d5db', label: paqueteria };
+  const isWS = paqueteria === 'Estafeta' || paqueteria === 'Uber' || paqueteria === 'BlueGo';
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold text-xs tracking-wide"
+        style={{ background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}`, letterSpacing: '0.03em' }}
+      >
+        {cfg.icon && (
+          <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-[9px] font-black" style={{ background: 'rgba(255,255,255,0.2)' }}>{cfg.icon}</span>
+        )}
+        {cfg.label}
+      </span>
+      {isWS && (
+        <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ background: 'rgba(37,99,235,0.08)', color: '#2563eb', border: '1px solid rgba(37,99,235,0.15)' }}>WS</span>
+      )}
+    </div>
+  );
+}
+
 // ── Modal Guía Estafeta (Documentación Automática) ────────────
 interface ModalGuiaEstafetaProps {
   shipment: Shipment;
@@ -1216,9 +1263,23 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     if (p === 'Estafeta') {
       setShowGuiaModal(true);
     } else if (p === 'Uber') {
-      setShowUberModal(true);
+      if (s === 'En tránsito' || s === 'En reparto') {
+        // Confirmar entrega directamente con huella
+        setShowHuellaModal('entrega');
+      } else if (selectedShipment.uberData) {
+        setShowUberModal(true);
+      } else {
+        // Sin solicitud generada → abrir modal de solicitud
+        setShowUberModal(true);
+      }
     } else if (p === 'BlueGo') {
-      setShowBlueGoModal(true);
+      if (s === 'En tránsito' || s === 'En reparto') {
+        setShowHuellaModal('entrega');
+      } else if (selectedShipment.blueGoData) {
+        setShowBlueGoModal(true);
+      } else {
+        setShowBlueGoModal(true);
+      }
     } else {
       // Manual paqueterías: step-by-step flow
       if (s === 'Generado') {
@@ -1252,11 +1313,13 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
 
   const isManualPaqueteria = selectedShipment !== null &&
     (selectedShipment.paqueteria === 'Transporte Interno' || selectedShipment.paqueteria === 'MEXICO EXPRESS');
+  const isUberOrBluego = selectedShipment !== null &&
+    (selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo');
   const canEnviar = selectedShipment !== null && (
     selectedShipment.paqueteria === 'Estafeta'
       ? (selectedShipment.status === 'Generado' || selectedShipment.status === 'Solicitado')
-      : selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo'
-      ? true
+      : isUberOrBluego
+      ? selectedShipment.status !== 'Entregado'
       : isManualPaqueteria && selectedShipment.status !== 'Entregado'
   );
   const canEditar = selectedShipment !== null && selectedShipment.status === 'Generado';
@@ -1275,8 +1338,17 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     const p = selectedShipment.paqueteria;
     const s = selectedShipment.status;
     if (p === 'Estafeta') return 'Generar guía Estafeta';
-    if (p === 'Uber') return 'Ver solicitud Uber';
-    if (p === 'BlueGo') return 'Ver solicitud BlueGo';
+    // Uber / BlueGo: si ya tiene solicitud generada → ver tracking; si no → generar solicitud
+    if (p === 'Uber') {
+      if (s === 'En tránsito' || s === 'En reparto') return 'Confirmar entrega';
+      if (selectedShipment.uberData) return 'Ver solicitud Uber';
+      return 'Generar solicitud Uber';
+    }
+    if (p === 'BlueGo') {
+      if (s === 'En tránsito' || s === 'En reparto') return 'Confirmar entrega';
+      if (selectedShipment.blueGoData) return 'Ver solicitud BlueGo';
+      return 'Generar solicitud BlueGo';
+    }
     // Manual paqueterías
     if (s === 'Generado') return 'Confirmar envío';
     if (s === 'En reparto') return 'Confirmar entrega';
@@ -1287,8 +1359,14 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     const p = selectedShipment.paqueteria;
     const s = selectedShipment.status;
     if (p === 'Estafeta') return '#cc0000';
-    if (p === 'Uber') return '#111';
-    if (p === 'BlueGo') return '#1a2b6b';
+    if (p === 'Uber') {
+      if (s === 'En tránsito' || s === 'En reparto') return '#16a34a';
+      return '#111';
+    }
+    if (p === 'BlueGo') {
+      if (s === 'En tránsito' || s === 'En reparto') return '#16a34a';
+      return '#1a2b6b';
+    }
     if (s === 'En reparto') return '#16a34a';
     return '#7c3aed';
   };
@@ -1305,23 +1383,7 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
         <span className="text-gray-300">/</span>
         <span className="text-sm font-semibold text-gray-700">Administración de Embarques</span>
 
-        {/* Quick access tracking buttons */}
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => setShowUberModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all"
-            style={{ borderColor: '#111', color: '#111', background: '#fff' }}
-          >
-            UBER Direct
-          </button>
-          <button
-            onClick={() => setShowBlueGoModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all"
-            style={{ borderColor: '#1a2b6b', color: '#1a2b6b', background: '#fff' }}
-          >
-            BlueGo
-          </button>
-        </div>
+
       </div>
 
       {/* ── Two-panel split ── */}
@@ -1360,10 +1422,7 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
                   <ShipmentBadge status={s.status} />
                 </div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs text-gray-500">{s.paqueteria}</span>
-                  {(s.paqueteria === 'Estafeta' || s.paqueteria === 'Uber' || s.paqueteria === 'BlueGo') && (
-                    <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ background: 'rgba(37,99,235,0.08)', color: '#2563eb' }}>WS</span>
-                  )}
+                  <PaqueteriaBadge paqueteria={s.paqueteria} />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b' }}>

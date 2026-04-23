@@ -174,7 +174,7 @@ export const ORDERS_DB: Record<string, Order> = {
   '1064848': {
     id: '1064848', clienteId: '85622', cliente: 'HUMBERTO NAVA ARIAS',
     vendedorId: '1786', vendedor: 'Razo Alvarez Luis', plazo: '30 días',
-    total: '$919.03', status: 'Activo',
+    total: '$919.03', status: 'Documentado',
     elaboro: 'Ángel', origen: 'Samsung', observaciones: '',
     fechaCaptura: '2026-04-22 15:12', fechaEntrega: '2026-04-24', horaEntrega: '17:22', horaReparto: '17:00', zona: 'Sur', local: false,
     horaInicioSurtido: '', horaFinSurtido: '',
@@ -259,6 +259,15 @@ export const SHIPMENTS_DB_INITIAL: Shipment[] = [
     ],
   },
   { id: '88514', paqueteria: 'Transporte Interno', pedidos: ['1064853'], observaciones: 'borjas',  status: 'Entregado',   fecha: '2026-04-22', tipoVehiculo: 'Camión',    cajas: 8, peso: 45.2, usuario: 'JMORENO11' },
+  {
+    id: '88520', paqueteria: 'Uber', pedidos: ['1064847', '1064848'], observaciones: 'martinez',
+    status: 'Generado', fecha: '2026-04-22', tipoVehiculo: 'Camioneta', cajas: 3, peso: 9.2, usuario: 'JMORENO11',
+    boxes: [
+      { id: 'C1', pedidoId: '1064847', peso: 4.1 },
+      { id: 'C2', pedidoId: '1064848', peso: 3.2 },
+      { id: 'C3', pedidoId: '1064848', peso: 1.9 },
+    ],
+  },
 ];
 
 // ── App state types ───────────────────────────────────────────
