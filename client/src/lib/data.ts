@@ -196,6 +196,19 @@ export const ORDERS_DB: Record<string, Order> = {
       { code: 'XX-999', qty: 5 },
     ],
   },
+  '1064855': {
+    id: '1064855', clienteId: '10249', cliente: 'AUTOPARTES GARCIA',
+    vendedorId: '78265', vendedor: 'Directos Cedis Refaccionarias', plazo: '30 días',
+    total: '$2,148.50', status: 'Revisado',
+    elaboro: 'Ángel', origen: 'Epico', observaciones: '',
+    fechaCaptura: '2026-04-22 15:55', fechaEntrega: '2026-04-23', horaEntrega: '10:00', horaReparto: '09:45', zona: 'Norte', local: false,
+    horaInicioSurtido: '15:58', horaFinSurtido: '16:20',
+    partidas: [
+      { code: 'BP-001', qty: 6 },
+      { code: 'BT-055', qty: 3 },
+      { code: 'AM-445', qty: 2 },
+    ],
+  },
   '1064853': {
     id: '1064853', clienteId: '10248', cliente: 'AUTOPARTES GARCIA',
     vendedorId: '78265', vendedor: 'Directos Cedis Refaccionarias', plazo: '60 días',

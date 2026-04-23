@@ -758,8 +758,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   const [fechaInicial, setFechaInicial] = useState('2026-04-22');
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
   const [filterActivo, setFilterActivo] = useState(true);
-  const [filterRetenido, setFilterRetenido] = useState(true);
-  const [filterFacturado, setFilterFacturado] = useState(false);
+  const [filterRevisado, setFilterRevisado] = useState(true);
   const [filterCancelado, setFilterCancelado] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -782,12 +781,13 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   );
 
   // Apply filters
+  // "Activo" = todo lo que aún no ha sido entregado ni facturado (Activo, Surtido, Documentado, Enviado)
+  // "Revisado" = pedidos en estado Revisado o Revisado con incidencias (pendientes de facturar/documentar)
   const filteredOrders = useMemo(() => {
     const allowedStatuses = new Set<OrderStatus>();
-    if (filterActivo)    { allowedStatuses.add('Activo'); allowedStatuses.add('Surtido'); allowedStatuses.add('Revisado'); allowedStatuses.add('Revisado con incidencias'); allowedStatuses.add('Documentado'); allowedStatuses.add('Enviado'); }
-    if (filterRetenido)  { /* same as activo for demo */ }
-    if (filterFacturado) { allowedStatuses.add('Facturado'); }
-    if (filterCancelado) { allowedStatuses.add('Cancelado'); }
+    if (filterActivo)   { allowedStatuses.add('Activo'); allowedStatuses.add('Surtido'); allowedStatuses.add('Documentado'); allowedStatuses.add('Enviado'); }
+    if (filterRevisado) { allowedStatuses.add('Revisado'); allowedStatuses.add('Revisado con incidencias'); }
+    if (filterCancelado){ allowedStatuses.add('Cancelado'); allowedStatuses.add('Facturado'); }
 
     return allOrders.filter(o => {
       if (!allowedStatuses.has(o.status)) return false;
@@ -797,14 +797,14 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
       }
       return true;
     });
-  }, [allOrders, filterActivo, filterRetenido, filterFacturado, filterCancelado, searchText]);
+  }, [allOrders, filterActivo, filterRevisado, filterCancelado, searchText]);
 
   const selectedOrder = selectedId ? filteredOrders.find(o => o.id === selectedId) ?? null : null;
 
   // Action button logic
   const canSurtir       = selectedOrder?.status === 'Activo';
   const canRevisar      = selectedOrder?.status === 'Surtido';
-  const canEmbarcar     = selectedOrder?.status === 'Revisado' || selectedOrder?.status === 'Revisado con incidencias';
+  const canFacturar     = selectedOrder?.status === 'Revisado' || selectedOrder?.status === 'Revisado con incidencias';
   const canDocumentar   = selectedOrder?.status === 'Revisado' || selectedOrder?.status === 'Revisado con incidencias';
   const canVerEmbarques = selectedOrder?.status === 'Documentado' || selectedOrder?.status === 'Enviado';
 
@@ -884,22 +884,26 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
           className="flex items-center gap-4 px-4 py-2 rounded-lg"
           style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}
         >
-          {[
-            { label: 'Activo',    val: filterActivo,    set: setFilterActivo },
-            { label: 'Retenido',  val: filterRetenido,  set: setFilterRetenido },
-            { label: 'Facturado', val: filterFacturado, set: setFilterFacturado },
-            { label: 'Cancelado', val: filterCancelado, set: setFilterCancelado },
-          ].map(({ label, val, set }) => (
-            <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={val}
-                onChange={e => set(e.target.checked)}
-                className="w-3.5 h-3.5 accent-blue-700 rounded"
-              />
-              <span className="text-xs text-gray-600 font-medium">{label}</span>
-            </label>
-          ))}
+          {/* Activo = todo no entregado/facturado */}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" checked={filterActivo} onChange={e => setFilterActivo(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+            <span className="text-xs text-gray-600 font-medium">Activo</span>
+          </label>
+          {/* Revisado = pendientes de facturar/documentar */}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" checked={filterRevisado} onChange={e => setFilterRevisado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+            <span className="text-xs text-gray-600 font-medium">Revisado</span>
+          </label>
+          {/* Retenido — deshabilitado en esta versión */}
+          <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
+            <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
+            <span className="text-xs text-gray-400 font-medium">Retenido</span>
+          </label>
+          {/* Cancelado (incluye Facturado) */}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" checked={filterCancelado} onChange={e => setFilterCancelado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+            <span className="text-xs text-gray-600 font-medium">Cancelado / Facturado</span>
+          </label>
         </div>
 
         {/* Search */}
@@ -932,7 +936,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
             Refrescar
           </button>
           <button
-            onClick={() => { setSearchText(''); setFilterActivo(true); setFilterRetenido(true); setFilterFacturado(false); setFilterCancelado(false); }}
+            onClick={() => { setSearchText(''); setFilterActivo(true); setFilterRevisado(true); setFilterCancelado(false); }}
             className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 transition-all"
           >
             Limpiar filtros
@@ -1073,19 +1077,41 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
             Revisar
           </button>
 
-          {/* Documentar / Embarcar */}
+          {/* Facturar */}
           <button
-            onClick={() => setShowEmbarcarModal(true)}
-            disabled={!canEmbarcar}
+            onClick={() => showToast(`Abriendo facturación para pedido #${selectedOrder?.id}`, 'info')}
+            disabled={!canFacturar}
             className={btnBase}
-            style={canEmbarcar
-              ? { background: '#7c3aed', color: '#fff', boxShadow: '0 2px 8px rgba(124,58,237,0.3)' }
+            style={canFacturar
+              ? { background: '#059669', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.3)' }
               : { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
             }
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            Facturar
+          </button>
+
+          {/* Documentar / Embarcar */}
+          <button
+            onClick={() => setShowEmbarcarModal(true)}
+            disabled={!canDocumentar}
+            className={btnBase}
+            style={canDocumentar
+              ? { background: '#7c3aed', color: '#fff', boxShadow: '0 2px 8px rgba(124,58,237,0.3)' }
+              : { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
+            }
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <rect x="1" y="3" width="15" height="13" rx="1"/>
+              <path d="M16 8h4l3 3v5h-7V8z"/>
+              <circle cx="5.5" cy="18.5" r="2.5"/>
+              <circle cx="18.5" cy="18.5" r="2.5"/>
             </svg>
             Documentar
           </button>
