@@ -1,6 +1,11 @@
 // ============================================================
 // APYMSA — Modal: Facturación
-// Simulates: invoice form → timbrado → success → embarque flow
+// Simulates: invoice form → timbrado → success
+// Props:
+//   onFacturado  — called when invoice is confirmed (updates order status)
+//   onClose      — called when user closes (returns to caller screen)
+//   showToast    — toast notifications
+//   origen       — 'pedidos' | 'revision' (controls post-success behavior)
 // ============================================================
 import { useState } from 'react';
 import { Order } from '@/lib/data';
@@ -9,6 +14,7 @@ import ModalEmbarque from './ModalEmbarque';
 interface Props {
   order: Order;
   onClose: () => void;
+  onFacturado?: () => void;   // called after successful invoice to update order status
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
 }
 
@@ -26,7 +32,7 @@ const FACTURA_DATA = {
   total: (t: string) => t,
 };
 
-export default function ModalFacturacion({ order, onClose, showToast }: Props) {
+export default function ModalFacturacion({ order, onClose, onFacturado, showToast }: Props) {
   const [stage, setStage] = useState<Stage>('form');
   const [timbradoProgress, setTimbradoProgress] = useState(0);
   const [showEmbarque, setShowEmbarque] = useState(false);
@@ -46,10 +52,20 @@ export default function ModalFacturacion({ order, onClose, showToast }: Props) {
       if (prog >= 100) {
         prog = 100;
         clearInterval(iv);
-        setTimeout(() => setStage('success'), 400);
+        setTimeout(() => {
+          setStage('success');
+          // Notify parent to update order status to Facturado
+          onFacturado?.();
+        }, 400);
       }
       setTimbradoProgress(Math.min(prog, 100));
     }, 180);
+  };
+
+  // When user clicks "Cerrar" on success screen — just close, order already updated
+  const handleCerrar = () => {
+    showToast(`Pedido #${order.id} facturado correctamente`, 'success');
+    onClose();
   };
 
   if (showEmbarque) {
@@ -232,7 +248,8 @@ export default function ModalFacturacion({ order, onClose, showToast }: Props) {
               </div>
             </div>
 
-            <div className="flex gap-3 mt-2">
+            <div className="flex gap-3 mt-2 flex-wrap justify-center">
+              {/* Reimprimir */}
               <button
                 onClick={() => showToast('Reimprimiendo factura...', 'info')}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all"
@@ -242,6 +259,19 @@ export default function ModalFacturacion({ order, onClose, showToast }: Props) {
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>print</span>
                 Reimprimir
               </button>
+
+              {/* Cerrar — regresa a la pantalla de origen */}
+              <button
+                onClick={handleCerrar}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all"
+                style={{ border: '1.5px solid #6b7280', color: '#374151', background: 'white', fontFamily: 'Roboto, sans-serif' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                Cerrar
+              </button>
+
+              {/* Crear embarque — opcional */}
               <button
                 onClick={() => setShowEmbarque(true)}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-all"

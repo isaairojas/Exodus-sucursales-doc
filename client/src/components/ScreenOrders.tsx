@@ -1162,6 +1162,10 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
         <ModalFacturacion
           order={selectedOrder}
           showToast={showToast}
+          onFacturado={() => {
+            // Update order status to Facturado via global context
+            updateOrderStatus(selectedOrder.id, 'Facturado');
+          }}
           onClose={() => setShowFacturaModal(false)}
         />
       )}

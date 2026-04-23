@@ -21,7 +21,7 @@ interface Props {
 }
 
 export default function ScreenSummary({ showToast }: Props) {
-  const { state, resetReview } = useApp();
+  const { state, resetReview, updateOrderStatus } = useApp();
   const [showFactura, setShowFactura] = useState(false);
   const order = state.selectedOrderId ? ORDERS_DB[state.selectedOrderId] : null;
   if (!order) return null;
@@ -233,6 +233,10 @@ export default function ScreenSummary({ showToast }: Props) {
       {showFactura && (
         <ModalFacturacion
           order={order}
+          onFacturado={() => {
+            // Update order status to Facturado via global context
+            if (order) updateOrderStatus(order.id, 'Facturado');
+          }}
           onClose={() => { setShowFactura(false); handleClose(); }}
           showToast={showToast}
         />
