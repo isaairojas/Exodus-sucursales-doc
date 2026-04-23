@@ -640,7 +640,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
                       onDoubleClick={() => {
                         setSelectedId(order.id);
                         if (order.status === 'Surtido') setShowAuthModal(true);
-                        else if (order.status === 'Revisado' || order.status === 'Revisado con incidencias') setShowEmbarcarModal(true);
+                        else if (order.status === 'Revisado' || order.status === 'Revisado con incidencias') setShowEmbarcarModal(true); // Documentar
                         else if (order.status === 'Documentado' || order.status === 'Enviado') onNavigateToEmbarques(order.id);
                       }}
                       className="cursor-pointer transition-colors"
@@ -689,7 +689,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
           Se encontraron <strong className="text-gray-700">{filteredOrders.length}</strong> pedidos
           {selectedOrder
             ? <> | Pedido <strong className="text-blue-700">#{selectedOrder.id}</strong> seleccionado — {selectedOrder.status}</>
-            : ' | Doble clic: Surtido→Revisar · Revisado→Embarcar · Documentado→Ver embarque | F3 - Editar Pedido'
+            : ' | Doble clic: Surtido→Revisar · Revisado→Documentar · Documentado→Ver embarque | F3 - Editar Pedido'
           }
         </p>
       </div>
@@ -737,7 +737,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
             Revisar
           </button>
 
-          {/* Embarcar */}
+          {/* Documentar / Embarcar */}
           <button
             onClick={() => setShowEmbarcarModal(true)}
             disabled={!canEmbarcar}
@@ -745,25 +745,6 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
             style={canEmbarcar
               ? { background: '#7c3aed', color: '#fff', boxShadow: '0 2px 8px rgba(124,58,237,0.3)' }
               : { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
-            }
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <rect x="1" y="3" width="15" height="13" rx="1"/>
-              <path d="M16 8h4l3 3v5h-7V8z"/>
-              <circle cx="5.5" cy="18.5" r="2.5"/>
-              <circle cx="18.5" cy="18.5" r="2.5"/>
-            </svg>
-            Embarcar
-          </button>
-
-          {/* Documentar */}
-          <button
-            onClick={handleDocumentar}
-            disabled={!canDocumentar}
-            className={btnBase}
-            style={canDocumentar
-              ? { background: 'transparent', color: '#7c3aed', border: '1.5px solid #7c3aed' }
-              : { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed', border: '1.5px solid transparent' }
             }
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
