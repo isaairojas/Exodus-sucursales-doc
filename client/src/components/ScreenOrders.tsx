@@ -122,76 +122,275 @@ function ModalAuth({ orderId, onConfirm, onClose }: { orderId: string; onConfirm
   );
 }
 
-// ── Modal Embarcar (single order, with simulated scale) ───────
+// ── Modal Embarcar — nuevo flujo con detección de embarques existentes ───────
 const PAQUETERIAS = ['Estafeta', 'BlueGo', 'Uber', 'Transporte Interno', 'MEXICO EXPRESS'];
 const TIPOS_VEHICULO = ['Motocicleta', 'Auto', 'Camioneta', 'Camión'];
 
+type BoxState = {
+  id: string;
+  pedidoId: string;
+  peso: string;
+  pesoSimulado: boolean;
+  pesoSimulando: boolean;
+  dims: { largo: string; ancho: string; alto: string } | null;
+  showDims: boolean;
+};
+
 interface ModalEmbarcarProps {
   order: Order;
+  existingShipments: Shipment[];
   onClose: () => void;
-  onCreated: (shipment: Shipment) => void;
+  onCreated: (shipment: Shipment, addedToExisting?: boolean) => void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarProps) {
+function ModalEmbarcar({ order, existingShipments, onClose, onCreated, showToast }: ModalEmbarcarProps) {
+  // Detect existing shipments for same client (Generado status only)
+  const clienteShipments = useMemo(() =>
+    existingShipments.filter(s =>
+      s.status === 'Generado' &&
+      s.pedidos.some(pid => {
+        const o = ORDERS_DB[pid];
+        return o && o.clienteId === order.clienteId;
+      })
+    ),
+    [existingShipments, order.clienteId]
+  );
+
+  // Step: 'select' (choose existing or new) | 'form' (fill data)
+  const [step, setStep] = useState<'select' | 'form'>(clienteShipments.length > 0 ? 'select' : 'form');
+  const [selectedExistingId, setSelectedExistingId] = useState<string | null>(null);
+  const [mode, setMode] = useState<'new' | 'existing'>('new');
+
+  const existingShipment = selectedExistingId
+    ? existingShipments.find(s => s.id === selectedExistingId) ?? null
+    : null;
+
   const [paqueteria, setPaqueteria] = useState('');
   const [tipoVehiculo, setTipoVehiculo] = useState('');
   const [observaciones, setObservaciones] = useState('');
-  const [cajas, setCajas] = useState('');
-  const [peso, setPeso] = useState('');
-  const [pesoSimulado, setPesoSimulado] = useState(false);
-  const [pesoSimulando, setPesoSimulando] = useState(false);
-  const [confirmSolicitud, setConfirmSolicitud] = useState(false);
+
+  const [boxes, setBoxes] = useState<BoxState[]>([
+    { id: '1', pedidoId: order.id, peso: '', pesoSimulado: false, pesoSimulando: false, dims: null, showDims: false }
+  ]);
+
+  const handleSelectExisting = (id: string) => {
+    setSelectedExistingId(id);
+    const s = existingShipments.find(sh => sh.id === id);
+    if (s) {
+      setPaqueteria(s.paqueteria);
+      setTipoVehiculo(s.tipoVehiculo);
+      setObservaciones(s.observaciones);
+      const base: BoxState[] = (s.boxes ?? []).map(b => ({
+        id: b.id,
+        pedidoId: b.pedidoId,
+        peso: String(b.peso),
+        pesoSimulado: true,
+        pesoSimulando: false,
+        dims: b.largo ? { largo: String(b.largo), ancho: String(b.ancho ?? ''), alto: String(b.alto ?? '') } : null,
+        showDims: !!b.largo,
+      }));
+      base.push({ id: String(base.length + 1), pedidoId: order.id, peso: '', pesoSimulado: false, pesoSimulando: false, dims: null, showDims: false });
+      setBoxes(base);
+    }
+  };
+
+  const updateBox = (idx: number, partial: Partial<BoxState>) =>
+    setBoxes(prev => prev.map((b, i) => i === idx ? { ...b, ...partial } : b));
+
+  const addBox = () =>
+    setBoxes(prev => [...prev, { id: String(prev.length + 1), pedidoId: order.id, peso: '', pesoSimulado: false, pesoSimulando: false, dims: null, showDims: false }]);
+
+  const removeBox = (idx: number) =>
+    setBoxes(prev => prev.filter((_, i) => i !== idx));
+
+  const simulateBoxScale = (idx: number) => {
+    updateBox(idx, { pesoSimulando: true });
+    setTimeout(() => {
+      const w = (1.2 + Math.random() * 3.5).toFixed(1);
+      updateBox(idx, { peso: w, pesoSimulado: true, pesoSimulando: false });
+      showToast(`Báscula caja ${idx + 1}: ${w} kg`, 'success');
+    }, 1200);
+  };
 
   const isUberOrBluego = paqueteria === 'Uber' || paqueteria === 'BlueGo';
   const isEstafeta = paqueteria === 'Estafeta';
-  const canCreate = paqueteria !== '' && cajas !== '' && parseInt(cajas) > 0 && peso !== '' && parseFloat(peso) > 0;
+  const totalPeso = boxes.reduce((sum, b) => sum + (parseFloat(b.peso) || 0), 0);
+  const canCreate = paqueteria !== '' && boxes.length > 0 &&
+    boxes.every(b => b.peso !== '' && parseFloat(b.peso) > 0 && b.pedidoId !== '');
 
-  const handleSimularBascula = () => {
-    if (pesoSimulando || pesoSimulado) return;
-    setPesoSimulando(true);
-    setTimeout(() => {
-      // Simulate a realistic weight based on number of partidas
-      const simulatedWeight = (order.partidas.length * 1.8 + Math.random() * 3).toFixed(1);
-      setPeso(simulatedWeight);
-      setPesoSimulado(true);
-      setPesoSimulando(false);
-      showToast(`Báscula: ${simulatedWeight} kg detectados`, 'success');
-    }, 1500);
-  };
+  const allOrderIds = useMemo(() => {
+    const ids = new Set<string>(existingShipment?.pedidos ?? []);
+    ids.add(order.id);
+    return Array.from(ids);
+  }, [existingShipment, order.id]);
 
-  const handleCreate = () => {
+  const handleSubmit = (withSolicitud: boolean) => {
     if (!canCreate) return;
+    const finalBoxes = boxes.map((b, i) => ({
+      id: b.id || String(i + 1),
+      pedidoId: b.pedidoId,
+      peso: parseFloat(b.peso),
+      ...(b.dims ? {
+        largo: parseFloat(b.dims.largo) || undefined,
+        ancho: parseFloat(b.dims.ancho) || undefined,
+        alto: parseFloat(b.dims.alto) || undefined,
+      } : {}),
+    }));
 
-    if (isUberOrBluego && !confirmSolicitud) {
-      setConfirmSolicitud(true);
-      return;
+    if (mode === 'existing' && existingShipment) {
+      const updated: Shipment = {
+        ...existingShipment,
+        pedidos: allOrderIds,
+        paqueteria,
+        tipoVehiculo,
+        observaciones,
+        cajas: finalBoxes.length,
+        peso: totalPeso,
+        boxes: finalBoxes,
+        status: withSolicitud
+          ? (isUberOrBluego || isEstafeta ? 'En tránsito' : existingShipment.status)
+          : existingShipment.status,
+      };
+      onCreated(updated, true);
+      if (withSolicitud && isUberOrBluego) showToast(`Solicitud enviada a ${paqueteria} — Embarque #${existingShipment.id}`, 'success');
+      else if (withSolicitud && isEstafeta) showToast(`Guía generada — Embarque #${existingShipment.id}`, 'success');
+      else showToast(`Pedido #${order.id} agregado al embarque #${existingShipment.id}`, 'success');
+    } else {
+      const newId = String(88500 + Math.floor(Math.random() * 900));
+      const finalStatus: ShipmentStatus = withSolicitud
+        ? (isUberOrBluego || isEstafeta ? 'En tránsito' : 'Generado')
+        : 'Generado';
+      const newShipment: Shipment = {
+        id: newId,
+        paqueteria,
+        pedidos: [order.id],
+        observaciones,
+        status: finalStatus,
+        fecha: '2026-04-22',
+        tipoVehiculo,
+        cajas: finalBoxes.length,
+        peso: totalPeso,
+        usuario: 'Cosme',
+        boxes: finalBoxes,
+      };
+      onCreated(newShipment, false);
+      if (withSolicitud && isUberOrBluego) showToast(`Solicitud enviada a ${paqueteria} — Embarque #${newId}`, 'success');
+      else if (withSolicitud && isEstafeta) showToast(`Guía generada — Embarque #${newId}`, 'success');
+      else showToast(`Embarque #${newId} creado — Pedido #${order.id}`, 'success');
     }
-
-    const newId = String(88516 + Math.floor(Math.random() * 900));
-    const finalStatus: ShipmentStatus = isUberOrBluego ? 'Solicitado' : 'Generado';
-
-    const newShipment: Shipment = {
-      id: newId,
-      paqueteria,
-      pedidos: [order.id],
-      observaciones,
-      status: finalStatus,
-      fecha: '2026-04-22',
-      tipoVehiculo,
-      cajas: parseInt(cajas),
-      peso: parseFloat(peso),
-      usuario: 'Cosme',
-    };
-
-    onCreated(newShipment);
-    if (isUberOrBluego) {
-      showToast(`Solicitud enviada automáticamente a ${paqueteria}`, 'success');
-    }
-    showToast(`Embarque #${newId} creado — Pedido #${order.id}`, 'success');
     onClose();
   };
 
+  // ── STEP: select existing or new ──
+  if (step === 'select') {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: 'rgba(0,0,0,0.45)' }}
+        onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      >
+        <div
+          className="w-full max-w-lg rounded-2xl overflow-hidden flex flex-col"
+          style={{ background: '#fff', maxHeight: '92vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+        >
+          <div
+            className="flex items-center justify-between px-6 py-4 flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}
+          >
+            <div>
+              <h2 className="text-white font-bold text-lg">Gestión de embarque</h2>
+              <p className="text-blue-200 text-xs mt-0.5">Pedido #{order.id}</p>
+            </div>
+            <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-4">
+            <p className="text-sm text-gray-600">
+              Se encontraron embarques del cliente{' '}
+              <strong className="font-bold text-gray-800 bg-gray-100 px-1.5 py-0.5 rounded">
+                {order.cliente}
+              </strong>{' '}
+              que aún no están en "Reparto iniciado":
+            </p>
+            <div className="flex flex-col gap-2">
+              {clienteShipments.map(s => (
+                <label
+                  key={s.id}
+                  className="flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all"
+                  style={selectedExistingId === s.id
+                    ? { borderColor: '#1a2b6b', background: 'rgba(26,43,107,0.06)' }
+                    : { borderColor: '#e5e7eb', background: '#fff' }
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="existingShipment"
+                    value={s.id}
+                    checked={selectedExistingId === s.id}
+                    onChange={() => setSelectedExistingId(s.id)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-bold text-gray-800 text-sm">EMB-{s.id}</span>
+                      <span
+                        className="px-2 py-0.5 rounded-full text-xs font-semibold"
+                        style={{ background: 'rgba(217,119,6,0.1)', color: '#d97706', border: '1px solid rgba(217,119,6,0.3)' }}
+                      >
+                        {s.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Pedidos: {s.pedidos.join(', ')} · Paquetería: {s.paqueteria}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div
+            className="flex-shrink-0 flex items-center justify-between px-6 py-4"
+            style={{ borderTop: '1px solid #e5e7eb', background: '#f8f9fb' }}
+          >
+            <button
+              disabled={!selectedExistingId}
+              onClick={() => {
+                setMode('existing');
+                handleSelectExisting(selectedExistingId!);
+                setStep('form');
+              }}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold text-white transition-all"
+              style={selectedExistingId
+                ? { background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' }
+                : { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed' }
+              }
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Adjuntar a embarque seleccionado
+            </button>
+            <button
+              onClick={() => { setMode('new'); setStep('form'); }}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold border-2 transition-all"
+              style={{ borderColor: '#1a2b6b', color: '#1a2b6b', background: '#fff' }}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Crear nuevo
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP: form ──
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -199,7 +398,7 @@ function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarPr
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-full max-w-lg rounded-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col"
         style={{ background: '#fff', maxHeight: '92vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
       >
         {/* Header */}
@@ -208,22 +407,41 @@ function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarPr
           style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}
         >
           <div>
-            <h2 className="text-white font-bold text-lg">Agregar embarque</h2>
-            <p className="text-blue-200 text-xs mt-0.5">EmbarqueID: Por asignar · Pedido #{order.id}</p>
+            <h2 className="text-white font-bold text-lg">
+              {mode === 'existing' ? `Agregar a Embarque #${selectedExistingId}` : 'Crear Embarque'}
+            </h2>
+            <p className="text-blue-200 text-xs mt-0.5">
+              {mode === 'existing'
+                ? `Pedido #${order.id} → ${order.cliente}`
+                : `EmbarqueID: Por asignar · Pedido #${order.id}`}
+            </p>
           </div>
-          <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
-            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path d="M18 6L6 18M6 6l12 12"/>
-            </svg>
-          </button>
+          <div className="flex items-center gap-3">
+            {clienteShipments.length > 0 && (
+              <button
+                onClick={() => setStep('select')}
+                className="text-blue-200 hover:text-white transition-colors text-xs flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M15 18l-6-6 6-6"/>
+                </svg>
+                Regresar
+              </button>
+            )}
+            <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
 
-          {/* Vehículo recomendado */}
+          {/* Tipo de vehículo */}
           <div>
-            <p className="text-xs text-gray-500 font-medium mb-2">Vehículo recomendable para peso/Volumen actual</p>
+            <p className="text-xs text-gray-500 font-medium mb-2">Tipo de vehículo</p>
             <div className="flex items-center gap-3">
               {TIPOS_VEHICULO.map(v => (
                 <button
@@ -250,25 +468,28 @@ function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarPr
             style={{ border: '1px solid #e5e7eb', background: '#f8f9fb' }}
           >
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Datos del Embarque</h3>
-
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-gray-500 font-medium mb-1">EmbarqueID</label>
-                <div className="text-sm font-bold text-gray-400">Por asignar</div>
+                <div className="text-sm font-bold text-gray-400">
+                  {mode === 'existing' ? `#${selectedExistingId}` : 'Por asignar'}
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-gray-500 font-medium mb-1">Usuario</label>
                 <div className="text-sm font-semibold text-gray-700">Cosme</div>
               </div>
             </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-gray-500 font-medium mb-1">Paquetería <span className="text-red-500">*</span></label>
+                <label className="block text-xs text-gray-500 font-medium mb-1">
+                  Paquetería <span className="text-red-500">*</span>
+                </label>
                 <select
                   value={paqueteria}
-                  onChange={e => { setPaqueteria(e.target.value); setConfirmSolicitud(false); }}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+                  onChange={e => setPaqueteria(e.target.value)}
+                  disabled={mode === 'existing'}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white disabled:bg-gray-50 disabled:text-gray-500"
                 >
                   <option value="">Seleccionar...</option>
                   {PAQUETERIAS.map(p => <option key={p} value={p}>{p}</option>)}
@@ -276,17 +497,27 @@ function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarPr
               </div>
               <div className="flex flex-col justify-end">
                 {paqueteria && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
-                    style={{ background: paqueteria === 'Uber' ? 'rgba(0,0,0,0.06)' : paqueteria === 'BlueGo' ? 'rgba(37,99,235,0.08)' : paqueteria === 'Estafeta' ? 'rgba(220,38,38,0.07)' : 'rgba(26,43,107,0.06)', color: '#374151' }}>
+                  <div
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                    style={{
+                      background: paqueteria === 'Uber' ? 'rgba(0,0,0,0.06)'
+                        : paqueteria === 'BlueGo' ? 'rgba(37,99,235,0.08)'
+                        : paqueteria === 'Estafeta' ? 'rgba(220,38,38,0.07)'
+                        : 'rgba(26,43,107,0.06)',
+                      color: '#374151'
+                    }}
+                  >
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                      {paqueteria === 'Uber' ? 'local_taxi' : paqueteria === 'BlueGo' ? 'electric_moped' : paqueteria === 'Estafeta' ? 'local_shipping' : 'warehouse'}
+                      {paqueteria === 'Uber' ? 'local_taxi'
+                        : paqueteria === 'BlueGo' ? 'electric_moped'
+                        : paqueteria === 'Estafeta' ? 'local_shipping'
+                        : 'warehouse'}
                     </span>
                     {paqueteria}
                   </div>
                 )}
               </div>
             </div>
-
             <div>
               <label className="block text-xs text-gray-500 font-medium mb-1">Observaciones</label>
               <textarea
@@ -299,122 +530,221 @@ function ModalEmbarcar({ order, onClose, onCreated, showToast }: ModalEmbarcarPr
             </div>
           </div>
 
-          {/* Empaque + Báscula */}
-          <div
-            className="rounded-xl px-4 py-4 flex flex-col gap-4"
-            style={{ border: '1px solid #e5e7eb', background: '#f8f9fb' }}
-          >
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Empaque y Peso</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 font-medium mb-1">Número de cajas <span className="text-red-500">*</span></label>
-                <input
-                  type="number"
-                  min="1"
-                  value={cajas}
-                  onChange={e => setCajas(e.target.value)}
-                  placeholder="0"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 font-medium mb-1 flex items-center gap-1.5">
-                  Peso total (kg) <span className="text-red-500">*</span>
-                  {pesoSimulado && (
-                    <span className="text-green-600 font-semibold text-xs ml-1">✓ Báscula</span>
-                  )}
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={peso}
-                    onChange={e => { setPeso(e.target.value); setPesoSimulado(false); }}
-                    placeholder="0.0"
-                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
-                    style={pesoSimulado ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.04)' } : {}}
-                  />
-                  <button
-                    onClick={handleSimularBascula}
-                    disabled={pesoSimulando || pesoSimulado}
-                    title="Simular lectura de báscula"
-                    className="px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
-                    style={pesoSimulado
-                      ? { background: 'rgba(22,163,74,0.1)', color: '#16a34a', border: '1px solid rgba(22,163,74,0.3)' }
-                      : pesoSimulando
-                        ? { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
-                        : { background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.2)' }
-                    }
+          {/* Cajas individuales */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                <span
+                  className="w-5 h-5 rounded-full text-white text-xs flex items-center justify-center font-bold"
+                  style={{ background: '#1a2b6b' }}
+                >
+                  {boxes.length}
+                </span>
+                Cajas ({boxes.length})
+                <span className="text-xs font-normal text-gray-400 ml-1">
+                  Peso total: <strong className="text-gray-700">{totalPeso.toFixed(1)} kg</strong>
+                </span>
+              </h3>
+              <button
+                onClick={addBox}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.2)' }}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Agregar caja
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {boxes.map((box, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-xl border border-gray-200 overflow-hidden"
+                  style={{ background: '#fafbff' }}
+                >
+                  <div
+                    className="flex items-center justify-between px-4 py-2"
+                    style={{ background: 'rgba(26,43,107,0.06)', borderBottom: '1px solid #e5e7eb' }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                      {pesoSimulado ? 'check_circle' : pesoSimulando ? 'hourglass_top' : 'scale'}
-                    </span>
-                    {pesoSimulando ? '...' : pesoSimulado ? 'OK' : 'Báscula'}
-                  </button>
+                    <span className="text-xs font-bold text-gray-700">Caja {idx + 1}</span>
+                    {boxes.length > 1 && (
+                      <button
+                        onClick={() => removeBox(idx)}
+                        className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        × Eliminar
+                      </button>
+                    )}
+                  </div>
+                  <div className="px-4 py-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 font-medium mb-1">
+                        Pedido <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={box.pedidoId}
+                        onChange={e => updateBox(idx, { pedidoId: e.target.value })}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      >
+                        <option value="">Seleccionar...</option>
+                        {allOrderIds.map(id => (
+                          <option key={id} value={id}>#{id} — {ORDERS_DB[id]?.cliente}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 font-medium mb-1 flex items-center gap-1">
+                        Peso (kg) <span className="text-red-500">*</span>
+                        {box.pesoSimulado && <span className="text-green-600 font-semibold">✓</span>}
+                      </label>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={box.peso}
+                          onChange={e => updateBox(idx, { peso: e.target.value, pesoSimulado: false })}
+                          placeholder="0.0"
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          style={box.pesoSimulado ? { borderColor: '#16a34a', background: 'rgba(22,163,74,0.04)' } : {}}
+                        />
+                        <button
+                          onClick={() => simulateBoxScale(idx)}
+                          disabled={box.pesoSimulando || box.pesoSimulado}
+                          title="Báscula"
+                          className="px-2 py-1.5 rounded-lg text-xs font-bold transition-all"
+                          style={box.pesoSimulado
+                            ? { background: 'rgba(22,163,74,0.1)', color: '#16a34a', border: '1px solid rgba(22,163,74,0.3)' }
+                            : box.pesoSimulando
+                              ? { background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed' }
+                              : { background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.2)' }
+                          }
+                        >
+                          {box.pesoSimulando ? '...' : box.pesoSimulado ? '✓' : '⚖️'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 pb-3">
+                    {!box.showDims ? (
+                      <button
+                        onClick={() => updateBox(idx, { showDims: true, dims: { largo: '', ancho: '', alto: '' } })}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline transition-colors"
+                      >
+                        + Agregar dimensiones (opcional)
+                      </button>
+                    ) : (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-gray-500">Dimensiones (cm)</span>
+                          <button
+                            onClick={() => updateBox(idx, { showDims: false, dims: null })}
+                            className="text-xs text-gray-400 hover:text-red-500"
+                          >
+                            × Quitar
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(['largo', 'ancho', 'alto'] as const).map(dim => (
+                            <div key={dim}>
+                              <label className="block text-xs text-gray-400 mb-0.5 capitalize">{dim}</label>
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={box.dims?.[dim] ?? ''}
+                                onChange={e => updateBox(idx, {
+                                  dims: { ...(box.dims ?? { largo: '', ancho: '', alto: '' }), [dim]: e.target.value }
+                                })}
+                                placeholder="0"
+                                className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Paquetería info */}
-          {paqueteria === 'Estafeta' && (
-            <div className="px-4 py-3 rounded-xl text-xs" style={{ background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)', color: '#2563eb' }}>
-              <strong>Estafeta — Web service activo</strong> — Se generará la guía automáticamente al crear el embarque
+          {/* Info banner por paquetería */}
+          {isEstafeta && (
+            <div
+              className="px-4 py-3 rounded-xl text-xs"
+              style={{ background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)', color: '#dc2626' }}
+            >
+              <strong>Estafeta — Web service activo</strong> — Puedes crear el embarque ahora y generar la guía después, o crear y generar la guía en un solo paso.
             </div>
           )}
-          {isUberOrBluego && !confirmSolicitud && (
-            <div className="px-4 py-3 rounded-xl text-xs" style={{ background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)', color: '#2563eb' }}>
-              <strong>{paqueteria} — Web service activo</strong> — Al confirmar se enviará la solicitud automáticamente
-            </div>
-          )}
-          {isUberOrBluego && confirmSolicitud && (
-            <div className="px-4 py-3 rounded-xl text-sm font-semibold" style={{ background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', color: '#d97706' }}>
-              ¿Desea generar la solicitud a <strong>{paqueteria}</strong> ahora?
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={handleCreate}
-                  className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
-                  style={{ background: '#d97706' }}
-                >
-                  Sí, generar solicitud
-                </button>
-                <button
-                  onClick={() => setConfirmSolicitud(false)}
-                  className="px-4 py-1.5 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-100"
-                >
-                  Cancelar
-                </button>
-              </div>
+          {isUberOrBluego && (
+            <div
+              className="px-4 py-3 rounded-xl text-xs"
+              style={{ background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)', color: '#2563eb' }}
+            >
+              <strong>{paqueteria} — Web service activo</strong> — Puedes guardar el embarque ahora y enviar la solicitud después, o guardar y enviar en un solo paso.
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        {!confirmSolicitud && (
-          <div
-            className="flex-shrink-0 flex items-center justify-end gap-3 px-6 py-4"
-            style={{ borderTop: '1px solid #e5e7eb', background: '#f8f9fb' }}
-          >
-            <button
-              onClick={onClose}
-              className="px-5 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleCreate}
-              disabled={!canCreate}
-              className="px-6 py-2 rounded-lg text-sm font-bold text-white transition-all"
-              style={canCreate
-                ? { background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)', boxShadow: '0 4px 14px rgba(26,43,107,0.3)' }
-                : { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed' }
-              }
-            >
-              {isUberOrBluego ? `Solicitar ${paqueteria}` : 'Crear embarque'}
-            </button>
+        {/* Footer — botones diferenciados por paquetería */}
+        <div
+          className="flex-shrink-0 px-6 py-4"
+          style={{ borderTop: '1px solid #e5e7eb', background: '#f8f9fb' }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-400">
+              {boxes.length} caja{boxes.length !== 1 ? 's' : ''} · {totalPeso.toFixed(1)} kg total
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all"
+              >
+                Cancelar
+              </button>
+              {/* Solo guardar/crear */}
+              <button
+                onClick={() => handleSubmit(false)}
+                disabled={!canCreate}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-all"
+                style={canCreate
+                  ? { borderColor: '#1a2b6b', color: '#1a2b6b', background: '#fff' }
+                  : { borderColor: '#d1d5db', color: '#9ca3af', background: '#fff', cursor: 'not-allowed' }
+                }
+              >
+                {mode === 'existing' ? 'Guardar cambios' : 'Crear embarque'}
+              </button>
+              {/* Guardar + acción de paquetería */}
+              {(isUberOrBluego || isEstafeta) && (
+                <button
+                  onClick={() => handleSubmit(true)}
+                  disabled={!canCreate}
+                  className="px-4 py-2 rounded-lg text-sm font-bold text-white transition-all"
+                  style={canCreate
+                    ? {
+                        background: isEstafeta
+                          ? 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
+                          : paqueteria === 'Uber'
+                            ? 'linear-gradient(135deg, #111827 0%, #374151 100%)'
+                            : 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+                        boxShadow: '0 4px 14px rgba(0,0,0,0.2)'
+                      }
+                    : { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed' }
+                  }
+                >
+                  {mode === 'existing'
+                    ? isEstafeta ? 'Guardar y generar guía' : `Guardar y enviar solicitud ${paqueteria}`
+                    : isEstafeta ? 'Crear y generar guía' : `Crear y enviar solicitud ${paqueteria}`
+                  }
+                </button>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -507,9 +837,15 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
     onNavigateToEmbarques(selectedOrder.id);
   };
 
-  const handleEmbarcarCreated = (shipment: Shipment) => {
-    setLocalShipments(prev => [shipment, ...prev]);
-    updateOrderStatus(shipment.pedidos[0], 'Documentado');
+  const handleEmbarcarCreated = (shipment: Shipment, addedToExisting?: boolean) => {
+    if (addedToExisting) {
+      // Update existing shipment in list
+      setLocalShipments(prev => prev.map(s => s.id === shipment.id ? shipment : s));
+    } else {
+      setLocalShipments(prev => [shipment, ...prev]);
+    }
+    // Mark all orders in the shipment as Documentado
+    shipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Documentado'));
     setShowEmbarcarModal(false);
   };
 
@@ -787,6 +1123,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
       {showEmbarcarModal && selectedOrder && (
         <ModalEmbarcar
           order={selectedOrder}
+          existingShipments={localShipments}
           onClose={() => setShowEmbarcarModal(false)}
           onCreated={handleEmbarcarCreated}
           showToast={showToast}
