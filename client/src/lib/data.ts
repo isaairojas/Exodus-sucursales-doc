@@ -215,7 +215,7 @@ export interface AppState {
 }
 
 export const initialAppState: AppState = {
-  currentScreen: 'auth',
+  currentScreen: 'orders',
   selectedOrderId: null,
   preSelectedOrderId: null,
   reviewStartTime: null,

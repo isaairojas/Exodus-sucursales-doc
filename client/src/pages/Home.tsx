@@ -39,7 +39,7 @@ export default function Home() {
       <main className="flex flex-col flex-1 overflow-hidden">
         {state.currentScreen === 'auth' && <ScreenAuth />}
 
-        {state.currentScreen === 'orders' && desktopView === 'orders' && (
+        {(state.currentScreen === 'orders' || state.currentScreen === 'select') && desktopView === 'orders' && (
           <ScreenOrders
             showToast={showToast}
             onNavigateToEmbarques={() => handleNavigateToEmbarques()}
