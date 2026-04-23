@@ -208,7 +208,7 @@ export default function ScreenSummary({ showToast }: Props) {
             onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
             onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_back</span>
-            Volver a selección
+            Volver a pedidos
           </button>
           <button onClick={handlePrint}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium border transition-all"

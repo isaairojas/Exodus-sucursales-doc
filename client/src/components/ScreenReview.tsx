@@ -20,7 +20,7 @@ interface Props {
 const UNKNOWN_CODE = 'XX-999';
 
 export default function ScreenReview({ showToast }: Props) {
-  const { state, processScan, goToScreen, finalizeReview } = useApp();
+  const { state, processScan, goToScreen, finalizeReview, resetReview } = useApp();
   const [scanValue, setScanValue] = useState('');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showDiscModal, setShowDiscModal] = useState(false);
@@ -128,6 +128,18 @@ export default function ScreenReview({ showToast }: Props) {
   return (
     <>
       <div className="flex-1 flex flex-col overflow-hidden" style={{ animation: 'screenFadeIn 0.3s ease' }}>
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 px-5 py-2 flex-shrink-0" style={{ background: '#fff', borderBottom: '1px solid #e5e7eb' }}>
+          <button
+            onClick={() => resetReview()}
+            className="flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-blue-700 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M15 18l-6-6 6-6"/></svg>
+            Pedidos
+          </button>
+          <span className="text-gray-300">/</span>
+          <span className="text-sm font-semibold text-gray-700">Revisión — Pedido #{order?.id}</span>
+        </div>
         <div className="flex flex-1 overflow-hidden">
 
           {/* ── Left panel ── */}

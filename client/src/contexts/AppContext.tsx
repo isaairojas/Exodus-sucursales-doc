@@ -1,19 +1,18 @@
 // ============================================================
 // APYMSA — AppContext
-// Global state machine for the review module
+// Global state machine for the full order management module
 // ============================================================
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import {
   AppState, AppScreen, ScannedItem, initialAppState,
-  ORDERS_DB, PRODUCT_CATALOG,
+  ORDERS_DB, OrderStatus,
 } from '@/lib/data';
 
-// Resolution map passed from ModalDiscrepancy on confirm
 export interface DiscrepancyResolution {
   code: string;
   tipo: 'Sobrante' | 'Faltante' | 'Producto incorrecto';
-  removedFromCount: boolean; // Faltante: "Retirar pieza del conteo"
-  denied: boolean;           // Faltante: "Autorizar faltante" with motivo
+  removedFromCount: boolean;
+  denied: boolean;
   motivo: string;
 }
 
@@ -26,6 +25,7 @@ interface AppContextValue {
   finalizeReview: (resolutions?: DiscrepancyResolution[]) => void;
   resetReview: () => void;
   setPreSelectedOrder: (id: string | null) => void;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -39,6 +39,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setPreSelectedOrder = useCallback((id: string | null) => {
     setState(s => ({ ...s, preSelectedOrderId: id }));
+  }, []);
+
+  const updateOrderStatus = useCallback((orderId: string, status: OrderStatus) => {
+    setState(s => ({
+      ...s,
+      orderStatuses: { ...s.orderStatuses, [orderId]: status },
+    }));
   }, []);
 
   const loadOrder = useCallback((orderId: string) => {
@@ -96,7 +103,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Apply discrepancy resolutions from ModalDiscrepancy before going to summary
   const finalizeReview = useCallback((resolutions?: DiscrepancyResolution[]) => {
     setState(s => {
       let newItems = { ...s.scannedItems };
@@ -107,56 +113,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!item) return;
           if (r.tipo === 'Faltante') {
             if (r.removedFromCount) {
-              // Treat as if the right quantity was scanned — set conteo = req
               const order = s.selectedOrderId ? ORDERS_DB[s.selectedOrderId] : null;
               const partida = order?.partidas.find(p => p.code === r.code);
               const req = partida?.qty ?? item.conteo;
               newItems[r.code] = {
-                ...item,
-                conteo: req,
-                removedFromCount: true,
-                denied: false,
-                authorized: false,
-                authMotivo: '',
+                ...item, conteo: req, removedFromCount: true,
+                denied: false, authorized: false, authMotivo: '',
               };
             } else if (r.denied) {
-              // Authorized faltante → mark as denied (status "Producto negado")
               newItems[r.code] = {
-                ...item,
-                denied: true,
-                authorized: true,
-                authMotivo: r.motivo,
-                removedFromCount: false,
+                ...item, denied: true, authorized: true,
+                authMotivo: r.motivo, removedFromCount: false,
               };
             }
           }
           if (r.tipo === 'Sobrante') {
-            // User physically removed the excess — adjust conteo down to required qty
             const order = s.selectedOrderId ? ORDERS_DB[s.selectedOrderId] : null;
             const partida = order?.partidas.find(p => p.code === r.code);
             const req = partida?.qty ?? item.conteo;
             newItems[r.code] = {
-              ...item,
-              conteo: req,
-              removedFromCount: true,
-              denied: false,
-              authorized: false,
-              authMotivo: '',
+              ...item, conteo: req, removedFromCount: true,
+              denied: false, authorized: false, authMotivo: '',
             };
           }
-          // Incorrecto doesn't affect order partidas in the summary
         });
       }
 
-      return { ...s, scannedItems: newItems, reviewEndTime: new Date() };
+      // Determine new order status after review
+      const hasIncidencias = s.selectedOrderId
+        ? ORDERS_DB[s.selectedOrderId]?.partidas.some(p => {
+            const item = newItems[p.code];
+            if (!item) return false;
+            if (item.removedFromCount) return false;
+            if (item.denied) return true;
+            return item.conteo !== p.qty;
+          })
+        : false;
+
+      const newStatus: OrderStatus = hasIncidencias ? 'Revisado con incidencias' : 'Revisado';
+      const newOrderStatuses = s.selectedOrderId
+        ? { ...s.orderStatuses, [s.selectedOrderId]: newStatus }
+        : s.orderStatuses;
+
+      return { ...s, scannedItems: newItems, reviewEndTime: new Date(), orderStatuses: newOrderStatuses };
     });
   }, []);
 
-  // Reset review but keep completedOrderIds so selection list hides reviewed orders
   const resetReview = useCallback(() => {
     setState(s => ({
       ...initialAppState,
-      currentScreen: 'select',
+      currentScreen: 'orders',
+      orderStatuses: s.orderStatuses,
       completedOrderIds: s.selectedOrderId
         ? [...s.completedOrderIds, s.selectedOrderId]
         : s.completedOrderIds,
@@ -166,7 +173,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       state, goToScreen, loadOrder, processScan,
-      toggleAuthorize, finalizeReview, resetReview, setPreSelectedOrder,
+      toggleAuthorize, finalizeReview, resetReview,
+      setPreSelectedOrder, updateOrderStatus,
     }}>
       {children}
     </AppContext.Provider>

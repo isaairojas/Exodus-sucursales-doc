@@ -32,7 +32,7 @@ export default function ScreenAuth() {
           loadOrder(preSelected);
           goToScreen('review');
         } else {
-          goToScreen('select');
+          goToScreen('orders');
         }
       }, 1500);
     }, 2000);
