@@ -16,7 +16,7 @@ export interface OrderPartida {
 }
 
 export type OrderStatus =
-  | 'Activo'
+  | 'Creado'
   | 'Surtido'
   | 'Revisado'
   | 'Revisado con incidencias'
@@ -112,7 +112,7 @@ export const ORDERS_DB: Record<string, Order> = {
   '1064772': {
     id: '1064772', clienteId: '10241', cliente: 'AUTOPARTES COBIAN',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
-    total: '$1,837.12', status: 'Activo',
+    total: '$1,837.12', status: 'Creado',
     elaboro: 'Ángel', origen: 'Exodus ERP', observaciones: '',
     fechaCaptura: '2026-04-22 09:50', fechaEntrega: '', horaEntrega: '', horaReparto: '', zona: '', local: false,
     horaInicioSurtido: '', horaFinSurtido: '',
@@ -336,7 +336,7 @@ export function formatDateTime(date: Date | null): string {
 
 // Status badge color map (shared across screens)
 export const STATUS_COLORS: Record<OrderStatus, { bg: string; text: string; border: string }> = {
-  'Activo':                  { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
+  'Creado':                  { bg: 'rgba(220,38,38,0.10)',   text: '#dc2626', border: 'rgba(220,38,38,0.35)'  },
   'Surtido':                 { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
   'Revisado':                { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
   'Revisado con incidencias':{ bg: 'rgba(220,38,38,0.12)',   text: '#dc2626', border: 'rgba(220,38,38,0.3)'   },

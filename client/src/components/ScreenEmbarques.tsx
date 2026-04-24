@@ -32,7 +32,7 @@ function ShipmentBadge({ status }: { status: ShipmentStatus }) {
 }
 
 function OrderBadge({ status }: { status: OrderStatus }) {
-  const c = STATUS_COLORS[status] ?? STATUS_COLORS['Activo'];
+  const c = STATUS_COLORS[status] ?? STATUS_COLORS['Creado'];
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap"
@@ -1969,7 +1969,7 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, preSele
                     <tbody>
                       {selectedShipment.pedidos.map((pid, idx) => {
                         const o: Order | undefined = ORDERS_DB[pid];
-                        const st = (state.orderStatuses[pid] ?? o?.status ?? 'Activo') as OrderStatus;
+                        const st = (state.orderStatuses[pid] ?? o?.status ?? 'Creado') as OrderStatus;
                         return (
                           <tr key={pid} style={{ borderBottom: idx < selectedShipment.pedidos.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
                             <td className="px-4 py-2.5 font-semibold text-gray-800">#{pid}</td>

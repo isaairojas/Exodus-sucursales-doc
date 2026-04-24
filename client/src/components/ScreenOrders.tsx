@@ -15,10 +15,10 @@ interface Props {
   onFacturaOrderHandled?: () => void;
 }
 
-const ALL_STATUSES: OrderStatus[] = ['Activo', 'Surtido', 'Revisado', 'Revisado con incidencias', 'Documentado', 'Enviado', 'Facturado', 'Cancelado'];
+const ALL_STATUSES: OrderStatus[] = ['Creado', 'Surtido', 'Revisado', 'Revisado con incidencias', 'Documentado', 'Enviado', 'Facturado', 'Cancelado'];
 
 function StatusBadge({ status }: { status: OrderStatus }) {
-  const c = STATUS_COLORS[status] ?? STATUS_COLORS['Activo'];
+  const c = STATUS_COLORS[status] ?? STATUS_COLORS['Creado'];
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap"
@@ -31,7 +31,7 @@ function StatusBadge({ status }: { status: OrderStatus }) {
 
 function OrderProcess({ status }: { status: OrderStatus }) {
   const steps = [
-    { key: 'Activo', label: 'Capturado' },
+    { key: 'Creado', label: 'Capturado' },
     { key: 'Surtido', label: 'Surtido' },
     { key: 'Revisado', label: 'Revisado' },
     { key: 'Facturado', label: 'Facturado' },
@@ -40,7 +40,7 @@ function OrderProcess({ status }: { status: OrderStatus }) {
   ] as const;
 
   const statusToIndex: Record<OrderStatus, number> = {
-    'Activo': 0,
+    'Creado': 0,
     'Surtido': 1,
     'Revisado': 2,
     'Revisado con incidencias': 2,
@@ -758,8 +758,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
   // Filters
   const [fechaInicial, setFechaInicial] = useState('2026-04-22');
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
-  const [filterActivo, setFilterActivo] = useState(true);
-  const [filterCancelado, setFilterCancelado] = useState(false);
+  const [filterPendiente, setFilterPendiente] = useState(true);
+  const [filterFinalizado, setFilterFinalizado] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | OrderStatus>('ALL');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -782,22 +782,18 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
     [state.orderStatuses]
   );
 
-  // Apply filters
-  // "Activo" = todo lo que NO está retenido y NO está entregado (incluye Revisado, Surtido, Documentado, Enviado, Facturado-pendiente)
-  // "Cancelado" = pedidos cancelados
-  // "Entregado" = pedidos entregados (deshabilitado por ahora)
   const filteredOrders = useMemo(() => {
     const allowedStatuses = new Set<OrderStatus>();
-    if (filterActivo) {
-      allowedStatuses.add('Activo');
+    if (filterPendiente) {
+      allowedStatuses.add('Creado');
       allowedStatuses.add('Surtido');
       allowedStatuses.add('Revisado');
       allowedStatuses.add('Revisado con incidencias');
       allowedStatuses.add('Documentado');
-      allowedStatuses.add('Enviado');
       allowedStatuses.add('Facturado');
+      allowedStatuses.add('Cancelado');
     }
-    if (filterCancelado) { allowedStatuses.add('Cancelado'); }
+    if (filterFinalizado) { allowedStatuses.add('Enviado'); }
 
     return allOrders.filter(o => {
       if (!allowedStatuses.has(o.status)) return false;
@@ -808,7 +804,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
       }
       return true;
     });
-  }, [allOrders, filterActivo, filterCancelado, filterStatus, searchText]);
+  }, [allOrders, filterPendiente, filterFinalizado, filterStatus, searchText]);
 
   const selectedOrder = selectedId ? filteredOrders.find(o => o.id === selectedId) ?? null : null;
   const detailOrder = detailOrderId ? allOrders.find(o => o.id === detailOrderId) ?? null : null;
@@ -824,7 +820,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
   }, [openFacturaOrderId]);
 
   // Action button logic
-  const canSurtir       = activeOrder?.status === 'Activo';
+  const canSurtir       = activeOrder?.status === 'Creado';
   const canRevisar      = activeOrder?.status === 'Surtido';
   const canFacturar     = activeOrder?.status === 'Revisado' || activeOrder?.status === 'Revisado con incidencias';
   // Solo se puede documentar (crear embarque) si el pedido ya fue facturado
@@ -902,20 +898,12 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
             style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}
           >
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input type="checkbox" checked={filterActivo} onChange={e => setFilterActivo(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
-              <span className="text-xs text-gray-600 font-medium">Activo</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
-              <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
-              <span className="text-xs text-gray-400 font-medium">Retenido</span>
+              <input type="checkbox" checked={filterPendiente} onChange={e => setFilterPendiente(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+              <span className="text-xs text-gray-600 font-medium">Pendiente</span>
             </label>
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input type="checkbox" checked={filterCancelado} onChange={e => setFilterCancelado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
-              <span className="text-xs text-gray-600 font-medium">Cancelado</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
-              <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
-              <span className="text-xs text-gray-400 font-medium">Entregado</span>
+              <input type="checkbox" checked={filterFinalizado} onChange={e => setFilterFinalizado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+              <span className="text-xs text-gray-600 font-medium">Finalizado</span>
             </label>
           </div>
 
@@ -935,7 +923,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Estatus</span>
+            <span className="text-xs text-gray-500 font-medium">Estatus operativo</span>
             <select
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value as 'ALL' | OrderStatus)}
@@ -963,8 +951,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
             <button
               onClick={() => {
                 setSearchText('');
-                setFilterActivo(true);
-                setFilterCancelado(false);
+                setFilterPendiente(true);
+                setFilterFinalizado(false);
                 setFilterStatus('ALL');
               }}
               className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 transition-all"

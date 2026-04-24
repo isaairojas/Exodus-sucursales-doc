@@ -12,7 +12,7 @@ interface Props {
 
 const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
   Surtido:   { bg: '#dcfce7', color: '#166534' },
-  Activo:    { bg: '#e0e7ff', color: '#3730a3' },
+  Creado:    { bg: '#fee2e2', color: '#dc2626' },
   Revisado:  { bg: '#fef3c7', color: '#92400e' },
   Facturado: { bg: '#f3f4f6', color: '#374151' },
   Cancelado: { bg: '#fee2e2', color: '#991b1b' },
@@ -82,7 +82,7 @@ export default function ScreenSelect({ showToast }: Props) {
             <tbody>
               {filtered.map(order => {
                 const isSurtido = order.status === 'Surtido';
-                const badge = STATUS_BADGE[order.status] || STATUS_BADGE['Activo'];
+                const badge = STATUS_BADGE[order.status] || STATUS_BADGE['Creado'];
                 const isSelected = selectedRow === order.id;
                 return (
                   <tr
