@@ -46,7 +46,7 @@ export default function ScreenRevision({ showToast }: Props) {
 
   // If review is in progress, show the review screen
   if (state.currentScreen === 'review' || state.currentScreen === 'summary') {
-    return <ScreenReview showToast={showToast} />;
+    return <ScreenReview showToast={showToast} onPostReviewPrompt={() => goToScreen('orders')} />;
   }
 
   const selectedOrder = selectedId ? pendingOrders.find(o => o.id === selectedId) ?? null : null;

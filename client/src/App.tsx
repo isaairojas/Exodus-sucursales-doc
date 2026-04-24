@@ -2,7 +2,8 @@
 // APYMSA — App Root
 // Design: Enterprise Precision — light theme (desktop), dark theme (mobile)
 // Routes:
-//   /                → Home (desktop full flow)
+//   /                → Home de módulos
+//   /logistica       → Módulo de Logística
 //   /mobile          → MobileAuth
 //   /mobile/menu     → MobileMenu
 //   /mobile/revision → MobileSelect (order selection)
@@ -16,6 +17,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppProvider } from "./contexts/AppContext";
 import Home from "./pages/Home";
+import ModulesHome from "./pages/ModulesHome";
 import MobileAuth from "./pages/MobileAuth";
 import MobileMenu from "./pages/MobileMenu";
 import MobileSelect from "./pages/MobileSelect";
@@ -28,7 +30,8 @@ function Router() {
   return (
     <WouterRouter base={BASE}>
       <Switch>
-        <Route path={"/"} component={Home} />
+        <Route path={"/"} component={ModulesHome} />
+        <Route path={"/logistica"} component={Home} />
         <Route path={"/mobile"} component={MobileAuth} />
         <Route path={"/mobile/menu"} component={MobileMenu} />
         <Route path={"/mobile/revision"} component={MobileSelect} />

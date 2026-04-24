@@ -3,16 +3,17 @@
 // Design: Enterprise Precision — navy sticky header with nav tabs
 // ============================================================
 import { useApp } from '@/contexts/AppContext';
+import { useLocation } from 'wouter';
 
 interface Props {
-  activeView?: 'orders' | 'embarques' | 'revision';
+  activeView?: 'orders' | 'embarques';
   onNavigateToOrders?: () => void;
   onNavigateToEmbarques?: () => void;
-  onNavigateToRevision?: () => void;
 }
 
-export default function AppHeader({ activeView, onNavigateToOrders, onNavigateToEmbarques, onNavigateToRevision }: Props) {
+export default function AppHeader({ activeView, onNavigateToOrders, onNavigateToEmbarques }: Props) {
   const { state } = useApp();
+  const [, navigate] = useLocation();
   const showNav = state.currentScreen === 'orders';
 
   const tabStyle = (active: boolean) => ({
@@ -47,11 +48,15 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
       {/* Logo */}
       <div className="flex items-center gap-3 px-6" style={{ borderRight: showNav ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
         <div>
-          <div className="font-bold tracking-widest text-white" style={{ fontSize: 18, letterSpacing: '1px' }}>
-            APYMSA
-          </div>
-          <div className="text-xs" style={{ color: 'rgba(255,255,255,0.55)', letterSpacing: '0.3px', lineHeight: 1 }}>
-            Autopartes y Mayoreo, S.A. de C.V.
+      
+            <img
+              src="/apymsa-logo.png"
+              alt="APYMSA"
+              style={{ height: 22, width: 'auto', display: 'block' }}
+            />
+  
+          <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.55)', letterSpacing: '0.3px', lineHeight: 1, marginTop: 3 }}>
+            Exodus Sucursales
           </div>
         </div>
       </div>
@@ -83,23 +88,25 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
             </svg>
             Embarques
           </button>
-          <button
-            style={tabStyle(activeView === 'revision')}
-            onClick={onNavigateToRevision}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
-              <rect x="9" y="3" width="6" height="4" rx="1"/>
-              <path d="M9 12l2 2 4-4"/>
-            </svg>
-            Revisión
-          </button>
         </div>
       )}
 
       {/* User chip */}
       {state.currentScreen !== 'auth' && (
         <div className="flex items-center gap-2 text-sm px-6 ml-auto" style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <button
+            onClick={() => navigate('/')}
+            className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+            style={{ background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff' }}
+            title="Ir al Home"
+            aria-label="Ir al Home"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+              <path d="M3 10.5L12 3l9 7.5" />
+              <path d="M5 9.5V20h14V9.5" />
+              <path d="M10 20v-6h4v6" />
+            </svg>
+          </button>
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm text-white"
             style={{ background: '#2563eb', border: '2px solid rgba(255,255,255,0.3)' }}
@@ -108,7 +115,7 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
           </div>
           <span>Cosme</span>
           <span style={{ color: 'rgba(255,255,255,0.3)', margin: '0 4px' }}>|</span>
-          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.55)' }}>Gestión de Pedidos</span>
+          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.55)' }}>Logistica</span>
         </div>
       )}
     </header>

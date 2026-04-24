@@ -3,14 +3,16 @@
 // Pantalla principal de gestión de pedidos
 // Design: Enterprise Precision — light theme, navy #1a2b6b
 // ============================================================
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL } from '@/lib/data';
+import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL, PRODUCT_CATALOG } from '@/lib/data';
 import ModalFacturacion from '@/components/ModalFacturacion';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
-  onNavigateToEmbarques: (orderId?: string) => void;
+  onNavigateToEmbarques: (target?: { orderId?: string; shipmentId?: string; openCreate?: boolean }) => void;
+  openFacturaOrderId?: string | null;
+  onFacturaOrderHandled?: () => void;
 }
 
 const ALL_STATUSES: OrderStatus[] = ['Activo', 'Surtido', 'Revisado', 'Revisado con incidencias', 'Documentado', 'Enviado', 'Facturado', 'Cancelado'];
@@ -27,97 +29,65 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   );
 }
 
-// ── Mini Auth Modal (fingerprint gate before review) ─────────
-function ModalAuth({ orderId, onConfirm, onClose }: { orderId: string; onConfirm: () => void; onClose: () => void }) {
-  const [phase, setPhase] = useState<'idle' | 'scanning' | 'success'>('idle');
+function OrderProcess({ status }: { status: OrderStatus }) {
+  const steps = [
+    { key: 'Activo', label: 'Capturado' },
+    { key: 'Surtido', label: 'Surtido' },
+    { key: 'Revisado', label: 'Revisado' },
+    { key: 'Facturado', label: 'Facturado' },
+    { key: 'Documentado', label: 'Documentado' },
+    { key: 'Enviado', label: 'Enviado' },
+  ] as const;
 
-  const handleActivate = () => {
-    if (phase !== 'idle') return;
-    setPhase('scanning');
-    setTimeout(() => {
-      setPhase('success');
-      setTimeout(() => {
-        onConfirm();
-      }, 1200);
-    }, 1800);
+  const statusToIndex: Record<OrderStatus, number> = {
+    'Activo': 0,
+    'Surtido': 1,
+    'Revisado': 2,
+    'Revisado con incidencias': 2,
+    'Facturado': 3,
+    'Documentado': 4,
+    'Enviado': 5,
+    'Cancelado': -1,
   };
+  const currentIndex = statusToIndex[status];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.5)' }}
-      onClick={e => { if (e.target === e.currentTarget && phase === 'idle') onClose(); }}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl overflow-hidden flex flex-col"
-        style={{ background: '#fff', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-6 py-4"
-          style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}
-        >
-          <div>
-            <h2 className="text-white font-bold text-base">Autenticación requerida</h2>
-            <p className="text-blue-200 text-xs mt-0.5">Revisar pedido #{orderId}</p>
-          </div>
-          {phase === 'idle' && (
-            <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                <path d="M18 6L6 18M6 6l12 12"/>
-              </svg>
-            </button>
-          )}
-        </div>
+    <div className="rounded-xl p-4" >
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">Proceso del pedido</h3>
+      </div>
 
-        {/* Body */}
-        <div className="flex flex-col items-center gap-5 px-8 py-8">
-          {/* Fingerprint icon */}
-          <div className="relative w-24 h-24 flex items-center justify-center">
-            {phase === 'idle' && (
-              <>
-                <div className="absolute w-24 h-24 rounded-full border-2" style={{ borderColor: '#2563eb', animation: 'fpPulse 2.5s ease-out infinite', opacity: 0 }} />
-                <div className="absolute w-24 h-24 rounded-full border-2" style={{ borderColor: '#2563eb', animation: 'fpPulse 2.5s ease-out 0.8s infinite', opacity: 0 }} />
-              </>
-            )}
-            <span
-              className="material-symbols-outlined relative z-10 transition-all duration-300"
-              style={{
-                fontSize: 64,
-                color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? '#2563eb' : '#1a2b6b',
-                fontVariationSettings: phase === 'success' ? "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 48" : "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48",
-              }}>
-              {phase === 'success' ? 'check_circle' : 'fingerprint'}
-            </span>
-            {phase === 'scanning' && (
-              <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none z-20">
-                <div className="absolute left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, transparent, #3b82f6, transparent)', animation: 'scanSweep 0.6s linear infinite' }} />
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+        {steps.map((step, idx) => {
+          const done = currentIndex >= idx;
+          const pending = currentIndex < idx && status !== 'Cancelado';
+          const canceled = status === 'Cancelado';
+          return (
+            <div
+              key={step.key}
+              className="rounded-lg px-3 py-2"
+              style={done
+                ? { background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.25)' }
+                : canceled
+                ? { background: '#f9fafb', border: '1px solid #e5e7eb', opacity: 0.65 }
+                : { background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.25)' }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold"
+                  style={done
+                    ? { background: '#16a34a', color: '#fff' }
+                    : canceled
+                    ? { background: '#d1d5db', color: '#6b7280' }
+                    : { background: '#cbd5e1', color: '#475569' }}
+                >
+                  {done ? '✓' : idx + 1}
+                </span>
               </div>
-            )}
-          </div>
-
-          <div className="text-sm font-medium text-center" style={{ color: phase === 'success' ? '#16a34a' : '#6b7280' }}>
-            {phase === 'idle' && 'Presione el botón para autenticarse'}
-            {phase === 'scanning' && 'Escaneando huella...'}
-            {phase === 'success' && 'Identidad confirmada — Cosme'}
-          </div>
-
-          <button
-            onClick={handleActivate}
-            disabled={phase !== 'idle'}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-white font-medium text-sm transition-all duration-200 w-full justify-center"
-            style={{
-              background: phase !== 'idle' ? '#d1d5db' : '#1a2b6b',
-              color: phase !== 'idle' ? '#9ca3af' : 'white',
-              cursor: phase !== 'idle' ? 'not-allowed' : 'pointer',
-            }}
-            onMouseEnter={e => { if (phase === 'idle') (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
-            onMouseLeave={e => { if (phase === 'idle') (e.currentTarget as HTMLButtonElement).style.background = '#1a2b6b'; }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>fingerprint</span>
-            Activar lector de huella
-          </button>
-        </div>
+              <p className="text-xs font-bold" style={{ color: done ? '#166534' : '#475569' }}>{step.label}</p>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -142,10 +112,22 @@ interface ModalEmbarcarProps {
   existingShipments: Shipment[];
   onClose: () => void;
   onCreated: (shipment: Shipment, addedToExisting?: boolean) => void;
+  onAttachAndOpenShipment: (shipmentId: string) => void;
+  onRequestCreateNew?: () => void;
+  forceNewMode?: boolean;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-function ModalEmbarcar({ order, existingShipments, onClose, onCreated, showToast }: ModalEmbarcarProps) {
+function ModalEmbarcar({
+  order,
+  existingShipments,
+  onClose,
+  onCreated,
+  onAttachAndOpenShipment,
+  onRequestCreateNew,
+  forceNewMode = false,
+  showToast,
+}: ModalEmbarcarProps) {
   // Detect existing shipments for same client (Generado status only)
   const clienteShipments = useMemo(() =>
     existingShipments.filter(s =>
@@ -159,7 +141,7 @@ function ModalEmbarcar({ order, existingShipments, onClose, onCreated, showToast
   );
 
   // Step: 'select' (choose existing or new) | 'form' (fill data)
-  const [step, setStep] = useState<'select' | 'form'>(clienteShipments.length > 0 ? 'select' : 'form');
+  const [step, setStep] = useState<'select' | 'form'>(forceNewMode ? 'form' : (clienteShipments.length > 0 ? 'select' : 'form'));
   const [selectedExistingId, setSelectedExistingId] = useState<string | null>(null);
   const [mode, setMode] = useState<'new' | 'existing'>('new');
 
@@ -358,33 +340,51 @@ function ModalEmbarcar({ order, existingShipments, onClose, onCreated, showToast
             style={{ borderTop: '1px solid #e5e7eb', background: '#f8f9fb' }}
           >
             <button
-              disabled={!selectedExistingId}
-              onClick={() => {
-                setMode('existing');
-                handleSelectExisting(selectedExistingId!);
-                setStep('form');
-              }}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold text-white transition-all"
-              style={selectedExistingId
-                ? { background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' }
-                : { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed' }
-              }
+              onClick={onClose}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-all text-gray-600 hover:bg-gray-100"
+              style={{ borderColor: '#d1d5db', background: '#fff' }}
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                <path d="M12 5v14M5 12h14"/>
+              <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M18 6L6 18M6 6l12 12"/>
               </svg>
-              Adjuntar a embarque seleccionado
+              Cerrar
             </button>
-            <button
-              onClick={() => { setMode('new'); setStep('form'); }}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold border-2 transition-all"
-              style={{ borderColor: '#1a2b6b', color: '#1a2b6b', background: '#fff' }}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                <path d="M12 5v14M5 12h14"/>
-              </svg>
-              Crear nuevo
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={!selectedExistingId}
+                onClick={() => {
+                  if (!selectedExistingId) return;
+                  onAttachAndOpenShipment(selectedExistingId);
+                }}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold text-white transition-all"
+                style={selectedExistingId
+                  ? { background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' }
+                  : { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed' }
+                }
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Adjuntar a embarque seleccionado
+              </button>
+              <button
+                onClick={() => {
+                  if (onRequestCreateNew) {
+                    onRequestCreateNew();
+                    return;
+                  }
+                  setMode('new');
+                  setStep('form');
+                }}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold border-2 transition-all"
+                style={{ borderColor: '#1a2b6b', color: '#1a2b6b', background: '#fff' }}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Crear nuevo
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -752,7 +752,7 @@ function ModalEmbarcar({ order, existingShipments, onClose, onCreated, showToast
 }
 
 // ── Main ScreenOrders ─────────────────────────────────────────
-export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props) {
+export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFacturaOrderId, onFacturaOrderHandled }: Props) {
   const { state, goToScreen, loadOrder, updateOrderStatus } = useApp();
 
   // Filters
@@ -760,12 +760,12 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   const [fechaFinal, setFechaFinal] = useState('2026-04-22');
   const [filterActivo, setFilterActivo] = useState(true);
   const [filterCancelado, setFilterCancelado] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<'ALL' | OrderStatus>('ALL');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
 
-  // Auth modal state
-  const [showAuthModal, setShowAuthModal] = useState(false);
   // Facturación modal state
   const [showFacturaModal, setShowFacturaModal] = useState(false);
 
@@ -801,51 +801,57 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
 
     return allOrders.filter(o => {
       if (!allowedStatuses.has(o.status)) return false;
+      if (filterStatus !== 'ALL' && o.status !== filterStatus) return false;
       if (searchText) {
         const q = searchText.toLowerCase();
         return o.id.includes(q) || o.cliente.toLowerCase().includes(q) || o.vendedor.toLowerCase().includes(q);
       }
       return true;
     });
-  }, [allOrders, filterActivo, filterCancelado, searchText]);
+  }, [allOrders, filterActivo, filterCancelado, filterStatus, searchText]);
 
   const selectedOrder = selectedId ? filteredOrders.find(o => o.id === selectedId) ?? null : null;
+  const detailOrder = detailOrderId ? allOrders.find(o => o.id === detailOrderId) ?? null : null;
+  const activeOrder = detailOrder ?? selectedOrder;
+  const forcedFacturaOrder = openFacturaOrderId ? allOrders.find(o => o.id === openFacturaOrderId) ?? null : null;
+  const facturaOrder = forcedFacturaOrder ?? activeOrder;
+
+  useEffect(() => {
+    if (!openFacturaOrderId) return;
+    setSelectedId(openFacturaOrderId);
+    setDetailOrderId(openFacturaOrderId);
+    setShowFacturaModal(true);
+  }, [openFacturaOrderId]);
 
   // Action button logic
-  const canSurtir       = selectedOrder?.status === 'Activo';
-  const canRevisar      = selectedOrder?.status === 'Surtido';
-  const canFacturar     = selectedOrder?.status === 'Revisado' || selectedOrder?.status === 'Revisado con incidencias';
+  const canSurtir       = activeOrder?.status === 'Activo';
+  const canRevisar      = activeOrder?.status === 'Surtido';
+  const canFacturar     = activeOrder?.status === 'Revisado' || activeOrder?.status === 'Revisado con incidencias';
   // Solo se puede documentar (crear embarque) si el pedido ya fue facturado
-  const canDocumentar   = selectedOrder?.status === 'Facturado';
-  const canVerEmbarques = selectedOrder?.status === 'Documentado' || selectedOrder?.status === 'Enviado';
+  const canDocumentar   = activeOrder?.status === 'Facturado';
+  const canVerEmbarques = activeOrder?.status === 'Documentado' || activeOrder?.status === 'Enviado';
 
   const handleSurtir = () => {
-    if (!selectedOrder) return;
-    updateOrderStatus(selectedOrder.id, 'Surtido');
-    showToast(`Pedido #${selectedOrder.id} marcado como Surtido`, 'success');
-    setSelectedId(null);
+    if (!activeOrder) return;
+    updateOrderStatus(activeOrder.id, 'Surtido');
+    showToast(`Pedido #${activeOrder.id} marcado como Surtido`, 'success');
+    setSelectedId(activeOrder.id);
   };
 
   const handleRevisarClick = () => {
-    if (!selectedOrder) return;
-    setShowAuthModal(true);
-  };
-
-  const handleAuthConfirm = () => {
-    if (!selectedOrder) return;
-    setShowAuthModal(false);
-    loadOrder(selectedOrder.id);
+    if (!activeOrder) return;
+    loadOrder(activeOrder.id);
     goToScreen('review');
   };
 
   const handleDocumentar = () => {
-    if (!selectedOrder) return;
-    onNavigateToEmbarques(selectedOrder.id);
+    if (!activeOrder) return;
+    onNavigateToEmbarques({ orderId: activeOrder.id });
   };
 
   const handleVerEmbarques = () => {
-    if (!selectedOrder) return;
-    onNavigateToEmbarques(selectedOrder.id);
+    if (!activeOrder) return;
+    onNavigateToEmbarques({ orderId: activeOrder.id });
   };
 
   const handleEmbarcarCreated = (shipment: Shipment, addedToExisting?: boolean) => {
@@ -861,188 +867,299 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
   };
 
   const btnBase = "px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap";
+  const detailTotalPiezas = activeOrder ? activeOrder.partidas.reduce((sum, p) => sum + p.qty, 0) : 0;
+  const detailLineas = activeOrder?.partidas.length ?? 0;
 
   return (
     <div className="flex flex-col h-full" style={{ fontFamily: 'Roboto, sans-serif', background: '#f4f6fa' }}>
 
-      {/* ── Filter bar ── */}
-      <div
-        className="flex-shrink-0 px-6 py-3 flex flex-wrap items-center gap-4"
-        style={{ background: '#fff', borderBottom: '1px solid #e5e7eb' }}
-      >
-        {/* Date range */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 font-medium">Fecha Inicial</span>
-          <input
-            type="date"
-            value={fechaInicial}
-            onChange={e => setFechaInicial(e.target.value)}
-            className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 font-medium">Fecha Final</span>
-          <input
-            type="date"
-            value={fechaFinal}
-            onChange={e => setFechaFinal(e.target.value)}
-            className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
-          />
-        </div>
-
-        {/* Status checkboxes */}
+      {!detailOrder && (
         <div
-          className="flex items-center gap-4 px-4 py-2 rounded-lg"
-          style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}
+          className="flex-shrink-0 px-6 py-3 flex flex-wrap items-center gap-4"
+          style={{ background: '#fff', borderBottom: '1px solid #e5e7eb' }}
         >
-          {/* Activo = todo lo que no está retenido ni entregado */}
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
-            <input type="checkbox" checked={filterActivo} onChange={e => setFilterActivo(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
-            <span className="text-xs text-gray-600 font-medium">Activo</span>
-          </label>
-          {/* Retenido — deshabilitado en esta versión */}
-          <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
-            <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
-            <span className="text-xs text-gray-400 font-medium">Retenido</span>
-          </label>
-          {/* Cancelado */}
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
-            <input type="checkbox" checked={filterCancelado} onChange={e => setFilterCancelado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
-            <span className="text-xs text-gray-600 font-medium">Cancelado</span>
-          </label>
-          {/* Entregado — deshabilitado (sin pedidos entregados aún) */}
-          <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
-            <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
-            <span className="text-xs text-gray-400 font-medium">Entregado</span>
-          </label>
-        </div>
-
-        {/* Search */}
-        <div className="flex items-center gap-2 flex-1 min-w-40 max-w-xs">
-          <div className="relative flex-1">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-            </svg>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 font-medium">Fecha Inicial</span>
             <input
-              type="text"
-              placeholder="Buscar pedido o cliente..."
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              type="date"
+              value={fechaInicial}
+              onChange={e => setFechaInicial(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
           </div>
-        </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 font-medium">Fecha Final</span>
+            <input
+              type="date"
+              value={fechaFinal}
+              onChange={e => setFechaFinal(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
 
-        {/* Refresh / Clear */}
-        <div className="flex items-center gap-2 ml-auto">
-          <button
-            onClick={() => showToast('Lista actualizada', 'info')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all hover:bg-gray-50"
-            style={{ border: '1px solid #1a2b6b', color: '#1a2b6b' }}
+          <div
+            className="flex items-center gap-4 px-4 py-2 rounded-lg"
+            style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-            </svg>
-            Refrescar
-          </button>
-          <button
-            onClick={() => { setSearchText(''); setFilterActivo(true); setFilterCancelado(false); }}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 transition-all"
-          >
-            Limpiar filtros
-          </button>
-        </div>
-      </div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={filterActivo} onChange={e => setFilterActivo(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+              <span className="text-xs text-gray-600 font-medium">Activo</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
+              <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
+              <span className="text-xs text-gray-400 font-medium">Retenido</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={filterCancelado} onChange={e => setFilterCancelado(e.target.checked)} className="w-3.5 h-3.5 accent-blue-700 rounded" />
+              <span className="text-xs text-gray-600 font-medium">Cancelado</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-not-allowed select-none opacity-40">
+              <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 rounded" />
+              <span className="text-xs text-gray-400 font-medium">Entregado</span>
+            </label>
+          </div>
 
-      {/* ── Table ── */}
+          <div className="flex items-center gap-2 flex-1 min-w-40 max-w-xs">
+            <div className="relative flex-1">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Buscar pedido o cliente..."
+                value={searchText}
+                onChange={e => setSearchText(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 font-medium">Estatus</span>
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value as 'ALL' | OrderStatus)}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            >
+              <option value="ALL">Todos</option>
+              {ALL_STATUSES.map(st => (
+                <option key={st} value={st}>{st}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => showToast('Lista actualizada', 'info')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all hover:bg-gray-50"
+              style={{ border: '1px solid #1a2b6b', color: '#1a2b6b' }}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+              </svg>
+              Refrescar
+            </button>
+            <button
+              onClick={() => {
+                setSearchText('');
+                setFilterActivo(true);
+                setFilterCancelado(false);
+                setFilterStatus('ALL');
+              }}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 transition-all"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto px-6 py-4">
-        <div
-          className="rounded-xl overflow-hidden"
-          style={{ border: '1px solid #e5e7eb', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
-        >
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-                {['Origen','Status','PedidoID','Fecha Captura','Fecha Entrega','Hora Entrega','Zona','Local','ClienteID','Cliente','VendedorID','Vendedor','Plazo','Total'].map(col => (
-                  <th
-                    key={col}
-                    className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
-                  >
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredOrders.length === 0 ? (
-                <tr>
-                  <td colSpan={14} className="text-center py-12 text-gray-400 text-sm">
-                    No se encontraron pedidos con los filtros seleccionados
-                  </td>
-                </tr>
-              ) : (
-                filteredOrders.map((order, idx) => {
-                  const isSelected = order.id === selectedId;
-                  return (
-                    <tr
-                      key={order.id}
-                      onClick={() => setSelectedId(isSelected ? null : order.id)}
-                      onDoubleClick={() => {
-                        setSelectedId(order.id);
-                        if (order.status === 'Surtido') setShowAuthModal(true);
-                        else if (order.status === 'Revisado' || order.status === 'Revisado con incidencias') setShowFacturaModal(true); // Facturar
-                        else if (order.status === 'Facturado') setShowEmbarcarModal(true); // Documentar
-                        else if (order.status === 'Documentado' || order.status === 'Enviado') onNavigateToEmbarques(order.id);
-                      }}
-                      className="cursor-pointer transition-colors"
-                      style={{
-                        background: isSelected
-                          ? 'rgba(26,43,107,0.08)'
-                          : idx % 2 === 0 ? '#fff' : '#fafbfc',
-                        borderBottom: '1px solid #f0f0f0',
-                        borderLeft: isSelected ? '3px solid #1a2b6b' : '3px solid transparent',
-                      }}
+        {!detailOrder ? (
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid #e5e7eb', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+          >
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
+                  {['Origen','Status','PedidoID','Fecha Captura','Fecha Entrega','Hora Entrega','Zona','Local','ClienteID','Cliente','VendedorID','Vendedor','Plazo','Total'].map(col => (
+                    <th
+                      key={col}
+                      className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
                     >
-                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{order.origen}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <StatusBadge status={order.status} />
-                      </td>
-                      <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.id}</td>
-                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaCaptura}</td>
-                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaEntrega || '—'}</td>
-                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.horaEntrega || '—'}</td>
-                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{order.zona || '—'}</td>
-                      <td className="px-3 py-2 text-center">
-                        {order.local ? (
-                          <svg className="w-4 h-4 mx-auto text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M20 6L9 17l-5-5"/></svg>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{order.clienteId}</td>
-                      <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap max-w-[180px] truncate">{order.cliente}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{order.vendedorId}</td>
-                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[160px] truncate">{order.vendedor}</td>
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{order.plazo || '—'}</td>
-                      <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.total}</td>
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="text-center py-12 text-gray-400 text-sm">
+                      No se encontraron pedidos con los filtros seleccionados
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOrders.map((order, idx) => {
+                    const isSelected = order.id === selectedId;
+                    return (
+                      <tr
+                        key={order.id}
+                        onClick={() => setSelectedId(isSelected ? null : order.id)}
+                        onDoubleClick={() => {
+                          setSelectedId(order.id);
+                          setDetailOrderId(order.id);
+                        }}
+                        className="cursor-pointer transition-colors"
+                        style={{
+                          background: isSelected
+                            ? 'rgba(26,43,107,0.08)'
+                            : idx % 2 === 0 ? '#fff' : '#fafbfc',
+                          borderBottom: '1px solid #f0f0f0',
+                          borderLeft: isSelected ? '3px solid #1a2b6b' : '3px solid transparent',
+                        }}
+                      >
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{order.origen}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <StatusBadge status={order.status} />
+                        </td>
+                        <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.id}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaCaptura}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaEntrega || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.horaEntrega || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{order.zona || '—'}</td>
+                        <td className="px-3 py-2 text-center">
+                          {order.local ? (
+                            <svg className="w-4 h-4 mx-auto text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M20 6L9 17l-5-5"/></svg>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{order.clienteId}</td>
+                        <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap max-w-[180px] truncate">{order.cliente}</td>
+                        <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{order.vendedorId}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[160px] truncate">{order.vendedor}</td>
+                        <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-xs">{order.plazo || '—'}</td>
+                        <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.total}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+              <div className="grid grid-cols-1  gap-4 items-start">
+                <div className="w-full flex items-start justify-between">
+                  <div>
+                    <button
+                      onClick={() => setDetailOrderId(null)}
+                      className="inline-flex items-center gap-1 text-sm font-semibold mb-2"
+                      style={{ color: '#1a2b6b' }}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M15 18l-6-6 6-6"/></svg>
+                      Regresar a pedidos
+                    </button>
+                    <h2 className="text-2xl font-black" style={{ color: '#1a2b6b' }}>Detalle de Pedido #{detailOrder.id}</h2>
+                    <p className="text-sm text-gray-500 mt-1">{detailOrder.cliente}</p>
+                  </div>
+                  <div className="w-full max-w-[650px] justify-self-end">
+                    <OrderProcess status={detailOrder.status} />
+                  </div>
+                  <StatusBadge status={detailOrder.status} />
+                </div>
+               
+              </div>
+            </div>
+
+            <div className="rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 gap-3" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+              {[
+                ['Origen', detailOrder.origen],
+                ['Status', detailOrder.status],
+                ['PedidoID', detailOrder.id],
+                ['Fecha Captura', detailOrder.fechaCaptura],
+                ['Fecha Entrega', detailOrder.fechaEntrega || '—'],
+                ['Hora Entrega', detailOrder.horaEntrega || '—'],
+                ['Zona', detailOrder.zona || '—'],
+                ['Local', detailOrder.local ? 'Sí' : 'No'],
+                ['ClienteID', detailOrder.clienteId],
+                ['Cliente', detailOrder.cliente],
+                ['Vendedor', `${detailOrder.vendedorId} - ${detailOrder.vendedor}`],
+                ['Plazo', detailOrder.plazo || '—'],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-xs text-gray-400">{label}</p>
+                  <p className="text-sm font-semibold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #e5e7eb', background: '#fff' }}>
+              <div className="px-4 py-3" style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
+                <h3 className="text-sm font-bold text-gray-700">Partidas del pedido</h3>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background: '#fafbfc', borderBottom: '1px solid #e5e7eb' }}>
+                    {['Código', 'Descripción', 'Categoría', 'Cantidad'].map(col => (
+                      <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {detailOrder.partidas.map((p, idx) => (
+                    <tr key={`${p.code}-${idx}`} style={{ borderBottom: idx < detailOrder.partidas.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                      <td className="px-4 py-2.5 font-semibold text-gray-800">{p.code}</td>
+                      <td className="px-4 py-2.5 text-gray-700">{PRODUCT_CATALOG[p.code]?.name ?? 'Producto sin catálogo'}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{PRODUCT_CATALOG[p.code]?.category ?? '—'}</td>
+                      <td className="px-4 py-2.5 font-bold text-gray-800">{p.qty}</td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-4 py-3 flex items-center justify-between" style={{ background: '#f8f9fb', borderTop: '1px solid #e5e7eb' }}>
+                <span className="text-xs text-gray-500">Observaciones: <strong className="text-gray-700">{detailOrder.observaciones || '—'}</strong></span>
+                <span className="text-sm font-bold" style={{ color: '#1a2b6b' }}>Total pedido: {detailOrder.total}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-xl px-4 py-3" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                <p className="text-xs text-gray-400">Líneas</p>
+                <p className="text-lg font-black" style={{ color: '#1a2b6b' }}>{detailLineas}</p>
+              </div>
+              <div className="rounded-xl px-4 py-3" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                <p className="text-xs text-gray-400">Piezas totales</p>
+                <p className="text-lg font-black" style={{ color: '#1a2b6b' }}>{detailTotalPiezas}</p>
+              </div>
+              <div className="rounded-xl px-4 py-3" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                <p className="text-xs text-gray-400">Monto</p>
+                <p className="text-lg font-black" style={{ color: '#1a2b6b' }}>{detailOrder.total}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Status bar ── */}
       <div className="flex-shrink-0 px-6 py-1.5" style={{ background: '#f8f9fb', borderTop: '1px solid #e5e7eb' }}>
         <p className="text-xs text-gray-500">
-          Se encontraron <strong className="text-gray-700">{filteredOrders.length}</strong> pedidos
-          {selectedOrder
-            ? <> | Pedido <strong className="text-blue-700">#{selectedOrder.id}</strong> seleccionado — {selectedOrder.status}</>
-            : ' | Doble clic: Surtido→Revisar · Revisado→Documentar · Documentado→Ver embarque | F3 - Editar Pedido'
-          }
+          {!detailOrder ? (
+            <>
+              Se encontraron <strong className="text-gray-700">{filteredOrders.length}</strong> pedidos
+              {selectedOrder
+                ? <> | Pedido <strong className="text-blue-700">#{selectedOrder.id}</strong> seleccionado — {selectedOrder.status}</>
+                : ' | Doble clic en un registro para abrir el detalle | F3 - Editar Pedido'
+              }
+            </>
+          ) : (
+            <>
+              Detalle abierto del pedido <strong className="text-blue-700">#{detailOrder.id}</strong> — {detailOrder.status}
+            </>
+          )}
         </p>
       </div>
 
@@ -1091,7 +1208,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
 
           {/* Facturar */}
           <button
-            onClick={() => setShowFacturaModal(true)}
+            onClick={() => activeOrder && setShowFacturaModal(true)}
             disabled={!canFacturar}
             className={btnBase}
             style={canFacturar
@@ -1111,7 +1228,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
 
           {/* Documentar / Embarcar */}
           <button
-            onClick={() => setShowEmbarcarModal(true)}
+            onClick={() => activeOrder && setShowEmbarcarModal(true)}
             disabled={!canDocumentar}
             className={btnBase}
             style={canDocumentar
@@ -1148,35 +1265,37 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques }: Props
         </div>
       </div>
 
-      {/* Auth modal */}
-      {showAuthModal && selectedOrder && (
-        <ModalAuth
-          orderId={selectedOrder.id}
-          onConfirm={handleAuthConfirm}
-          onClose={() => setShowAuthModal(false)}
-        />
-      )}
-
       {/* Facturación modal */}
-      {showFacturaModal && selectedOrder && (
+      {showFacturaModal && facturaOrder && (
         <ModalFacturacion
-          order={selectedOrder}
+          order={facturaOrder}
           showToast={showToast}
           onFacturado={() => {
             // Update order status to Facturado via global context
-            updateOrderStatus(selectedOrder.id, 'Facturado');
+            updateOrderStatus(facturaOrder.id, 'Facturado');
           }}
-          onClose={() => setShowFacturaModal(false)}
+          onClose={() => {
+            setShowFacturaModal(false);
+            onFacturaOrderHandled?.();
+          }}
         />
       )}
 
       {/* Embarcar modal */}
-      {showEmbarcarModal && selectedOrder && (
+      {showEmbarcarModal && activeOrder && (
         <ModalEmbarcar
-          order={selectedOrder}
+          order={activeOrder}
           existingShipments={localShipments}
           onClose={() => setShowEmbarcarModal(false)}
           onCreated={handleEmbarcarCreated}
+          onAttachAndOpenShipment={(shipmentId) => {
+            setShowEmbarcarModal(false);
+            onNavigateToEmbarques({ shipmentId });
+          }}
+          onRequestCreateNew={() => {
+            setShowEmbarcarModal(false);
+            onNavigateToEmbarques({ orderId: activeOrder.id, openCreate: true });
+          }}
           showToast={showToast}
         />
       )}

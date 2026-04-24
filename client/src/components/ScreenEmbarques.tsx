@@ -14,6 +14,8 @@ import {
 interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
   preSelectedOrderId?: string | null;
+  preSelectedShipmentId?: string | null;
+  openCreateShipmentSignal?: number;
   onBack: () => void;
 }
 
@@ -868,57 +870,7 @@ interface ModalCrearEmbarqueProps {
   editShipment?: Shipment | null;  // if provided, edit mode
 }
 
-// ── HuellaCrearModal — huella para confirmar creación/edición de embarque ──
-function HuellaCrearModal({ isEdit, onConfirm, onCancel }: { isEdit: boolean; onConfirm: () => void; onCancel: () => void }) {
-  const [phase, setPhase] = useState<'idle' | 'scanning' | 'success'>('idle');
-  const accentColor = '#1a2b6b';
-  const handleScan = () => {
-    if (phase !== 'idle') return;
-    setPhase('scanning');
-    setTimeout(() => {
-      setPhase('success');
-      setTimeout(onConfirm, 600);
-    }, 1400);
-  };
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4 text-center">
-        <h2 className="text-lg font-bold mb-1" style={{ color: '#1a2b6b' }}>
-          {isEdit ? 'Confirmar actualización' : 'Confirmar embarque'}
-        </h2>
-        <p className="text-sm text-gray-500 mb-6">
-          Registre su huella para {isEdit ? 'guardar los cambios del embarque' : 'crear el embarque'}
-        </p>
-        <div className="relative flex flex-col items-center mb-6">
-          <div
-            className="w-24 h-24 rounded-full flex items-center justify-center cursor-pointer transition-all"
-            style={{ background: phase === 'success' ? 'rgba(22,163,74,0.1)' : phase === 'scanning' ? 'rgba(26,43,107,0.1)' : 'rgba(26,43,107,0.06)', border: `2px solid ${phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#d1d5db'}` }}
-            onClick={handleScan}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 48, color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#1a2b6b' }}>
-              {phase === 'success' ? 'check_circle' : 'fingerprint'}
-            </span>
-          </div>
-          {phase === 'scanning' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-24 h-24 rounded-full animate-ping" style={{ background: `${accentColor}22` }} />
-            </div>
-          )}
-        </div>
-        <p className="text-sm font-medium mb-6" style={{ color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#6b7280' }}>
-          {phase === 'success' ? 'Identidad confirmada' : phase === 'scanning' ? 'Verificando...' : 'Toque el ícono para escanear'}
-        </p>
-        {phase === 'idle' && (
-          <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderStatuses, editShipment }: ModalCrearEmbarqueProps) {
-  const [showHuellaCrear, setShowHuellaCrear] = useState(false);
-  const [pendingShipment, setPendingShipment] = useState<{ shipment: Shipment; orderIds: string[] } | null>(null);
   const isEditMode = !!editShipment;
 
   // Eligible orders: Revisado/Revisado con incidencias + already in editShipment
@@ -1028,32 +980,16 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
       boxes: finalBoxes,
     };
 
-    // Show fingerprint confirmation before saving
-    setPendingShipment({ shipment: newShipment, orderIds: selectedOrders });
-    setShowHuellaCrear(true);
-  };
-
-  const handleHuellaCrearConfirm = () => {
-    if (!pendingShipment) return;
-    const { shipment, orderIds } = pendingShipment;
+    const shipment = newShipment;
+    const orderIds = selectedOrders;
     onCreated(shipment, orderIds);
     if (!isEditMode && isUberOrBluego) showToast(`Solicitud enviada automáticamente a ${paqueteria}`, 'success');
     showToast(isEditMode ? `Embarque #${shipment.id} actualizado` : `Embarque #${shipment.id} creado correctamente`, 'success');
-    setShowHuellaCrear(false);
-    setPendingShipment(null);
     onClose();
   };
 
   return (
-    <>
-    {showHuellaCrear && (
-      <HuellaCrearModal
-        isEdit={isEditMode}
-        onConfirm={handleHuellaCrearConfirm}
-        onCancel={() => { setShowHuellaCrear(false); setPendingShipment(null); }}
-      />
-    )}
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget && !showHuellaCrear) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col" style={{ background: '#fff', maxHeight: '92vh', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}>
@@ -1114,7 +1050,7 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
               <span className="w-5 h-5 rounded-full bg-blue-700 text-white text-xs flex items-center justify-center font-bold">2</span>
               Configuración
             </h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid gap-4 ${isEditMode ? 'grid-cols-2' : 'grid-cols-1'}`}>
               <div>
                 <label className="block text-xs text-gray-500 font-medium mb-1">Paquetería <span className="text-red-500">*</span></label>
                 <select value={paqueteria} onChange={e => { setPaqueteria(e.target.value); setConfirmSolicitud(false); }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
@@ -1122,13 +1058,15 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
                   {PAQUETERIAS_FULL.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 font-medium mb-1">Tipo de vehículo</label>
-                <select value={tipoVehiculo} onChange={e => setTipoVehiculo(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
-                  <option value="">Seleccionar...</option>
-                  {TIPOS_VEHICULO.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
+              {isEditMode && (
+                <div>
+                  <label className="block text-xs text-gray-500 font-medium mb-1">Tipo de vehículo</label>
+                  <select value={tipoVehiculo} onChange={e => setTipoVehiculo(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Seleccionar...</option>
+                    {TIPOS_VEHICULO.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
             {paqueteria === 'Estafeta' && (
               <div className="mt-3 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(204,0,0,0.06)', border: '1px solid rgba(204,0,0,0.2)', color: '#cc0000' }}>
@@ -1286,65 +1224,180 @@ function ModalCrearEmbarque({ onClose, onCreated, showToast, preOrderId, orderSt
         )}
       </div>
     </div>
-    </>
   );
 }
 
-// ── HuellaConfirmModal ──────────────────────────────────────
-function HuellaConfirmModal({ tipo, onConfirm, onCancel }: { tipo: 'salida' | 'entrega'; onConfirm: () => void; onCancel: () => void }) {
-  const [phase, setPhase] = useState<'idle' | 'scanning' | 'success'>('idle');
-  const isSalida = tipo === 'salida';
-  const accentColor = isSalida ? '#7c3aed' : '#16a34a';
-  const handleScan = () => {
-    if (phase !== 'idle') return;
-    setPhase('scanning');
-    setTimeout(() => {
-      setPhase('success');
-      setTimeout(onConfirm, 600);
-    }, 1400);
+interface ModalCajaDetalleProps {
+  onClose: () => void;
+  onSave: (box: Omit<BoxItem, 'id'>) => void;
+  orderIds: string[];
+  initialBox?: BoxItem | null;
+}
+
+function ModalCajaDetalle({ onClose, onSave, orderIds, initialBox }: ModalCajaDetalleProps) {
+  const [pedidoId, setPedidoId] = useState(initialBox?.pedidoId ?? orderIds[0] ?? '');
+  const [peso, setPeso] = useState(initialBox ? String(initialBox.peso) : '');
+  const [showDims, setShowDims] = useState(Boolean(initialBox?.largo || initialBox?.ancho || initialBox?.alto));
+  const [largo, setLargo] = useState(initialBox?.largo ? String(initialBox.largo) : '');
+  const [ancho, setAncho] = useState(initialBox?.ancho ? String(initialBox.ancho) : '');
+  const [alto, setAlto] = useState(initialBox?.alto ? String(initialBox.alto) : '');
+
+  const canSave = pedidoId !== '' && peso !== '' && Number(peso) > 0;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({
+      pedidoId,
+      peso: Number(peso),
+      ...(showDims ? {
+        largo: largo !== '' ? Number(largo) : undefined,
+        ancho: ancho !== '' ? Number(ancho) : undefined,
+        alto: alto !== '' ? Number(alto) : undefined,
+      } : {}),
+    });
   };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4 text-center">
-        <h2 className="text-lg font-bold mb-1" style={{ color: '#1a2b6b' }}>
-          {isSalida ? 'Confirmar salida a reparto' : 'Confirmar entrega al cliente'}
-        </h2>
-        <p className="text-sm text-gray-500 mb-6">
-          {isSalida ? 'Registre su huella para confirmar la salida del embarque' : 'Registre su huella para confirmar la entrega al cliente'}
-        </p>
-        <div className="relative flex flex-col items-center mb-6">
-          <div
-            className="w-24 h-24 rounded-full flex items-center justify-center cursor-pointer transition-all"
-            style={{ background: phase === 'success' ? 'rgba(22,163,74,0.1)' : phase === 'scanning' ? `rgba(${isSalida ? '124,58,237' : '37,99,235'},0.1)` : 'rgba(26,43,107,0.06)', border: `2px solid ${phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#d1d5db'}` }}
-            onClick={handleScan}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 48, color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#1a2b6b' }}>
-              {phase === 'success' ? 'check_circle' : 'fingerprint'}
-            </span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-lg rounded-2xl overflow-hidden flex flex-col" style={{ background: '#fff', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+        <div className="flex items-center justify-between px-6 py-4" style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}>
+          <div>
+            <h2 className="text-white font-bold text-base">{initialBox ? `Editar Caja ${initialBox.id}` : 'Agregar caja'}</h2>
+            <p className="text-blue-200 text-xs mt-0.5">Detalle de cajas del embarque</p>
           </div>
-          {phase === 'scanning' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-24 h-24 rounded-full animate-ping" style={{ background: `${accentColor}22` }} />
-            </div>
-          )}
+          <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
         </div>
-        <p className="text-sm font-medium mb-6" style={{ color: phase === 'success' ? '#16a34a' : phase === 'scanning' ? accentColor : '#6b7280' }}>
-          {phase === 'success' ? 'Identidad confirmada' : phase === 'scanning' ? 'Verificando...' : 'Toque el ícono para escanear'}
-        </p>
-        {phase === 'idle' && (
-          <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600">Cancelar</button>
-        )}
+
+        <div className="px-6 py-5 grid gap-4">
+          <div>
+            <label className="block text-xs text-gray-500 font-medium mb-1">Pedido <span className="text-red-500">*</span></label>
+            <select value={pedidoId} onChange={e => setPedidoId(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              <option value="">Seleccionar...</option>
+              {orderIds.map(id => (
+                <option key={id} value={id}>#{id} — {ORDERS_DB[id]?.cliente ?? 'Cliente'}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 font-medium mb-1">Peso (kg) <span className="text-red-500">*</span></label>
+            <input
+              type="number"
+              min="0.1"
+              step="0.1"
+              value={peso}
+              onChange={e => setPeso(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+              placeholder="0.0"
+            />
+          </div>
+
+          <div className="rounded-lg p-3" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-600">Dimensiones (opcional)</span>
+              <button onClick={() => setShowDims(v => !v)} className="text-xs text-blue-700 hover:text-blue-900 transition-colors">
+                {showDims ? 'Quitar' : 'Agregar'}
+              </button>
+            </div>
+            {showDims && (
+              <div className="grid grid-cols-3 gap-2">
+                <input type="number" min="1" step="1" value={largo} onChange={e => setLargo(e.target.value)} className="border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="Largo" />
+                <input type="number" min="1" step="1" value={ancho} onChange={e => setAncho(e.target.value)} className="border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="Ancho" />
+                <input type="number" min="1" step="1" value={alto} onChange={e => setAlto(e.target.value)} className="border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="Alto" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4" style={{ borderTop: '1px solid #e5e7eb', background: '#f8f9fb' }}>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all">Cancelar</button>
+          <button
+            onClick={handleSave}
+            disabled={!canSave}
+            className="px-5 py-2 rounded-lg text-sm font-bold text-white transition-all"
+            style={canSave ? { background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' } : { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed' }}
+          >
+            {initialBox ? 'Guardar caja' : 'Agregar caja'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
+interface ModalAgregarPedidoDetalleProps {
+  onClose: () => void;
+  onAdd: (orderId: string) => void;
+  orders: Order[];
+}
+
+function ModalAgregarPedidoDetalle({ onClose, onAdd, orders }: ModalAgregarPedidoDetalleProps) {
+  const [query, setQuery] = useState('');
+  const filtered = orders.filter(o =>
+    o.id.includes(query) || o.cliente.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col" style={{ background: '#fff', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+        <div className="flex items-center justify-between px-6 py-4" style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e3a8a 100%)' }}>
+          <div>
+            <h2 className="text-white font-bold text-base">Agregar pedido al embarque</h2>
+            <p className="text-blue-200 text-xs mt-0.5">Solo pedidos revisados disponibles</p>
+          </div>
+          <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-5">
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Buscar por folio o cliente..."
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 mb-3"
+          />
+
+          <div className="max-h-72 overflow-y-auto rounded-lg" style={{ border: '1px solid #e5e7eb' }}>
+            {filtered.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-gray-400">No hay pedidos disponibles</div>
+            ) : filtered.map((o, idx) => (
+              <button
+                key={o.id}
+                onClick={() => onAdd(o.id)}
+                className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors flex items-center justify-between"
+                style={{ borderBottom: idx < filtered.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+              >
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">#{o.id} · {o.cliente}</p>
+                  <p className="text-xs text-gray-500">{stateOrderLabel(o)}</p>
+                </div>
+                <span className="text-sm font-bold" style={{ color: '#1a2b6b' }}>{o.total}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function stateOrderLabel(order: Order) {
+  return `${order.origen} · ${order.vendedor}`;
+}
+
 // ── Main ScreenEmbarques ──────────────────────────────────────
-export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack }: Props) {
+export default function ScreenEmbarques({ showToast, preSelectedOrderId, preSelectedShipmentId, openCreateShipmentSignal = 0, onBack }: Props) {
   const { state, updateOrderStatus } = useApp();
 
   const [shipments, setShipments] = useState<Shipment[]>(SHIPMENTS_DB_INITIAL);
   const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null);
+  const [filterDate, setFilterDate] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | ShipmentStatus>('ALL');
+  const [filterPaqueteria, setFilterPaqueteria] = useState<'ALL' | string>('ALL');
   const [showModal, setShowModal] = useState(false);
   const [showGuiaModal, setShowGuiaModal] = useState(false);
   const [showUberModal, setShowUberModal] = useState(false);
@@ -1352,11 +1405,20 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   const [guias, setGuias] = useState<Record<string, string>>({});
   // Manual dispatch flow
   const [showConfirmEnvio, setShowConfirmEnvio] = useState(false);
-  const [showHuellaModal, setShowHuellaModal] = useState<'salida' | 'entrega' | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [showBoxModal, setShowBoxModal] = useState(false);
+  const [editingBoxIndex, setEditingBoxIndex] = useState<number | null>(null);
+  const [showAddOrderModal, setShowAddOrderModal] = useState(false);
+  const [editingPaqueteria, setEditingPaqueteria] = useState('');
+  const [editingObservaciones, setEditingObservaciones] = useState('');
 
   // Auto-select shipment when navigating from a specific order
   // Only selects the shipment in the list — does NOT auto-open any tracking/guide modal
+  useEffect(() => {
+    if (!preSelectedShipmentId) return;
+    const match = shipments.find(s => s.id === preSelectedShipmentId);
+    if (match) setSelectedShipmentId(match.id);
+  }, [preSelectedShipmentId, shipments]);
+
   useEffect(() => {
     if (!preSelectedOrderId) return;
     const match = shipments.find(s => s.pedidos.includes(preSelectedOrderId));
@@ -1367,7 +1429,49 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preSelectedOrderId]);
 
+  useEffect(() => {
+    if (openCreateShipmentSignal <= 0) return;
+    setShowModal(true);
+  }, [openCreateShipmentSignal]);
+
   const selectedShipment = shipments.find(s => s.id === selectedShipmentId) ?? null;
+  const paqueteriasDisponibles = useMemo(
+    () => Array.from(new Set(shipments.map(s => s.paqueteria))).sort(),
+    [shipments]
+  );
+  const filteredShipments = useMemo(
+    () => shipments.filter(s => {
+      if (filterDate && s.fecha !== filterDate) return false;
+      if (filterStatus !== 'ALL' && s.status !== filterStatus) return false;
+      if (filterPaqueteria !== 'ALL' && s.paqueteria !== filterPaqueteria) return false;
+      return true;
+    }),
+    [shipments, filterDate, filterStatus, filterPaqueteria]
+  );
+
+  const setTodayFilter = () => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    setFilterDate(`${yyyy}-${mm}-${dd}`);
+  };
+
+  useEffect(() => {
+    if (selectedShipmentId && !filteredShipments.some(s => s.id === selectedShipmentId)) {
+      setSelectedShipmentId(filteredShipments[0]?.id ?? null);
+    }
+  }, [filteredShipments, selectedShipmentId]);
+
+  useEffect(() => {
+    if (!selectedShipment) {
+      setEditingPaqueteria('');
+      setEditingObservaciones('');
+      return;
+    }
+    setEditingPaqueteria(selectedShipment.paqueteria);
+    setEditingObservaciones(selectedShipment.observaciones);
+  }, [selectedShipment]);
 
   const handleCreated = (shipment: Shipment, orderIds: string[]) => {
     setShipments(prev => [shipment, ...prev]);
@@ -1409,34 +1513,26 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     } else {
       // Transporte Interno / MEXICO EXPRESS: flujo manual completo
       if (s === 'Generado') {
-        // Paso 1: confirmar salida a reparto (con huella)
+        // Paso 1: confirmar salida a reparto
         setShowConfirmEnvio(true);
       } else if (s === 'En reparto') {
-        // Paso 2: confirmar entrega al cliente (con huella)
-        setShowHuellaModal('entrega');
+        // Paso 2: confirmar entrega al cliente
+        setShipments(prev => prev.map(sh =>
+          sh.id === selectedShipment.id ? { ...sh, status: 'Entregado' } : sh
+        ));
+        selectedShipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Entregado' as any));
+        showToast(`Embarque #${selectedShipment.id} — Entrega confirmada`, 'success');
       }
     }
   };
   const handleConfirmEnvio = () => {
     setShowConfirmEnvio(false);
-    setShowHuellaModal('salida');
-  };
-  const handleHuellaConfirm = (tipo: 'salida' | 'entrega') => {
     if (!selectedShipment) return;
-    if (tipo === 'salida') {
-      setShipments(prev => prev.map(s =>
-        s.id === selectedShipment.id ? { ...s, status: 'En reparto' } : s
-      ));
-      selectedShipment.pedidos.forEach(pid => updateOrderStatus(pid, 'En reparto' as any));
-      showToast(`Embarque #${selectedShipment.id} — Salida a reparto confirmada`, 'success');
-    } else {
-      setShipments(prev => prev.map(s =>
-        s.id === selectedShipment.id ? { ...s, status: 'Entregado' } : s
-      ));
-      selectedShipment.pedidos.forEach(pid => updateOrderStatus(pid, 'Entregado' as any));
-      showToast(`Embarque #${selectedShipment.id} — Entrega confirmada`, 'success');
-    }
-    setShowHuellaModal(null);
+    setShipments(prev => prev.map(s =>
+      s.id === selectedShipment.id ? { ...s, status: 'En reparto' } : s
+    ));
+    selectedShipment.pedidos.forEach(pid => updateOrderStatus(pid, 'En reparto' as any));
+    showToast(`Embarque #${selectedShipment.id} — Salida a reparto confirmada`, 'success');
   };
 
   const isManualPaqueteria = selectedShipment !== null &&
@@ -1458,6 +1554,14 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
 
   // Edición solo disponible en estado Generado (antes de enviar por cualquier medio)
   const canEditar = selectedShipment !== null && selectedShipment.status === 'Generado';
+  const availableOrdersToAdd = useMemo(() => {
+    if (!selectedShipment) return [];
+    return Object.values(ORDERS_DB).filter(o => {
+      const st = state.orderStatuses[o.id] ?? o.status;
+      const eligible = st === 'Revisado' || st === 'Revisado con incidencias';
+      return eligible && !selectedShipment.pedidos.includes(o.id);
+    });
+  }, [selectedShipment, state.orderStatuses]);
 
   const shipmentTotal = selectedShipment
     ? selectedShipment.pedidos.reduce((sum, pid) => {
@@ -1525,6 +1629,85 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
     return null;
   };
 
+  const updateSelectedShipment = (updater: (current: Shipment) => Shipment) => {
+    if (!selectedShipment) return;
+    setShipments(prev => prev.map(s => s.id === selectedShipment.id ? updater(s) : s));
+  };
+
+  const recomputeTotals = (boxes: BoxItem[]) => ({
+    cajas: boxes.length,
+    peso: Number(boxes.reduce((sum, b) => sum + (Number.isFinite(b.peso) ? b.peso : 0), 0).toFixed(1)),
+  });
+
+  const handleSaveShipmentMeta = () => {
+    if (!selectedShipment || !canEditar) return;
+    if (!editingPaqueteria) {
+      showToast('Selecciona una paquetería', 'error');
+      return;
+    }
+    updateSelectedShipment(s => ({
+      ...s,
+      paqueteria: editingPaqueteria,
+      observaciones: editingObservaciones.trim(),
+    }));
+    showToast(`Embarque #${selectedShipment.id} actualizado`, 'success');
+  };
+
+  const handleOpenAddBox = () => {
+    setEditingBoxIndex(null);
+    setShowBoxModal(true);
+  };
+
+  const handleOpenEditBox = (index: number) => {
+    setEditingBoxIndex(index);
+    setShowBoxModal(true);
+  };
+
+  const handleSaveBox = (boxData: Omit<BoxItem, 'id'>) => {
+    if (!selectedShipment || !canEditar) return;
+    const current = selectedShipment.boxes ?? [];
+    let updatedBoxes: BoxItem[];
+    if (editingBoxIndex === null) {
+      const nextNumber = current.reduce((max, b) => {
+        const n = parseInt(String(b.id).replace(/\D/g, ''), 10);
+        return Number.isNaN(n) ? max : Math.max(max, n);
+      }, 0) + 1;
+      updatedBoxes = [...current, { ...boxData, id: `C${nextNumber}` }];
+    } else {
+      updatedBoxes = current.map((b, idx) => idx === editingBoxIndex ? { ...b, ...boxData } : b);
+    }
+    const totals = recomputeTotals(updatedBoxes);
+    updateSelectedShipment(s => ({ ...s, boxes: updatedBoxes, ...totals }));
+    showToast(editingBoxIndex === null ? 'Caja agregada al embarque' : 'Caja actualizada', 'success');
+    setShowBoxModal(false);
+    setEditingBoxIndex(null);
+  };
+
+  const handleDeleteBox = (index: number) => {
+    if (!selectedShipment || !canEditar) return;
+    const current = selectedShipment.boxes ?? [];
+    if (current.length <= 1) {
+      showToast('El embarque debe conservar al menos una caja', 'error');
+      return;
+    }
+    const updatedBoxes = current.filter((_, idx) => idx !== index);
+    const totals = recomputeTotals(updatedBoxes);
+    updateSelectedShipment(s => ({ ...s, boxes: updatedBoxes, ...totals }));
+    showToast('Caja eliminada', 'success');
+  };
+
+  const handleAddOrderToShipment = (orderId: string) => {
+    if (!selectedShipment || !canEditar) return;
+    if (selectedShipment.pedidos.includes(orderId)) {
+      showToast(`El pedido #${orderId} ya está incluido`, 'info');
+      return;
+    }
+    updateSelectedShipment(s => ({ ...s, pedidos: [...s.pedidos, orderId] }));
+    updateOrderStatus(orderId, 'Documentado');
+    setShowAddOrderModal(false);
+    showToast(`Pedido #${orderId} agregado al embarque`, 'success');
+  };
+
   return (
     <div className="flex flex-col h-full" style={{ fontFamily: 'Roboto, sans-serif', background: '#f4f6fa' }}>
 
@@ -1548,7 +1731,9 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
           <div className="flex-shrink-0 flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #e5e7eb' }}>
             <div className="flex items-center gap-2">
               <span className="font-bold text-gray-800 text-sm">Embarques</span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(26,43,107,0.1)', color: '#1a2b6b' }}>{shipments.length}</span>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(26,43,107,0.1)', color: '#1a2b6b' }}>
+                {filteredShipments.length}/{shipments.length}
+              </span>
             </div>
             <button
               onClick={() => setShowModal(true)}
@@ -1559,34 +1744,106 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
               Crear embarque
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {shipments.map(s => (
+
+          {/* Filters */}
+          <div className="flex-shrink-0 px-4 py-3 flex flex-col gap-2.5" style={{ borderBottom: '1px solid #eef0f3', background: '#fafbff' }}>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <input
+                type="date"
+                value={filterDate}
+                onChange={e => setFilterDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+              />
               <button
-                key={s.id}
-                onClick={() => setSelectedShipmentId(s.id)}
-                className="w-full text-left px-4 py-3 transition-colors"
-                style={{
-                  borderBottom: '1px solid #f0f0f0',
-                  background: s.id === selectedShipmentId ? 'rgba(26,43,107,0.06)' : 'transparent',
-                  borderLeft: s.id === selectedShipmentId ? '3px solid #1a2b6b' : '3px solid transparent',
-                }}
+                onClick={setTodayFilter}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.2)' }}
               >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-bold text-sm text-gray-800">#{s.id}</span>
-                  <ShipmentBadge status={s.status} />
-                </div>
-                <div className="flex items-center gap-2 mb-1">
-                  <PaqueteriaBadge paqueteria={s.paqueteria} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b' }}>
-                    {s.pedidos.length} pedido{s.pedidos.length !== 1 ? 's' : ''}
-                  </span>
-                  {guias[s.id] && <span className="text-xs text-green-600 font-mono">✓ {guias[s.id].slice(0, 8)}...</span>}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">{s.fecha}</div>
+                Hoy
               </button>
-            ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value as 'ALL' | ShipmentStatus)}
+                className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+              >
+                <option value="ALL">Estatus: Todos</option>
+                {(['Generado', 'Solicitado', 'En tránsito', 'En reparto', 'Entregado'] as ShipmentStatus[]).map(st => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+              <select
+                value={filterPaqueteria}
+                onChange={e => setFilterPaqueteria(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+              >
+                <option value="ALL">Paquetería: Todas</option>
+                {paqueteriasDisponibles.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {filteredShipments.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-gray-400">
+                No hay embarques con esos filtros
+              </div>
+            ) : filteredShipments.map(s => {
+              const clientes = Array.from(new Set(
+                s.pedidos
+                  .map(pid => ORDERS_DB[pid]?.cliente)
+                  .filter((c): c is string => Boolean(c))
+              ));
+              const clienteLabel = s.paqueteria !== 'BlueGo' && clientes.length === 1
+                ? clientes[0]
+                : 'Múltiples clientes';
+
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedShipmentId(s.id)}
+                  className="w-full text-left px-4 py-3 transition-colors"
+                  style={{
+                    borderBottom: '1px solid #eef0f3',
+                    background: s.id === selectedShipmentId ? 'rgba(26,43,107,0.07)' : 'transparent',
+                    borderLeft: s.id === selectedShipmentId ? '3px solid #1a2b6b' : '3px solid transparent',
+                  }}
+                >
+                  <div className="flex items-start justify-between pb-2" style={{ borderBottom: '1px dashed #e6e9ef' }}>
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-black text-lg leading-none" style={{ color: '#1a2b6b' }}>#{s.id}</span>
+                        <span className="text-sm font-semibold text-gray-500 truncate">· {clienteLabel}</span>
+                        {guias[s.id] && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                            style={{ color: '#15803d', background: 'rgba(22,163,74,0.1)', border: '1px solid rgba(22,163,74,0.2)' }}>
+                            Guía
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <ShipmentBadge status={s.status} />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 py-2" style={{ borderBottom: '1px dashed #e6e9ef' }}>
+                    <PaqueteriaBadge paqueteria={s.paqueteria} />
+                    <span className="text-[11px] text-gray-400">{s.fecha}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[11px] pt-2">
+                    <span className="font-semibold px-2 py-0.5 rounded-full text-center" style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b' }}>
+                      {s.pedidos.length} pedido{s.pedidos.length !== 1 ? 's' : ''}
+                    </span>
+                    <span className="font-semibold px-2 py-0.5 rounded-full text-center" style={{ background: 'rgba(16,185,129,0.1)', color: '#047857' }}>
+                      {s.cajas} cajas · {s.peso} kg
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1623,25 +1880,83 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
               </div>
 
               {/* Meta card */}
-              <div className="rounded-xl px-5 py-4 grid grid-cols-3 gap-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
-                {[
-                  ['Paquetería', selectedShipment.paqueteria],
-                  ['Tipo vehículo', selectedShipment.tipoVehiculo || '—'],
-                  ['Cajas', String(selectedShipment.cajas)],
-                  ['Peso', `${selectedShipment.peso} kg`],
-                  ['Usuario', selectedShipment.usuario],
-                  ['Observaciones', selectedShipment.observaciones || '—'],
-                ].map(([label, value]) => (
-                  <div key={label}>
-                    <div className="text-xs text-gray-400 mb-0.5">{label}</div>
-                    <div className="text-sm font-semibold text-gray-800">{value}</div>
+              <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Paquetería</div>
+                    {canEditar ? (
+                      <select
+                        value={editingPaqueteria}
+                        onChange={e => setEditingPaqueteria(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      >
+                        <option value="">Seleccionar...</option>
+                        {PAQUETERIAS_FULL.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    ) : (
+                      <div className="text-sm font-semibold text-gray-800">{selectedShipment.paqueteria}</div>
+                    )}
                   </div>
-                ))}
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Tipo vehículo</div>
+                    <div className="text-sm font-semibold text-gray-800">{selectedShipment.tipoVehiculo || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Cajas</div>
+                    <div className="text-sm font-semibold text-gray-800">{selectedShipment.cajas}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Peso</div>
+                    <div className="text-sm font-semibold text-gray-800">{selectedShipment.peso} kg</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Usuario</div>
+                    <div className="text-sm font-semibold text-gray-800">{selectedShipment.usuario}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Observaciones</div>
+                    {canEditar ? (
+                      <textarea
+                        value={editingObservaciones}
+                        onChange={e => setEditingObservaciones(e.target.value)}
+                        rows={2}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+                        placeholder="Sin observaciones"
+                      />
+                    ) : (
+                      <div className="text-sm font-semibold text-gray-800">{selectedShipment.observaciones || '—'}</div>
+                    )}
+                  </div>
+                </div>
+                {canEditar && (
+                  <div className="flex justify-end mt-3">
+                    <button
+                      onClick={handleSaveShipmentMeta}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all"
+                      style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+                      Guardar cambios
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Orders included */}
               <div>
-                <h3 className="text-sm font-bold text-gray-700 mb-3">Pedidos incluidos</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-gray-700">Pedidos incluidos</h3>
+                  {canEditar && (
+                    <button
+                      onClick={() => setShowAddOrderModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all"
+                      style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
+                      Agregar pedido
+                    </button>
+                  )}
+                </div>
                 <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #e5e7eb', background: '#fff' }}>
                   <table className="w-full text-sm">
                     <thead>
@@ -1673,9 +1988,83 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
                 </div>
               </div>
 
+              {/* Cajas del embarque */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-gray-700">Cajas del embarque</h3>
+                  {canEditar && (
+                    <button
+                      onClick={handleOpenAddBox}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all"
+                      style={{ background: 'linear-gradient(135deg, #1a2b6b 0%, #1e4fc2 100%)' }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
+                      Agregar caja
+                    </button>
+                  )}
+                </div>
+                <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #e5e7eb', background: '#fff' }}>
+                  {(selectedShipment.boxes ?? []).length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-gray-400">Sin cajas registradas</div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
+                          {['Caja', 'Pedido', 'Peso', 'Dimensiones', 'Acciones'].map(col => (
+                            <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{col}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selectedShipment.boxes ?? []).map((box, idx, arr) => (
+                          <tr key={box.id} style={{ borderBottom: idx < arr.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                            <td className="px-4 py-2.5 font-semibold text-gray-800">{box.id}</td>
+                            <td className="px-4 py-2.5 text-gray-700">#{box.pedidoId}</td>
+                            <td className="px-4 py-2.5 font-semibold text-gray-800">{box.peso.toFixed(1)} kg</td>
+                            <td className="px-4 py-2.5 text-gray-600">
+                              {box.largo && box.ancho && box.alto ? `${box.largo}x${box.ancho}x${box.alto} cm` : '—'}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {canEditar ? (
+                                <div className="flex items-center gap-2">
+                                  <button onClick={() => handleOpenEditBox(idx)} className="text-xs font-semibold text-blue-700 hover:text-blue-900">Editar</button>
+                                  <button onClick={() => handleDeleteBox(idx)} className="text-xs font-semibold text-red-600 hover:text-red-800">Eliminar</button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-400">Bloqueado</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
               {/* Action section */}
               <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
-                <h3 className="text-sm font-bold text-gray-700 mb-3">Acciones de envío</h3>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <h3 className="text-sm font-bold text-gray-700">Acciones de envío</h3>
+                  <div className="flex items-center gap-3 flex-wrap justify-end">
+                    {canEnviar && (
+                      <button
+                        onClick={handleEnviarSolicitud}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all"
+                        style={{ background: getEnviarColor(), color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
+                      >
+                        {(selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo') && selectedShipment.status === 'En tránsito' ? (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                        ) : selectedShipment.status === 'En reparto' ? (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="20 6 9 17 4 12"/></svg>
+                        ) : (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+                        )}
+                        {getEnviarLabel()}
+                      </button>
+                    )}
+                  </div>
+                </div>
 
                 {/* Info banner para Uber/BlueGo en tránsito o entregado */}
                 {getStatusInfoText() && (
@@ -1686,33 +2075,6 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
                 )}
 
                 <div className="flex items-center gap-3 flex-wrap">
-                  {canEnviar && (
-                    <button
-                      onClick={handleEnviarSolicitud}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all"
-                      style={{ background: getEnviarColor(), color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
-                    >
-                      {/* Ícono según tipo de acción */}
-                      {(selectedShipment.paqueteria === 'Uber' || selectedShipment.paqueteria === 'BlueGo') && selectedShipment.status === 'En tránsito' ? (
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-                      ) : selectedShipment.status === 'En reparto' ? (
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="20 6 9 17 4 12"/></svg>
-                      ) : (
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-                      )}
-                      {getEnviarLabel()}
-                    </button>
-                  )}
-                  {canEditar && (
-                    <button
-                      onClick={() => setShowEditModal(true)}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
-                      style={{ background: 'transparent', color: '#1a2b6b', border: '1.5px solid #1a2b6b' }}
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      Editar embarque
-                    </button>
-                  )}
                   {!canEnviar && !canEditar && selectedShipment.status === 'Entregado' && (
                     <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg" style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.2)' }}>
                       <svg className="w-4 h-4" style={{ color: '#16a34a' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="20 6 9 17 4 12"/></svg>
@@ -1776,29 +2138,25 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, onBack 
         </div>
       )}
 
-      {/* Huella modal for salida/entrega */}
-      {showHuellaModal && selectedShipment && (
-        <HuellaConfirmModal
-          tipo={showHuellaModal}
-          onConfirm={() => handleHuellaConfirm(showHuellaModal!)}
-          onCancel={() => setShowHuellaModal(null)}
+      {/* Caja modal en detalle */}
+      {showBoxModal && selectedShipment && (
+        <ModalCajaDetalle
+          onClose={() => {
+            setShowBoxModal(false);
+            setEditingBoxIndex(null);
+          }}
+          onSave={handleSaveBox}
+          orderIds={selectedShipment.pedidos}
+          initialBox={editingBoxIndex !== null ? (selectedShipment.boxes ?? [])[editingBoxIndex] : null}
         />
       )}
 
-      {/* Edit embarque modal */}
-      {showEditModal && selectedShipment && (
-        <ModalCrearEmbarque
-          onClose={() => setShowEditModal(false)}
-          onCreated={(updated, _orderIds) => {
-            setShipments(prev => prev.map(s => s.id === selectedShipment.id ? { ...updated, id: selectedShipment.id } : s));
-            setSelectedShipmentId(selectedShipment.id);
-            setShowEditModal(false);
-            showToast(`Embarque #${selectedShipment.id} actualizado`, 'success');
-          }}
-          showToast={showToast}
-          preOrderId={selectedShipment.pedidos[0]}
-          orderStatuses={state.orderStatuses}
-          editShipment={selectedShipment}
+      {/* Agregar pedido modal en detalle */}
+      {showAddOrderModal && (
+        <ModalAgregarPedidoDetalle
+          onClose={() => setShowAddOrderModal(false)}
+          onAdd={handleAddOrderToShipment}
+          orders={availableOrdersToAdd}
         />
       )}
     </div>

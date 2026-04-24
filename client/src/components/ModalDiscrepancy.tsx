@@ -4,7 +4,7 @@
 //
 // Logic per row type:
 //   Sobrante    → rescan the product = confirmation of action taken
-//   Faltante    → authorize with motivo (denied) OR remove piece from count
+//   Faltante    → select motivo = resolved as good
 //   Incorrecto  → rescan the product in THIS modal to confirm physical removal
 //
 // onConfirm receives resolution details for each discrepancy.
@@ -72,17 +72,16 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
     }
   };
 
-  // ── FALTANTE: authorize (denied) ──
-  const handleFaltanteAuthorize = (d: Discrepancy) => {
-    if (!rows[d.code].motivo) { showToast('Seleccione un motivo antes de autorizar.', 'warning'); return; }
-    update(d.code, { authorized: true, resolved: true });
-    showToast(`Faltante de ${d.code} autorizado.`, 'success');
-  };
-
-  // ── FALTANTE: remove piece from count ──
-  const handleFaltanteRemove = (d: Discrepancy) => {
-    update(d.code, { removedPiece: true, resolved: true });
-    showToast(`Pieza de ${d.code} retirada del conteo.`, 'success');
+  // ── FALTANTE: seleccionar motivo lo marca como correcto ──
+  const handleFaltanteMotivoChange = (d: Discrepancy, motivo: string) => {
+    const resolved = motivo !== '';
+    update(d.code, {
+      motivo,
+      resolved,
+      removedPiece: resolved, // "correcto" en resumen
+      authorized: false,
+    });
+    if (resolved) showToast(`Faltante de ${d.code} marcado como correcto.`, 'success');
   };
 
   // ── INCORRECTO ──
@@ -152,7 +151,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
             <span className="material-symbols-outlined flex-shrink-0 mt-0.5" style={{ color: '#64748b', fontSize: 16 }}>info</span>
             <p className="text-xs" style={{ color: '#475569' }}>
               <strong>Sobrante:</strong> escanee la pieza para confirmar que fue retirada del pedido. &nbsp;
-              <strong>Faltante:</strong> seleccione un motivo y autorice (producto negado), o retire la pieza del conteo. &nbsp;
+              <strong>Faltante:</strong> seleccione un motivo para marcarlo como correcto. &nbsp;
               <strong>Producto incorrecto:</strong> retírelo físicamente y escanéelo aquí para confirmar.
             </p>
           </div>
@@ -237,40 +236,20 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                       {d.tipo === 'Faltante' && (
                         <div className="flex flex-wrap items-end gap-4">
                           <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium" style={{ color: '#374151' }}>Motivo de autorización:</label>
+                            <label className="text-xs font-medium" style={{ color: '#374151' }}>Motivo:</label>
                             <select
                               ref={isFirstUnresolved ? firstInputRef as any : undefined}
                               value={row.motivo}
-                              onChange={e => update(d.code, { motivo: e.target.value })}
+                              onChange={e => handleFaltanteMotivoChange(d, e.target.value)}
                               className="px-2 py-2 rounded-lg border text-sm outline-none"
                               style={{ border: '1.5px solid #d1d5db', fontFamily: 'Roboto, sans-serif', minWidth: 210 }}>
                               <option value="">Seleccionar motivo...</option>
                               {MOTIVOS.map(m => <option key={m} value={m}>{m}</option>)}
                             </select>
                           </div>
-                          <button
-                            onClick={() => handleFaltanteAuthorize(d)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all"
-                            style={{
-                              background: row.motivo ? '#1a2b6b' : '#9ca3af',
-                              cursor: row.motivo ? 'pointer' : 'not-allowed',
-                              fontFamily: 'Roboto, sans-serif',
-                            }}
-                            onMouseEnter={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#2563eb'; }}
-                            onMouseLeave={e => { if (row.motivo) (e.currentTarget as HTMLButtonElement).style.background = '#1a2b6b'; }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>block</span>
-                            Negar producto
-                          </button>
-                          <span className="text-xs self-center" style={{ color: '#9ca3af' }}>— o —</span>
-                          <button
-                            onClick={() => handleFaltanteRemove(d)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all"
-                            style={{ border: '1.5px solid #dc2626', color: '#dc2626', background: 'white', fontFamily: 'Roboto, sans-serif' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fef2f2'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'white'; }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>remove_circle</span>
-                            Retirar pieza del conteo
-                          </button>
+                          <p className="text-xs" style={{ color: '#9ca3af' }}>
+                            Al seleccionar el motivo se marca automáticamente como correcto.
+                          </p>
                         </div>
                       )}
 
@@ -302,8 +281,7 @@ export default function ModalDiscrepancy({ discrepancies, onConfirm, onBack, sho
                   {row.resolved && (
                     <div className="px-4 py-2 text-xs" style={{ color: '#16a34a' }}>
                       {d.tipo === 'Sobrante' && '✓ Pieza sobrante escaneada y confirmada — retirada del pedido.'}
-                      {d.tipo === 'Faltante' && row.authorized && `✓ Producto negado — Motivo: ${row.motivo}`}
-                      {d.tipo === 'Faltante' && row.removedPiece && '✓ Pieza retirada del conteo — diferencia eliminada.'}
+                      {d.tipo === 'Faltante' && `✓ Faltante marcado como correcto — Motivo: ${row.motivo}`}
                       {d.tipo === 'Producto incorrecto' && '✓ Producto retirado físicamente y confirmado por escaneo.'}
                     </div>
                   )}
