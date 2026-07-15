@@ -2,19 +2,90 @@
 // APYMSA — AppHeader
 // Design: Enterprise Precision — navy sticky header with nav tabs
 // ============================================================
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useLocation } from 'wouter';
+import { TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS } from '@/lib/data';
+
+type DesktopView = 'orders' | 'embarques' | 'traspasos-recibir' | 'traspasos-envio' | 'traspasos-nueva';
 
 interface Props {
-  activeView?: 'orders' | 'embarques';
+  activeView?: DesktopView;
   onNavigateToOrders?: () => void;
   onNavigateToEmbarques?: () => void;
+  onNavigateToTraspasosRecibir?: () => void;
+  onNavigateToTraspasosEnviar?: () => void;
+  onNavigateToTraspasosNueva?: () => void;
 }
 
-export default function AppHeader({ activeView, onNavigateToOrders, onNavigateToEmbarques }: Props) {
+const OPEN_DELAY = 150;
+const CLOSE_DELAY = 200;
+
+export default function AppHeader({
+  activeView,
+  onNavigateToOrders,
+  onNavigateToEmbarques,
+  onNavigateToTraspasosRecibir,
+  onNavigateToTraspasosEnviar,
+  onNavigateToTraspasosNueva,
+}: Props) {
   const { state } = useApp();
   const [, navigate] = useLocation();
   const showNav = state.currentScreen === 'orders';
+
+  const [traspasosOpen, setTraspasosOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) { clearTimeout(openTimerRef.current); openTimerRef.current = null; }
+  };
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
+  };
+
+  const scheduleOpen = () => {
+    clearCloseTimer();
+    if (traspasosOpen) return;
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => setTraspasosOpen(true), OPEN_DELAY);
+  };
+
+  const scheduleClose = () => {
+    clearOpenTimer();
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => setTraspasosOpen(false), CLOSE_DELAY);
+  };
+
+  const handleTriggerClick = () => {
+    clearOpenTimer();
+    clearCloseTimer();
+    setTraspasosOpen(o => !o);
+  };
+
+  const closeNow = () => {
+    clearOpenTimer();
+    clearCloseTimer();
+    setTraspasosOpen(false);
+  };
+
+  // Cierra al hacer click fuera del menú
+  useEffect(() => {
+    if (!traspasosOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        closeNow();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [traspasosOpen]);
+
+  // Limpieza de timers al desmontar
+  useEffect(() => () => { clearOpenTimer(); clearCloseTimer(); }, []);
+
+  const isTraspasosActive = activeView === 'traspasos-recibir' || activeView === 'traspasos-envio' || activeView === 'traspasos-nueva';
 
   const tabStyle = (active: boolean) => ({
     padding: '0 16px',
@@ -35,6 +106,23 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
     whiteSpace: 'nowrap' as const,
   });
 
+  const submenuItemStyle = (active: boolean) => ({
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 10,
+    width: '100%',
+    padding: '10px 14px',
+    fontSize: 13,
+    fontWeight: active ? 700 : 500,
+    color: active ? '#1a2b6b' : '#374151',
+    background: active ? 'rgba(26,43,107,0.06)' : 'transparent',
+    border: 'none',
+    cursor: 'pointer' as const,
+    textAlign: 'left' as const,
+    whiteSpace: 'nowrap' as const,
+  });
+
   return (
     <header
       className="flex items-center sticky top-0 z-50"
@@ -48,13 +136,13 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
       {/* Logo */}
       <div className="flex items-center gap-3 px-6" style={{ borderRight: showNav ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
         <div>
-      
+
             <img
               src="/apymsa-logo.png"
               alt="APYMSA"
               style={{ height: 22, width: 'auto', display: 'block' }}
             />
-  
+
           <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.55)', letterSpacing: '0.3px', lineHeight: 1, marginTop: 3 }}>
             Exodus Sucursales
           </div>
@@ -88,6 +176,75 @@ export default function AppHeader({ activeView, onNavigateToOrders, onNavigateTo
             </svg>
             Embarques
           </button>
+
+          {/* Traspasos — dropdown menu */}
+          <div
+            ref={containerRef}
+            className="relative"
+            onMouseEnter={scheduleOpen}
+            onMouseLeave={scheduleClose}
+          >
+            <button
+              style={tabStyle(isTraspasosActive)}
+              onClick={handleTriggerClick}
+              aria-haspopup="true"
+              aria-expanded={traspasosOpen}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>swap_horiz</span>
+              Traspasos
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: 16, transition: 'transform 0.15s', transform: traspasosOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+              >
+                expand_more
+              </span>
+            </button>
+
+            {traspasosOpen && (
+              <div
+                className="absolute rounded-lg overflow-hidden"
+                style={{
+                  top: '100%',
+                  left: 0,
+                  minWidth: 200,
+                  background: '#fff',
+                  boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+                  border: '1px solid #e5e7eb',
+                  padding: '6px 0',
+                  zIndex: 60,
+                }}
+              >
+                <button
+                  style={submenuItemStyle(activeView === 'traspasos-recibir')}
+                  onClick={() => { onNavigateToTraspasosRecibir?.(); closeNow(); }}
+                >
+                  {TRASPASO_TIPO_LABELS.Entrante}
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#2563eb' }}>
+                    {TRASPASO_TIPO_ICONS.Entrante}
+                  </span>
+                </button>
+                <button
+                  style={submenuItemStyle(activeView === 'traspasos-envio')}
+                  onClick={() => { onNavigateToTraspasosEnviar?.(); closeNow(); }}
+                >
+                  {TRASPASO_TIPO_LABELS.Saliente}
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#7c3aed' }}>
+                    {TRASPASO_TIPO_ICONS.Saliente}
+                  </span>
+                </button>
+                <div style={{ height: 1, background: '#e5e7eb', margin: '6px 0' }} />
+                <button
+                  style={submenuItemStyle(activeView === 'traspasos-nueva')}
+                  onClick={() => { onNavigateToTraspasosNueva?.(); closeNow(); }}
+                >
+                  Nueva solicitud
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#16a34a' }}>
+                    add_circle
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

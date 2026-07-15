@@ -12,9 +12,11 @@ import ScreenOrders from '@/components/ScreenOrders';
 import ScreenReview from '@/components/ScreenReview';
 import ScreenSummary from '@/components/ScreenSummary';
 import ScreenEmbarques from '@/components/ScreenEmbarques';
+import ScreenTraspasos from '@/components/ScreenTraspasos';
+import ScreenNuevaSolicitudTraspaso from '@/components/ScreenNuevaSolicitudTraspaso';
 import ToastContainer from '@/components/ToastContainer';
 
-type DesktopView = 'orders' | 'embarques';
+type DesktopView = 'orders' | 'embarques' | 'traspasos-recibir' | 'traspasos-envio' | 'traspasos-nueva';
 
 export default function Home() {
   const { state, resetReview } = useApp();
@@ -49,6 +51,10 @@ export default function Home() {
     setOpenCreateShipmentSignal(0);
   };
 
+  const handleNavigateToTraspasosRecibir = () => setDesktopView('traspasos-recibir');
+  const handleNavigateToTraspasosEnviar = () => setDesktopView('traspasos-envio');
+  const handleNavigateToTraspasosNueva = () => setDesktopView('traspasos-nueva');
+
   const isReviewFlowOpen = state.currentScreen === 'review' || state.currentScreen === 'summary';
   const canShowMainPanels = state.currentScreen === 'orders' || state.currentScreen === 'select' || isReviewFlowOpen;
 
@@ -56,8 +62,11 @@ export default function Home() {
     <div className="flex flex-col" style={{ height: '100vh', fontFamily: 'Roboto, sans-serif', overflow: 'hidden' }}>
       <AppHeader
         activeView={desktopView}
-        onNavigateToEmbarques={() => handleNavigateToEmbarques()}
         onNavigateToOrders={handleNavigateToOrders}
+        onNavigateToEmbarques={() => handleNavigateToEmbarques()}
+        onNavigateToTraspasosRecibir={handleNavigateToTraspasosRecibir}
+        onNavigateToTraspasosEnviar={handleNavigateToTraspasosEnviar}
+        onNavigateToTraspasosNueva={handleNavigateToTraspasosNueva}
       />
 
       <main className="flex flex-col flex-1 overflow-hidden">
@@ -82,6 +91,21 @@ export default function Home() {
             openCreateShipmentSignal={openCreateShipmentSignal}
             onBack={handleNavigateToOrders}
           />
+        )}
+
+        {/* Traspasos — Por recibir */}
+        {canShowMainPanels && desktopView === 'traspasos-recibir' && (
+          <ScreenTraspasos showToast={showToast} tipoFilter="Entrante" />
+        )}
+
+        {/* Traspasos — Por enviar */}
+        {canShowMainPanels && desktopView === 'traspasos-envio' && (
+          <ScreenTraspasos showToast={showToast} tipoFilter="Saliente" />
+        )}
+
+        {/* Traspasos — Nueva solicitud */}
+        {canShowMainPanels && desktopView === 'traspasos-nueva' && (
+          <ScreenNuevaSolicitudTraspaso showToast={showToast} onBack={handleNavigateToTraspasosRecibir} />
         )}
       </main>
 

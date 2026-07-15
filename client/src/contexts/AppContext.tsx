@@ -6,6 +6,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 import {
   AppState, AppScreen, ScannedItem, initialAppState,
   ORDERS_DB, OrderStatus,
+  TraspasoPeticion, TraspasoPiezaDetalle, TraspasoStatus, TRASPASOS_DB,
 } from '@/lib/data';
 
 export interface DiscrepancyResolution {
@@ -14,6 +15,13 @@ export interface DiscrepancyResolution {
   removedFromCount: boolean;
   denied: boolean;
   motivo: string;
+}
+
+export interface CrearSolicitudData {
+  sucursales: string[];
+  piezasPorSucursal: Record<string, TraspasoPiezaDetalle[]>;
+  pedidoOrigen: string;
+  observaciones?: string;
 }
 
 interface AppContextValue {
@@ -26,12 +34,18 @@ interface AppContextValue {
   resetReview: () => void;
   setPreSelectedOrder: (id: string | null) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  // Traspasos
+  traspasos: TraspasoPeticion[];
+  surtirTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => void;
+  entregarTraspaso: (petId: string) => void;
+  crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(initialAppState);
+  const [traspasos, setTraspasos] = useState<TraspasoPeticion[]>(TRASPASOS_DB);
 
   const goToScreen = useCallback((screen: AppScreen) => {
     setState(s => ({ ...s, currentScreen: screen }));
@@ -159,6 +173,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const surtirTraspaso = useCallback((petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t => {
+      if (t.id !== petId || t.status !== 'Pendiente') return t;
+      const parcial = piezasSurtidas.some(p => p.qtySurtida < p.qtySolicitada);
+      return { ...t, status: 'Surtido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasSurtidas, parcial };
+    }));
+  }, []);
+
+  const entregarTraspaso = useCallback((petId: string) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t =>
+      t.id === petId && t.status === 'Enviado'
+        ? { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now }
+        : t
+    ));
+  }, []);
+
+  const crearSolicitudTraspaso = useCallback((data: CrearSolicitudData): string => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const ts = Date.now();
+    const solicitudId = `SOL-${String(ts).slice(-4)}`;
+    const nuevas: TraspasoPeticion[] = data.sucursales.map((suc, i) => ({
+      id: `PET-N${ts}-${i}`,
+      solicitudId,
+      tipo: 'Entrante' as const,
+      generacion: 'Manual' as const,
+      sucursalContraparte: suc,
+      status: 'Pendiente' as TraspasoStatus,
+      fechaCreacion: now,
+      fechaActualizacion: now,
+      piezas: (data.piezasPorSucursal[suc] ?? []).map(p => ({ ...p, qtySurtida: 0 })),
+      pedidoOrigen: data.pedidoOrigen,
+      parcial: false,
+      observaciones: data.observaciones,
+      usuarioCreador: 'JMORENO11',
+    }));
+    setTraspasos(prev => [...nuevas, ...prev]);
+    return solicitudId;
+  }, []);
+
   const resetReview = useCallback(() => {
     setState(s => ({
       ...initialAppState,
@@ -175,6 +230,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       state, goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
+      traspasos, surtirTraspaso, entregarTraspaso, crearSolicitudTraspaso,
     }}>
       {children}
     </AppContext.Provider>
