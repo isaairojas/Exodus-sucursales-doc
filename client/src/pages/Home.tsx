@@ -12,11 +12,11 @@ import ScreenOrders from '@/components/ScreenOrders';
 import ScreenReview from '@/components/ScreenReview';
 import ScreenSummary from '@/components/ScreenSummary';
 import ScreenEmbarques from '@/components/ScreenEmbarques';
-import ScreenTraspasos from '@/components/ScreenTraspasos';
-import ScreenNuevaSolicitudTraspaso from '@/components/ScreenNuevaSolicitudTraspaso';
+import ScreenTraspasosEntreSucursales from '@/components/ScreenTraspasosEntreSucursales';
+import ScreenTraspasosCedis from '@/components/ScreenTraspasosCedis';
 import ToastContainer from '@/components/ToastContainer';
 
-type DesktopView = 'orders' | 'embarques' | 'traspasos-recibir' | 'traspasos-envio' | 'traspasos-nueva';
+type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales' | 'traspasos-cedis';
 
 export default function Home() {
   const { state, resetReview } = useApp();
@@ -51,9 +51,8 @@ export default function Home() {
     setOpenCreateShipmentSignal(0);
   };
 
-  const handleNavigateToTraspasosRecibir = () => setDesktopView('traspasos-recibir');
-  const handleNavigateToTraspasosEnviar = () => setDesktopView('traspasos-envio');
-  const handleNavigateToTraspasosNueva = () => setDesktopView('traspasos-nueva');
+  const handleNavigateToTraspasosEntreSucursales = () => setDesktopView('traspasos-entre-sucursales');
+  const handleNavigateToTraspasosCedis = () => setDesktopView('traspasos-cedis');
 
   const isReviewFlowOpen = state.currentScreen === 'review' || state.currentScreen === 'summary';
   const canShowMainPanels = state.currentScreen === 'orders' || state.currentScreen === 'select' || isReviewFlowOpen;
@@ -64,9 +63,8 @@ export default function Home() {
         activeView={desktopView}
         onNavigateToOrders={handleNavigateToOrders}
         onNavigateToEmbarques={() => handleNavigateToEmbarques()}
-        onNavigateToTraspasosRecibir={handleNavigateToTraspasosRecibir}
-        onNavigateToTraspasosEnviar={handleNavigateToTraspasosEnviar}
-        onNavigateToTraspasosNueva={handleNavigateToTraspasosNueva}
+        onNavigateToTraspasosEntreSucursales={handleNavigateToTraspasosEntreSucursales}
+        onNavigateToTraspasosCedis={handleNavigateToTraspasosCedis}
       />
 
       <main className="flex flex-col flex-1 overflow-hidden">
@@ -93,19 +91,14 @@ export default function Home() {
           />
         )}
 
-        {/* Traspasos — Por recibir */}
-        {canShowMainPanels && desktopView === 'traspasos-recibir' && (
-          <ScreenTraspasos showToast={showToast} tipoFilter="Entrante" />
+        {/* Traspasos — Entre sucursales */}
+        {canShowMainPanels && desktopView === 'traspasos-entre-sucursales' && (
+          <ScreenTraspasosEntreSucursales showToast={showToast} />
         )}
 
-        {/* Traspasos — Por enviar */}
-        {canShowMainPanels && desktopView === 'traspasos-envio' && (
-          <ScreenTraspasos showToast={showToast} tipoFilter="Saliente" />
-        )}
-
-        {/* Traspasos — Nueva solicitud */}
-        {canShowMainPanels && desktopView === 'traspasos-nueva' && (
-          <ScreenNuevaSolicitudTraspaso showToast={showToast} onBack={handleNavigateToTraspasosRecibir} />
+        {/* Traspasos — CEDIS */}
+        {canShowMainPanels && desktopView === 'traspasos-cedis' && (
+          <ScreenTraspasosCedis showToast={showToast} />
         )}
       </main>
 

@@ -5,29 +5,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useLocation } from 'wouter';
-import { TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS } from '@/lib/data';
 
-type DesktopView = 'orders' | 'embarques' | 'traspasos-recibir' | 'traspasos-envio' | 'traspasos-nueva';
+type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales' | 'traspasos-cedis';
 
 interface Props {
   activeView?: DesktopView;
   onNavigateToOrders?: () => void;
   onNavigateToEmbarques?: () => void;
-  onNavigateToTraspasosRecibir?: () => void;
-  onNavigateToTraspasosEnviar?: () => void;
-  onNavigateToTraspasosNueva?: () => void;
+  onNavigateToTraspasosEntreSucursales?: () => void;
+  onNavigateToTraspasosCedis?: () => void;
 }
-
-const OPEN_DELAY = 150;
-const CLOSE_DELAY = 200;
 
 export default function AppHeader({
   activeView,
   onNavigateToOrders,
   onNavigateToEmbarques,
-  onNavigateToTraspasosRecibir,
-  onNavigateToTraspasosEnviar,
-  onNavigateToTraspasosNueva,
+  onNavigateToTraspasosEntreSucursales,
+  onNavigateToTraspasosCedis,
 }: Props) {
   const { state } = useApp();
   const [, navigate] = useLocation();
@@ -35,38 +29,12 @@ export default function AppHeader({
 
   const [traspasosOpen, setTraspasosOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearOpenTimer = () => {
-    if (openTimerRef.current) { clearTimeout(openTimerRef.current); openTimerRef.current = null; }
-  };
-  const clearCloseTimer = () => {
-    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
-  };
-
-  const scheduleOpen = () => {
-    clearCloseTimer();
-    if (traspasosOpen) return;
-    clearOpenTimer();
-    openTimerRef.current = setTimeout(() => setTraspasosOpen(true), OPEN_DELAY);
-  };
-
-  const scheduleClose = () => {
-    clearOpenTimer();
-    clearCloseTimer();
-    closeTimerRef.current = setTimeout(() => setTraspasosOpen(false), CLOSE_DELAY);
-  };
 
   const handleTriggerClick = () => {
-    clearOpenTimer();
-    clearCloseTimer();
     setTraspasosOpen(o => !o);
   };
 
   const closeNow = () => {
-    clearOpenTimer();
-    clearCloseTimer();
     setTraspasosOpen(false);
   };
 
@@ -82,10 +50,7 @@ export default function AppHeader({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [traspasosOpen]);
 
-  // Limpieza de timers al desmontar
-  useEffect(() => () => { clearOpenTimer(); clearCloseTimer(); }, []);
-
-  const isTraspasosActive = activeView === 'traspasos-recibir' || activeView === 'traspasos-envio' || activeView === 'traspasos-nueva';
+  const isTraspasosActive = activeView === 'traspasos-entre-sucursales' || activeView === 'traspasos-cedis';
 
   const tabStyle = (active: boolean) => ({
     padding: '0 16px',
@@ -177,12 +142,10 @@ export default function AppHeader({
             Embarques
           </button>
 
-          {/* Traspasos — dropdown menu */}
+          {/* Traspasos — dropdown menu (se abre solo con click) */}
           <div
             ref={containerRef}
             className="relative"
-            onMouseEnter={scheduleOpen}
-            onMouseLeave={scheduleClose}
           >
             <button
               style={tabStyle(isTraspasosActive)}
@@ -215,31 +178,21 @@ export default function AppHeader({
                 }}
               >
                 <button
-                  style={submenuItemStyle(activeView === 'traspasos-recibir')}
-                  onClick={() => { onNavigateToTraspasosRecibir?.(); closeNow(); }}
+                  style={submenuItemStyle(activeView === 'traspasos-entre-sucursales')}
+                  onClick={() => { onNavigateToTraspasosEntreSucursales?.(); closeNow(); }}
                 >
-                  {TRASPASO_TIPO_LABELS.Entrante}
+                  Entre sucursales
                   <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#2563eb' }}>
-                    {TRASPASO_TIPO_ICONS.Entrante}
+                    swap_horiz
                   </span>
                 </button>
                 <button
-                  style={submenuItemStyle(activeView === 'traspasos-envio')}
-                  onClick={() => { onNavigateToTraspasosEnviar?.(); closeNow(); }}
+                  style={submenuItemStyle(activeView === 'traspasos-cedis')}
+                  onClick={() => { onNavigateToTraspasosCedis?.(); closeNow(); }}
                 >
-                  {TRASPASO_TIPO_LABELS.Saliente}
+                  CEDIS
                   <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#7c3aed' }}>
-                    {TRASPASO_TIPO_ICONS.Saliente}
-                  </span>
-                </button>
-                <div style={{ height: 1, background: '#e5e7eb', margin: '6px 0' }} />
-                <button
-                  style={submenuItemStyle(activeView === 'traspasos-nueva')}
-                  onClick={() => { onNavigateToTraspasosNueva?.(); closeNow(); }}
-                >
-                  Nueva solicitud
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#16a34a' }}>
-                    add_circle
+                    warehouse
                   </span>
                 </button>
               </div>

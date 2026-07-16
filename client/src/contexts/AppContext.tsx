@@ -7,6 +7,7 @@ import {
   AppState, AppScreen, ScannedItem, initialAppState,
   ORDERS_DB, OrderStatus,
   TraspasoPeticion, TraspasoPiezaDetalle, TraspasoStatus, TRASPASOS_DB,
+  EmbarqueTraspaso, EMBARQUES_TRASPASO_DB,
 } from '@/lib/data';
 
 export interface DiscrepancyResolution {
@@ -21,6 +22,19 @@ export interface CrearSolicitudData {
   sucursales: string[];
   piezasPorSucursal: Record<string, TraspasoPiezaDetalle[]>;
   pedidoOrigen: string;
+  observaciones?: string;
+  autorizacionToken?: string; // requerido cuando no hay pedidoOrigen (Manual sin pedido)
+}
+
+export interface CrearSolicitudCedisData {
+  piezas: TraspasoPiezaDetalle[];
+  pedidoOrigen: string;
+  observaciones?: string;
+}
+
+export interface EmbarcarTraspasoData {
+  embarqueExistenteId?: string; // si se omite, se crea un embarque nuevo
+  paqueteria: string;
   observaciones?: string;
 }
 
@@ -37,8 +51,12 @@ interface AppContextValue {
   // Traspasos
   traspasos: TraspasoPeticion[];
   surtirTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => void;
-  entregarTraspaso: (petId: string) => void;
+  entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
+  crearSolicitudCedisUrgencia: (data: CrearSolicitudCedisData) => string;
+  // Embarques de traspasos
+  embarquesTraspaso: EmbarqueTraspaso[];
+  embarcarTraspaso: (petId: string, data: EmbarcarTraspasoData) => string;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -46,6 +64,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(initialAppState);
   const [traspasos, setTraspasos] = useState<TraspasoPeticion[]>(TRASPASOS_DB);
+  const [embarquesTraspaso, setEmbarquesTraspaso] = useState<EmbarqueTraspaso[]>(EMBARQUES_TRASPASO_DB);
 
   const goToScreen = useCallback((screen: AppScreen) => {
     setState(s => ({ ...s, currentScreen: screen }));
@@ -182,14 +201,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const entregarTraspaso = useCallback((petId: string) => {
+  const entregarTraspaso = useCallback((petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    setTraspasos(prev => prev.map(t =>
-      t.id === petId && t.status === 'Enviado'
-        ? { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now }
-        : t
-    ));
+    setTraspasos(prev => prev.map(t => {
+      if (t.id !== petId || t.status !== 'Enviado') return t;
+      if (!piezasRecibidas) {
+        return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now };
+      }
+      const parcial = piezasRecibidas.some(p => p.qtySurtida < p.qtySolicitada);
+      return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRecibidas, parcial };
+    }));
   }, []);
+
+  const embarcarTraspaso = useCallback((petId: string, data: EmbarcarTraspasoData): string => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const peticion = traspasos.find(t => t.id === petId);
+    if (!peticion || peticion.status !== 'Surtido') return '';
+
+    const embarqueId = data.embarqueExistenteId ?? `887${String(Date.now()).slice(-2)}`;
+
+    setEmbarquesTraspaso(prev => {
+      const existente = prev.find(e => e.id === embarqueId);
+      if (existente) {
+        return prev.map(e => e.id === embarqueId
+          ? { ...e, paqueteria: data.paqueteria, traspasos: [...e.traspasos, petId] }
+          : e);
+      }
+      const nuevo: EmbarqueTraspaso = {
+        id: embarqueId,
+        sucursalDestino: peticion.sucursalContraparte,
+        paqueteria: data.paqueteria,
+        traspasos: [petId],
+        status: 'Generado',
+        fecha: now,
+        observaciones: data.observaciones,
+        usuario: 'JMORENO11',
+      };
+      return [nuevo, ...prev];
+    });
+
+    setTraspasos(prev => prev.map(t => t.id === petId
+      ? { ...t, status: 'Enviado' as TraspasoStatus, fechaActualizacion: now, embarqueId, metodoEnvio: data.paqueteria }
+      : t));
+
+    return embarqueId;
+  }, [traspasos]);
 
   const crearSolicitudTraspaso = useCallback((data: CrearSolicitudData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -199,7 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: `PET-N${ts}-${i}`,
       solicitudId,
       tipo: 'Entrante' as const,
-      generacion: 'Manual' as const,
+      categoria: 'Manual' as const,
       sucursalContraparte: suc,
       status: 'Pendiente' as TraspasoStatus,
       fechaCreacion: now,
@@ -208,9 +264,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       pedidoOrigen: data.pedidoOrigen,
       parcial: false,
       observaciones: data.observaciones,
+      autorizacionToken: data.pedidoOrigen ? undefined : data.autorizacionToken,
       usuarioCreador: 'JMORENO11',
     }));
     setTraspasos(prev => [...nuevas, ...prev]);
+    return solicitudId;
+  }, []);
+
+  const crearSolicitudCedisUrgencia = useCallback((data: CrearSolicitudCedisData): string => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const ts = Date.now();
+    const solicitudId = `SOL-${String(ts).slice(-4)}`;
+    const nueva: TraspasoPeticion = {
+      id: `PET-N${ts}`,
+      solicitudId,
+      tipo: 'Entrante',
+      categoria: 'CEDIS',
+      subtipoCedis: 'Urgencia',
+      sucursalContraparte: 'CEDIS',
+      status: 'Pendiente',
+      fechaCreacion: now,
+      fechaActualizacion: now,
+      piezas: data.piezas.map(p => ({ ...p, qtySurtida: 0 })),
+      pedidoOrigen: data.pedidoOrigen,
+      parcial: false,
+      observaciones: data.observaciones,
+      usuarioCreador: 'JMORENO11',
+    };
+    setTraspasos(prev => [nueva, ...prev]);
     return solicitudId;
   }, []);
 
@@ -230,7 +311,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       state, goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, entregarTraspaso, crearSolicitudTraspaso,
+      traspasos, surtirTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia,
+      embarquesTraspaso, embarcarTraspaso,
     }}>
       {children}
     </AppContext.Provider>
