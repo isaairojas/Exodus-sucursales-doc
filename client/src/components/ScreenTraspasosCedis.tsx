@@ -1,22 +1,19 @@
 // ============================================================
-// APYMSA — ScreenTraspasos
-// Gestión de traspasos de mercancía entre sucursales
+// APYMSA — ScreenTraspasosCedis
+// Recepción de traspasos desde CEDIS (unidireccional, ciega)
 // Design: Enterprise Precision
 // ============================================================
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
-  TraspasoStatus, TraspasoTipo, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_POR_TIPO, TRASPASO_CATEGORIA_LABELS,
+  TraspasoPeticion, TraspasoStatus, TraspasoSubtipoCedis, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_CEDIS,
+  CEDIS_SUBTIPO_COLORS, tiempoTranscurrido,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
-import ModalSurtirTraspaso from './ModalSurtirTraspaso';
-import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
-import ModalEmbarcarTraspaso from './ModalEmbarcarTraspaso';
+import ModalSolicitarCedis from './ModalSolicitarCedis';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
-  tipoFilter: TraspasoTipo;
-  onNuevaSolicitud?: () => void;
 }
 
 function TraspasoStatusBadge({ status }: { status: TraspasoStatus }) {
@@ -31,39 +28,36 @@ function TraspasoStatusBadge({ status }: { status: TraspasoStatus }) {
   );
 }
 
-function CategoriaBadge({ categoria }: { categoria: 'Automático' | 'Manual' }) {
-  const isAutomatico = categoria === 'Automático';
+function CedisSubtipoBadge({ subtipo }: { subtipo: TraspasoSubtipoCedis }) {
+  const c = CEDIS_SUBTIPO_COLORS[subtipo];
   return (
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-      style={{
-        background: isAutomatico ? 'rgba(107,114,128,0.10)' : 'rgba(217,119,6,0.10)',
-        color: isAutomatico ? '#6b7280' : '#d97706',
-        border: `1px solid ${isAutomatico ? 'rgba(107,114,128,0.25)' : 'rgba(217,119,6,0.25)'}`,
-      }}
+      style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
     >
-      {TRASPASO_CATEGORIA_LABELS[categoria]}
+      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>
+        {subtipo === 'Urgencia' ? 'priority_high' : 'autorenew'}
+      </span>
+      {subtipo}
     </span>
   );
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
-export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud }: Props) {
-  const { traspasos } = useApp();
+export default function ScreenTraspasosCedis({ showToast }: Props) {
+  const { traspasos, entregarTraspaso } = useApp();
 
-  const traspasosDelTipo = useMemo(
-    () => traspasos.filter(t => t.tipo === tipoFilter && t.categoria !== 'CEDIS'),
-    [traspasos, tipoFilter]
+  const traspasosCedis = useMemo(
+    () => traspasos.filter(t => t.categoria === 'CEDIS'),
+    [traspasos]
   );
-
-  const sucursalPrefix = tipoFilter === 'Entrante' ? 'De: ' : 'A: ';
 
   // Filtros
   const [fechaInicial, setFechaInicial] = useState(TODAY);
   const [fechaFinal, setFechaFinal] = useState(TODAY);
   const [filterStatus, setFilterStatus] = useState<'ALL' | TraspasoStatus>('ALL');
-  const [filterCategoria, setFilterCategoria] = useState<'ALL' | 'Automático' | 'Manual'>('ALL');
+  const [filterSubtipo, setFilterSubtipo] = useState<'ALL' | TraspasoSubtipoCedis>('ALL');
   const [searchText, setSearchText] = useState('');
 
   // Selección de fila
@@ -71,9 +65,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
   // Modales
   const [detailPetId, setDetailPetId] = useState<string | null>(null);
-  const [surtirPetId, setSurtirPetId] = useState<string | null>(null);
-  const [recepcionPetId, setRecepcionPetId] = useState<string | null>(null);
-  const [embarcarPetId, setEmbarcarPetId] = useState<string | null>(null);
+  const [showSolicitarModal, setShowSolicitarModal] = useState(false);
 
   const selectedPeticion = useMemo(
     () => traspasos.find(t => t.id === selectedId) ?? null,
@@ -85,26 +77,11 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     [traspasos, detailPetId]
   );
 
-  const surtirPeticion = useMemo(
-    () => traspasos.find(t => t.id === surtirPetId) ?? null,
-    [traspasos, surtirPetId]
-  );
-
-  const recepcionPeticion = useMemo(
-    () => traspasos.find(t => t.id === recepcionPetId) ?? null,
-    [traspasos, recepcionPetId]
-  );
-
-  const embarcarPeticion = useMemo(
-    () => traspasos.find(t => t.id === embarcarPetId) ?? null,
-    [traspasos, embarcarPetId]
-  );
-
   // Filtrado principal
   const filteredTraspasos = useMemo(() => {
-    return traspasosDelTipo.filter(t => {
+    return traspasosCedis.filter(t => {
       if (filterStatus !== 'ALL' && t.status !== filterStatus) return false;
-      if (filterCategoria !== 'ALL' && t.categoria !== filterCategoria) return false;
+      if (filterSubtipo !== 'ALL' && t.subtipoCedis !== filterSubtipo) return false;
       const fechaDate = t.fechaCreacion.slice(0, 10);
       if (fechaInicial && fechaDate < fechaInicial) return false;
       if (fechaFinal && fechaDate > fechaFinal) return false;
@@ -112,19 +89,17 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         const q = searchText.toLowerCase();
         const matchSol = t.solicitudId.toLowerCase().includes(q);
         const matchPet = t.id.toLowerCase().includes(q);
-        const matchSuc = t.sucursalContraparte.toLowerCase().includes(q);
-        const matchCode = t.piezas.some(p => p.code.toLowerCase().includes(q));
-        if (!matchSol && !matchPet && !matchSuc && !matchCode) return false;
+        if (!matchSol && !matchPet) return false;
       }
       return true;
     });
-  }, [traspasosDelTipo, filterStatus, filterCategoria, fechaInicial, fechaFinal, searchText]);
+  }, [traspasosCedis, filterStatus, filterSubtipo, fechaInicial, fechaFinal, searchText]);
 
   const handleClearFilters = () => {
     setFechaInicial(TODAY);
     setFechaFinal(TODAY);
     setFilterStatus('ALL');
-    setFilterCategoria('ALL');
+    setFilterSubtipo('ALL');
     setSearchText('');
   };
 
@@ -135,8 +110,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const sel = selectedPeticion;
   const canVerDetalle = !!sel;
   const canDarEntrada = !!sel && sel.status === 'Enviado';
-  const canSurtir = !!sel && sel.status === 'Pendiente';
-  const canEmbarcar = !!sel && sel.status === 'Surtido';
 
   const btnEnabled = (active: boolean, bg: string) =>
     active
@@ -148,8 +121,34 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       ? { border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white', cursor: 'pointer' }
       : { border: '1.5px solid #e5e7eb', color: '#9ca3af', background: 'white', cursor: 'not-allowed', opacity: 0.6 };
 
+  // Helpers de tiempo y colores
+  const getTiempoStyle = (t: TraspasoPeticion) => {
+    const txt = tiempoTranscurrido(t.fechaCreacion);
+    const isLate = t.status === 'Pendiente' && (
+      txt.includes('d') ||
+      (txt.includes('h') && parseInt(txt) >= 4)
+    );
+    return { text: txt, color: isLate ? '#dc2626' : '#6b7280', showIcon: isLate };
+  };
+
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
+
+      {/* ── Breadcrumb ── */}
+      <div
+        className="flex-shrink-0 flex items-center gap-4 px-6 py-3"
+        style={{ background: '#fff', borderBottom: '1px solid #e5e7eb' }}
+      >
+        <span className="flex items-center gap-1.5 text-sm font-medium text-gray-500">
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>swap_horiz</span>
+          Traspasos
+        </span>
+        <span className="text-gray-300">/</span>
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#7c3aed' }}>warehouse</span>
+          CEDIS
+        </span>
+      </div>
 
       {/* ── Filter bar ── */}
       <div
@@ -182,11 +181,11 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             <span className="material-symbols-outlined absolute left-2" style={{ fontSize: 15, color: '#9ca3af' }}>search</span>
             <input
               type="text"
-              placeholder="Buscar solicitud, sucursal, código…"
+              placeholder="Buscar solicitud o folio…"
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               className="text-xs rounded border pl-7 pr-3 py-1"
-              style={{ borderColor: '#d1d5db', width: 240 }}
+              style={{ borderColor: '#d1d5db', width: 220 }}
             />
           </div>
 
@@ -197,20 +196,20 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
           >
             <option value="ALL">Todos los estatus</option>
-            {TRASPASO_STATUS_POR_TIPO[tipoFilter].map(s => (
+            {TRASPASO_STATUS_CEDIS.map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
 
           <select
-            value={filterCategoria}
-            onChange={e => setFilterCategoria(e.target.value as 'ALL' | 'Automático' | 'Manual')}
+            value={filterSubtipo}
+            onChange={e => setFilterSubtipo(e.target.value as 'ALL' | TraspasoSubtipoCedis)}
             className="text-xs rounded border px-2 py-1"
             style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
           >
             <option value="ALL">Todos los tipos</option>
-            <option value="Automático">{TRASPASO_CATEGORIA_LABELS.Automático}</option>
-            <option value="Manual">{TRASPASO_CATEGORIA_LABELS.Manual}</option>
+            <option value="Urgencia">Urgencia</option>
+            <option value="Reabasto">Reabasto</option>
           </select>
 
           <button
@@ -231,24 +230,22 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           </button>
         </div>
 
-        {onNuevaSolicitud && (
-          <button
-            onClick={onNuevaSolicitud}
-            className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold text-white md:ml-auto transition-all"
-            style={{ background: '#1a2b6b', boxShadow: '0 2px 8px rgba(26,43,107,0.3)' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-            Nueva solicitud
-          </button>
-        )}
+        <button
+          onClick={() => setShowSolicitarModal(true)}
+          className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold text-white md:ml-auto transition-all"
+          style={{ background: '#1a2b6b', boxShadow: '0 2px 8px rgba(26,43,107,0.3)' }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+          Solicitar a CEDIS
+        </button>
       </div>
 
-      {/* ── Tabla ── */}
+      {/* ── Tabla (Reabasto no desglosa piezas — recepción ciega por caja) ── */}
       <div className="flex-1 overflow-auto" style={{ borderTop: '1px solid #e5e7eb' }}>
         <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
             <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-              {['Tipo','Pedido origen','Solicitud','Petición','Sucursal','Estatus','Fecha','Piezas'].map(col => (
+              {['Tipo','Folio','Origen','Pedido origen','Estatus','Fecha','Tiempo','Cantidad'].map(col => (
                 <th
                   key={col}
                   className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
@@ -263,15 +260,15 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             {filteredTraspasos.length === 0 && (
               <tr>
                 <td colSpan={8} className="text-center py-12 text-sm" style={{ color: '#9ca3af' }}>
-                  No hay traspasos que coincidan con los filtros
+                  No hay traspasos de CEDIS que coincidan con los filtros
                 </td>
               </tr>
             )}
             {filteredTraspasos.map(t => {
               const isSelected = t.id === selectedId;
+              const { text: tiempoTxt, color: tiempoColor, showIcon: tiempoIcon } = getTiempoStyle(t);
               const totalSol = t.piezas.reduce((s, p) => s + p.qtySolicitada, 0);
               const totalSurt = t.piezas.reduce((s, p) => s + p.qtySurtida, 0);
-              const pedidosLabel = t.pedidoOrigen ? `#${t.pedidoOrigen}` : '—';
 
               return (
                 <tr
@@ -287,20 +284,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   }}
                 >
                   <td className="px-3 py-2.5">
-                    <CategoriaBadge categoria={t.categoria as 'Automático' | 'Manual'} />
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-xs" style={{ color: '#6b7280' }}>{pedidosLabel}</span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-xs" style={{ color: '#9ca3af' }}>#{t.solicitudId}</span>
+                    {t.subtipoCedis && <CedisSubtipoBadge subtipo={t.subtipoCedis} />}
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>#{t.id}</span>
                   </td>
                   <td className="px-3 py-2.5 text-sm" style={{ color: '#374151' }}>
-                    <span style={{ color: '#9ca3af' }}>{sucursalPrefix}</span>
+                    <span style={{ color: '#9ca3af' }}>De: </span>
                     {t.sucursalContraparte}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs" style={{ color: '#6b7280' }}>
+                      {t.pedidoOrigen ? `#${t.pedidoOrigen}` : '—'}
+                    </span>
                   </td>
                   <td className="px-3 py-2.5">
                     <TraspasoStatusBadge status={t.status} />
@@ -309,14 +305,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }}>{t.fechaCreacion}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-xs font-medium" style={{ color: '#374151' }}>
-                      {totalSurt} / {totalSol}
+                    <span className="flex items-center gap-1 text-xs" style={{ color: tiempoColor }}>
+                      {tiempoIcon && (
+                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>schedule</span>
+                      )}
+                      {tiempoTxt}
                     </span>
-                    {t.parcial && (
-                      <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(217,119,6,0.12)', color: '#d97706', border: '1px solid rgba(217,119,6,0.3)' }}>
-                        Parcial
-                      </span>
-                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs font-medium" style={{ color: '#374151' }}>
+                      {t.subtipoCedis === 'Urgencia'
+                        ? `${totalSurt} / ${totalSol} piezas`
+                        : `${t.cajas ?? 0} caja${(t.cajas ?? 0) !== 1 ? 's' : ''}`}
+                    </span>
                   </td>
                 </tr>
               );
@@ -330,7 +331,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         className="flex items-center gap-2 px-6 py-3 flex-wrap"
         style={{ background: '#fff', borderTop: '1px solid #e5e7eb', flexShrink: 0 }}
       >
-        {/* Detalle (siempre) */}
         <button
           disabled={!canVerDetalle}
           onClick={() => sel && setDetailPetId(sel.id)}
@@ -341,42 +341,17 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           Ver detalle
         </button>
 
-        {/* Separador */}
         <span style={{ color: '#e5e7eb', margin: '0 4px', fontSize: 18 }}>|</span>
 
-        {tipoFilter === 'Entrante' ? (
-          <button
-            disabled={!canDarEntrada}
-            onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-            style={btnEnabled(canDarEntrada, '#16a34a')}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>inventory</span>
-            Dar entrada
-          </button>
-        ) : (
-          <>
-            <button
-              disabled={!canSurtir}
-              onClick={() => { if (sel) setSurtirPetId(sel.id); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canSurtir, '#7c3aed')}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>package_2</span>
-              Surtir
-            </button>
-
-            <button
-              disabled={!canEmbarcar}
-              onClick={() => { if (sel) setEmbarcarPetId(sel.id); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canEmbarcar, '#d97706')}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
-              Embarcar
-            </button>
-          </>
-        )}
+        <button
+          disabled={!canDarEntrada}
+          onClick={() => { if (sel) { entregarTraspaso(sel.id); showToast(`Traspaso ${sel.id} marcado como recibido`, 'success'); setSelectedId(null); } }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+          style={btnEnabled(canDarEntrada, '#16a34a')}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>inventory</span>
+          Dar entrada
+        </button>
 
         {sel && (
           <span className="ml-auto text-xs" style={{ color: '#6b7280' }}>
@@ -393,26 +368,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         />
       )}
 
-      {surtirPeticion && (
-        <ModalSurtirTraspaso
-          peticion={surtirPeticion}
-          onClose={() => setSurtirPetId(null)}
-          showToast={showToast}
-        />
-      )}
-
-      {recepcionPeticion && (
-        <ModalRecepcionTraspaso
-          peticion={recepcionPeticion}
-          onClose={() => { setRecepcionPetId(null); setSelectedId(null); }}
-          showToast={showToast}
-        />
-      )}
-
-      {embarcarPeticion && (
-        <ModalEmbarcarTraspaso
-          peticion={embarcarPeticion}
-          onClose={() => { setEmbarcarPetId(null); setSelectedId(null); }}
+      {showSolicitarModal && (
+        <ModalSolicitarCedis
+          onClose={() => setShowSolicitarModal(false)}
           showToast={showToast}
         />
       )}

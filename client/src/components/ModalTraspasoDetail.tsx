@@ -4,7 +4,8 @@
 // Design: Enterprise Precision
 // ============================================================
 import {
-  TraspasoPeticion, TraspasoStatus, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_POR_TIPO, TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS,
+  TraspasoPeticion, TraspasoStatus, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_POR_TIPO, TRASPASO_STATUS_CEDIS,
+  TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS, TRASPASO_CATEGORIA_LABELS, CEDIS_SUBTIPO_COLORS,
   PRODUCT_CATALOG, tiempoTranscurrido,
 } from '@/lib/data';
 
@@ -35,7 +36,11 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 }
 
 export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
-  const STATUS_ORDER = TRASPASO_STATUS_POR_TIPO[peticion.tipo];
+  const isCedis = peticion.categoria === 'CEDIS';
+  // Urgencia: la sucursal ya sabe qué pidió, se ve el desglose completo (como un traspaso normal).
+  // Reabasto: recepción ciega por control anti-robo, solo se ve el número de cajas.
+  const isReabastoCiego = isCedis && peticion.subtipoCedis === 'Reabasto';
+  const STATUS_ORDER = isCedis ? TRASPASO_STATUS_CEDIS : TRASPASO_STATUS_POR_TIPO[peticion.tipo];
   const statusIndex = STATUS_ORDER.indexOf(peticion.status);
 
   return (
@@ -89,6 +94,31 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
               <InfoRow label="Sucursal contraparte">
                 {peticion.tipo === 'Entrante' ? 'De: ' : 'A: '}{peticion.sucursalContraparte}
               </InfoRow>
+              <InfoRow label="Categoría">
+                <span className="flex items-center gap-1.5">
+                  {TRASPASO_CATEGORIA_LABELS[peticion.categoria]}
+                  {peticion.subtipoCedis && (
+                    <span
+                      className="px-2 py-0.5 rounded text-xs font-semibold"
+                      style={{
+                        background: CEDIS_SUBTIPO_COLORS[peticion.subtipoCedis].bg,
+                        color: CEDIS_SUBTIPO_COLORS[peticion.subtipoCedis].text,
+                        border: `1px solid ${CEDIS_SUBTIPO_COLORS[peticion.subtipoCedis].border}`,
+                      }}
+                    >
+                      {peticion.subtipoCedis}
+                    </span>
+                  )}
+                </span>
+              </InfoRow>
+              {peticion.autorizacionToken && (
+                <InfoRow label="Autorización">
+                  <span className="flex items-center gap-1" style={{ color: '#d97706' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>vpn_key</span>
+                    {peticion.autorizacionToken}
+                  </span>
+                </InfoRow>
+              )}
               <InfoRow label="Fecha creación">{peticion.fechaCreacion}</InfoRow>
               <InfoRow label="Tiempo transcurrido">
                 <span style={{ color: '#6b7280' }}>{tiempoTranscurrido(peticion.fechaCreacion)}</span>
@@ -143,11 +173,20 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
             </div>
           </section>
 
-          {/* Sección 3: Piezas */}
+          {/* Sección 3: Piezas (Reabasto no desglosa — recepción ciega por caja) */}
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
-              Piezas
+              {isReabastoCiego ? 'Cajas' : 'Piezas'}
             </h3>
+            {isReabastoCiego ? (
+              <div className="rounded-lg p-4 flex items-center gap-3" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#7c3aed' }}>inventory_2</span>
+                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>
+                  <span className="text-2xl font-bold">{peticion.cajas ?? 0}</span>{' '}
+                  caja{(peticion.cajas ?? 0) !== 1 ? 's' : ''}
+                </p>
+              </div>
+            ) : (
             <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
@@ -196,26 +235,29 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
                 })}
               </tbody>
             </table>
+            )}
           </section>
 
-          {/* Sección 4: Pedido origen */}
-          <section>
-            <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
-              Pedido origen
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {peticion.pedidoOrigen ? (
-                <span
-                  className="px-3 py-1 rounded-full text-xs font-semibold"
-                  style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.18)' }}
-                >
-                  #{peticion.pedidoOrigen}
-                </span>
-              ) : (
-                <span style={{ color: '#9ca3af' }}>—</span>
-              )}
-            </div>
-          </section>
+          {/* Sección 4: Pedido origen (no aplica a Reabasto, nunca lleva pedido) */}
+          {!isReabastoCiego && (
+            <section>
+              <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
+                Pedido origen
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {peticion.pedidoOrigen ? (
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-semibold"
+                    style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.18)' }}
+                  >
+                    #{peticion.pedidoOrigen}
+                  </span>
+                ) : (
+                  <span style={{ color: '#9ca3af' }}>—</span>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Sección 5: Embarque (si aplica) */}
           {peticion.embarqueId && (
