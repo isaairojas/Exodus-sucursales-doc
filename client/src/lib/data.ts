@@ -362,6 +362,7 @@ export const SHIPMENT_STATUS_COLORS: Record<ShipmentStatus, { bg: string; text: 
 export type TraspasoStatus =
   | 'Pendiente'
   | 'Surtido'
+  | 'Documentado'
   | 'Enviado'
   | 'Recibido'
   | 'Entregado';
@@ -375,6 +376,11 @@ export const TRASPASO_STATUS_POR_TIPO: Record<TraspasoTipo, TraspasoStatus[]> = 
   Entrante: ['Pendiente', 'Surtido', 'Enviado', 'Recibido'],
   Saliente: ['Pendiente', 'Surtido', 'Enviado', 'Entregado'],
 };
+
+// Estatus válidos para traspasos categoria === 'CEDIS' (pipeline propio, distinto
+// al de "Entre sucursales" aunque ambos usan tipo 'Entrante'):
+// Pendiente → Documentado (CEDIS lo documenta/prepara) → Enviado → Recibido.
+export const TRASPASO_STATUS_CEDIS: TraspasoStatus[] = ['Pendiente', 'Documentado', 'Enviado', 'Recibido'];
 
 export const TRASPASO_TIPO_LABELS: Record<TraspasoTipo, string> = {
   Entrante: 'Por recibir',
@@ -394,14 +400,35 @@ export interface TraspasoPiezaDetalle {
   motivoNegacion?: string;
 }
 
-export type TraspasoGeneracion = 'Automático' | 'Manual';
+// Categoría real del traspaso (contexto de negocio):
+// - Automático: generado por el sistema cuando un pedido web no tiene todo el stock en una sola sucursal.
+//   Siempre lleva un pedido origen relacionado.
+// - Manual: solicitado a mano por la sucursal. Puede o no llevar pedido origen; si no lleva,
+//   requiere autorización con token/PIN (ver `autorizacionToken`).
+// - CEDIS: llega desde el centro de distribución. Unidireccional (solo recepción, la sucursal
+//   nunca envía a CEDIS) y de recepción CIEGA (el operario no ve cantidades esperadas).
+export type TraspasoCategoria = 'Automático' | 'Manual' | 'CEDIS';
+
+// Etiqueta visible para cada categoría (el valor interno 'Automático' no cambia,
+// solo cómo se muestra en pantalla).
+export const TRASPASO_CATEGORIA_LABELS: Record<TraspasoCategoria, string> = {
+  'Automático': 'Automático SMC',
+  'Manual': 'Manual',
+  'CEDIS': 'CEDIS',
+};
+
+// Subtipo exclusivo de categoria === 'CEDIS':
+// - Urgencia: la sucursal lo solicitó, tiene pedido relacionado.
+// - Reabasto: CEDIS lo envía por su cuenta para restocking, sin pedido.
+export type TraspasoSubtipoCedis = 'Urgencia' | 'Reabasto';
 
 export interface TraspasoPeticion {
   id: string;
   solicitudId: string;
-  tipo: TraspasoTipo;
-  generacion: TraspasoGeneracion;
-  sucursalContraparte: string;
+  tipo: TraspasoTipo;           // CEDIS siempre usa 'Entrante' (solo se maneja la recepción)
+  categoria: TraspasoCategoria;
+  subtipoCedis?: TraspasoSubtipoCedis; // solo presente cuando categoria === 'CEDIS'
+  sucursalContraparte: string;  // para CEDIS: fijo 'CEDIS'
   status: TraspasoStatus;
   fechaCreacion: string;       // 'YYYY-MM-DD HH:mm'
   fechaActualizacion: string;
@@ -412,17 +439,95 @@ export interface TraspasoPeticion {
   metodoEnvio?: string;
   observaciones?: string;
   usuarioCreador: string;
+  autorizacionToken?: string;   // solo Manual sin pedidoOrigen: token/PIN de autorización
+  cajas?: number;               // solo CEDIS Reabasto: recepción ciega por caja, sin desglose de piezas
 }
 
-export const SUCURSALES = ['Pelícano', 'Federalismo', 'Tlaquepaque', 'Zapopan', 'Periférico', 'Tonalá'] as const;
+export const SUCURSALES = [
+  'Pelícano', 'Federalismo', 'Central Camionera', 'Adolf Horn',
+  'Belisario Domínguez', 'Colón', 'Colonia Jalisco', 'Forum Tlaquepaque',
+] as const;
+
+// Existencia disponible por sucursal y código de producto (mock).
+export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
+  "Pelícano": { "BP-001": 25, "FT-223": 18, "AM-445": 1, "BC-118": 6, "RD-772": 25, "XX-999": 22, "LT-334": 24, "AC-201": 14, "BT-055": 0 },
+  "Federalismo": { "BP-001": 14, "FT-223": 8, "AM-445": 20, "BC-118": 23, "RD-772": 12, "XX-999": 20, "LT-334": 5, "AC-201": 9, "BT-055": 16 },
+  "Central Camionera": { "BP-001": 10, "FT-223": 0, "AM-445": 0, "BC-118": 20, "RD-772": 17, "XX-999": 0, "LT-334": 21, "AC-201": 0, "BT-055": 8 },
+  "Adolf Horn": { "BP-001": 24, "FT-223": 13, "AM-445": 20, "BC-118": 0, "RD-772": 23, "XX-999": 19, "LT-334": 14, "AC-201": 25, "BT-055": 11 },
+  "Belisario Domínguez": { "BP-001": 11, "FT-223": 0, "AM-445": 20, "BC-118": 0, "RD-772": 17, "XX-999": 0, "LT-334": 7, "AC-201": 7, "BT-055": 12 },
+  "Colón": { "BP-001": 0, "FT-223": 7, "AM-445": 17, "BC-118": 13, "RD-772": 11, "XX-999": 3, "LT-334": 16, "AC-201": 15, "BT-055": 12 },
+  "Colonia Jalisco": { "BP-001": 4, "FT-223": 16, "AM-445": 12, "BC-118": 13, "RD-772": 7, "XX-999": 0, "LT-334": 19, "AC-201": 0, "BT-055": 0 },
+  "Forum Tlaquepaque": { "BP-001": 3, "FT-223": 6, "AM-445": 0, "BC-118": 2, "RD-772": 5, "XX-999": 9, "LT-334": 25, "AC-201": 7, "BT-055": 0 },
+};
+
+// Orden de cercanía usado por el motor SMC (Sucursal Más Cercana) — mock.
+export const SUCURSAL_DISTANCIA_ORDEN: string[] = [
+  'Federalismo', 'Central Camionera', 'Colón', 'Adolf Horn',
+  'Colonia Jalisco', 'Belisario Domínguez', 'Forum Tlaquepaque', 'Pelícano',
+];
+
+// Recomienda la sucursal más cercana (según el motor SMC) que pueda surtir
+// completamente las piezas solicitadas; si ninguna puede, regresa la más
+// cercana disponible marcando `suficiente: false`.
+export function calcularSucursalRecomendada(
+  piezas: { code: string; qty: number }[],
+  excluir: string[] = []
+): { sucursal: string; suficiente: boolean } | null {
+  const candidatos = SUCURSAL_DISTANCIA_ORDEN.filter(s => !excluir.includes(s));
+  if (candidatos.length === 0) return null;
+  if (piezas.length === 0) return { sucursal: candidatos[0], suficiente: true };
+
+  for (const suc of candidatos) {
+    const stock = EXISTENCIA_POR_SUCURSAL[suc] ?? {};
+    const suficiente = piezas.every(p => (stock[p.code] ?? 0) >= p.qty);
+    if (suficiente) return { sucursal: suc, suficiente: true };
+  }
+  return { sucursal: candidatos[0], suficiente: false };
+}
 
 export const TRASPASO_STATUS_COLORS: Record<TraspasoStatus, { bg: string; text: string; border: string }> = {
   'Pendiente':  { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
   'Surtido':    { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
+  'Documentado':{ bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
   'Enviado':    { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
   'Recibido':   { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
   'Entregado':  { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
 };
+
+export const CEDIS_SUBTIPO_COLORS: Record<TraspasoSubtipoCedis, { bg: string; text: string; border: string }> = {
+  'Urgencia': { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
+  'Reabasto': { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
+};
+
+export const CEDIS_SUCURSAL_CONTRAPARTE = 'CEDIS';
+
+// Paqueterías disponibles para embarcar traspasos entre sucursales.
+export const TRASPASO_PAQUETERIAS = ['Transporte interno', 'BlueGo', 'Estafeta', 'DHL', 'Paquetexpress', 'Uber'];
+
+// Embarque que agrupa una o más peticiones de traspaso Saliente con el mismo
+// destino (sucursalDestino), de forma análoga a los embarques de pedidos.
+export interface EmbarqueTraspaso {
+  id: string;
+  sucursalDestino: string;
+  paqueteria: string;
+  traspasos: string[]; // ids de TraspasoPeticion (PET-...)
+  status: 'Generado' | 'En tránsito' | 'Entregado';
+  fecha: string;
+  observaciones?: string;
+  usuario: string;
+}
+
+export const EMBARQUES_TRASPASO_DB: EmbarqueTraspaso[] = [
+  {
+    id: '88739',
+    sucursalDestino: 'Pelícano',
+    paqueteria: 'Transporte interno',
+    traspasos: ['PET-028'],
+    status: 'Generado',
+    fecha: '2026-07-26 20:40',
+    usuario: 'MPENICHE07',
+  },
+];
 
 export function tiempoTranscurrido(fechaIso: string): string {
   const [datePart, timePart] = fechaIso.split(' ');
@@ -440,11 +545,11 @@ export function tiempoTranscurrido(fechaIso: string): string {
 }
 
 export const TRASPASOS_DB: TraspasoPeticion[] = [
-  // SOL-2401: Entrante Pendiente
+  // SOL-2401: Entrante Automático Pendiente
   {
-    id: 'PET-001', solicitudId: 'SOL-2401', tipo: 'Entrante', generacion: 'Automático',
+    id: 'PET-001', solicitudId: 'SOL-2401', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 10:25', fechaActualizacion: '2026-06-29 10:25',
+    fechaCreacion: '2026-07-14 10:25', fechaActualizacion: '2026-07-14 10:25',
     piezas: [
       { code: 'BP-001', qtySolicitada: 4, qtySurtida: 0 },
       { code: 'FT-223', qtySolicitada: 2, qtySurtida: 0 },
@@ -452,22 +557,22 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064772', parcial: false,
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2401: Entrante Pendiente
+  // SOL-2401: Entrante Manual Pendiente
   {
-    id: 'PET-002', solicitudId: 'SOL-2401', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Tlaquepaque', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 10:25', fechaActualizacion: '2026-06-30 10:25',
+    id: 'PET-002', solicitudId: 'SOL-2401', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Central Camionera', status: 'Pendiente',
+    fechaCreacion: '2026-07-15 10:25', fechaActualizacion: '2026-07-15 10:25',
     piezas: [
       { code: 'AM-445', qtySolicitada: 3, qtySurtida: 0 },
     ],
     pedidoOrigen: '1064847', parcial: false,
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2402: Entrante Surtido
+  // SOL-2402: Entrante Automático Surtido
   {
-    id: 'PET-003', solicitudId: 'SOL-2402', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Surtido',
-    fechaCreacion: '2026-07-01 08:30', fechaActualizacion: '2026-07-01 09:15',
+    id: 'PET-003', solicitudId: 'SOL-2402', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido',
+    fechaCreacion: '2026-07-16 08:30', fechaActualizacion: '2026-07-16 09:15',
     piezas: [
       { code: 'BC-118', qtySolicitada: 2, qtySurtida: 2 },
       { code: 'BT-055', qtySolicitada: 1, qtySurtida: 1 },
@@ -475,11 +580,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064838', parcial: false,
     usuarioCreador: 'AMORALES03',
   },
-  // SOL-2403: Entrante Enviado
+  // SOL-2403: Entrante Manual Enviado
   {
-    id: 'PET-004', solicitudId: 'SOL-2403', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Periférico', status: 'Enviado',
-    fechaCreacion: '2026-07-02 16:40', fechaActualizacion: '2026-07-03 08:05',
+    id: 'PET-004', solicitudId: 'SOL-2403', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Enviado',
+    fechaCreacion: '2026-07-17 16:40', fechaActualizacion: '2026-07-18 08:05',
     piezas: [
       { code: 'RD-772', qtySolicitada: 1, qtySurtida: 1 },
       { code: 'AC-201', qtySolicitada: 4, qtySurtida: 4 },
@@ -488,11 +593,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88516', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'AMORALES03',
   },
-  // SOL-2404: Entrante Recibido
+  // SOL-2404: Entrante Automático Recibido
   {
-    id: 'PET-005', solicitudId: 'SOL-2404', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Tonalá', status: 'Recibido',
-    fechaCreacion: '2026-07-03 09:00', fechaActualizacion: '2026-07-03 17:30',
+    id: 'PET-005', solicitudId: 'SOL-2404', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colón', status: 'Recibido',
+    fechaCreacion: '2026-07-18 09:00', fechaActualizacion: '2026-07-18 17:30',
     piezas: [
       { code: 'LT-334', qtySolicitada: 2, qtySurtida: 2 },
     ],
@@ -500,34 +605,35 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88514', metodoEnvio: 'BlueGo',
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2405: Entrante Pendiente
+  // SOL-2405: Entrante Automático Pendiente
   {
-    id: 'PET-006', solicitudId: 'SOL-2405', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 11:20', fechaActualizacion: '2026-06-29 11:20',
+    id: 'PET-006', solicitudId: 'SOL-2405', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Pendiente',
+    fechaCreacion: '2026-07-19 11:20', fechaActualizacion: '2026-07-19 11:20',
     piezas: [
       { code: 'XX-999', qtySolicitada: 10, qtySurtida: 0 },
     ],
     pedidoOrigen: '1064848', parcial: false,
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2406: Entrante Pendiente
+  // SOL-2406: Entrante Manual Pendiente
   {
-    id: 'PET-007', solicitudId: 'SOL-2406', tipo: 'Entrante', generacion: 'Manual',
+    id: 'PET-007', solicitudId: 'SOL-2406', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 04:30', fechaActualizacion: '2026-06-30 04:30',
+    fechaCreacion: '2026-07-20 04:30', fechaActualizacion: '2026-07-20 04:30',
     piezas: [
       { code: 'BP-001', qtySolicitada: 6, qtySurtida: 0 },
       { code: 'AM-445', qtySolicitada: 2, qtySurtida: 0 },
     ],
-    pedidoOrigen: '1064855', parcial: false,
+    pedidoOrigen: '', parcial: false,
+    autorizacionToken: 'PIN-1111',
     usuarioCreador: 'MPENICHE07',
   },
-  // SOL-2407: Saliente Pendiente
+  // SOL-2407: Saliente Automático Pendiente
   {
-    id: 'PET-008', solicitudId: 'SOL-2407', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 10:10', fechaActualizacion: '2026-07-01 10:10',
+    id: 'PET-008', solicitudId: 'SOL-2407', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Forum Tlaquepaque', status: 'Pendiente',
+    fechaCreacion: '2026-07-21 10:10', fechaActualizacion: '2026-07-21 10:10',
     piezas: [
       { code: 'FT-223', qtySolicitada: 3, qtySurtida: 0 },
       { code: 'AC-201', qtySolicitada: 2, qtySurtida: 0 },
@@ -535,22 +641,22 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064834', parcial: false,
     usuarioCreador: 'RGARCIA_PERI',
   },
-  // SOL-2408: Saliente Pendiente
+  // SOL-2408: Saliente Manual Pendiente
   {
-    id: 'PET-009', solicitudId: 'SOL-2408', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Tonalá', status: 'Pendiente',
-    fechaCreacion: '2026-07-02 08:00', fechaActualizacion: '2026-07-02 08:00',
+    id: 'PET-009', solicitudId: 'SOL-2408', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Central Camionera', status: 'Pendiente',
+    fechaCreacion: '2026-07-22 08:00', fechaActualizacion: '2026-07-22 08:00',
     piezas: [
       { code: 'BC-118', qtySolicitada: 4, qtySurtida: 0 },
     ],
     pedidoOrigen: '1064844', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2409: Saliente Surtido Parcial
+  // SOL-2409: Saliente Automático Surtido Parcial
   {
-    id: 'PET-010', solicitudId: 'SOL-2409', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Surtido',
-    fechaCreacion: '2026-07-03 14:00', fechaActualizacion: '2026-07-03 16:30',
+    id: 'PET-010', solicitudId: 'SOL-2409', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido',
+    fechaCreacion: '2026-07-23 14:00', fechaActualizacion: '2026-07-23 16:30',
     piezas: [
       { code: 'BT-055', qtySolicitada: 3, qtySurtida: 2 },
       { code: 'RD-772', qtySolicitada: 2, qtySurtida: 2 },
@@ -558,11 +664,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064851', parcial: true,
     usuarioCreador: 'PLOPEZ_ZAP',
   },
-  // SOL-2410: Saliente Enviado
+  // SOL-2410: Saliente Automático Enviado
   {
-    id: 'PET-011', solicitudId: 'SOL-2410', tipo: 'Saliente', generacion: 'Automático',
+    id: 'PET-011', solicitudId: 'SOL-2410', tipo: 'Saliente', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Enviado',
-    fechaCreacion: '2026-06-29 09:15', fechaActualizacion: '2026-06-29 14:20',
+    fechaCreacion: '2026-07-24 09:15', fechaActualizacion: '2026-07-24 14:20',
     piezas: [
       { code: 'LT-334', qtySolicitada: 4, qtySurtida: 4 },
       { code: 'XX-999', qtySolicitada: 6, qtySurtida: 6 },
@@ -571,11 +677,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88509', metodoEnvio: 'Estafeta',
     usuarioCreador: 'HDIAZ_FED',
   },
-  // SOL-2411: Saliente Entregado
+  // SOL-2411: Saliente Manual Entregado
   {
-    id: 'PET-012', solicitudId: 'SOL-2411', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Tlaquepaque', status: 'Entregado',
-    fechaCreacion: '2026-06-30 11:00', fechaActualizacion: '2026-06-30 16:45',
+    id: 'PET-012', solicitudId: 'SOL-2411', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Entregado',
+    fechaCreacion: '2026-07-25 11:00', fechaActualizacion: '2026-07-25 16:45',
     piezas: [
       { code: 'BP-001', qtySolicitada: 5, qtySurtida: 5 },
       { code: 'AM-445', qtySolicitada: 2, qtySurtida: 2 },
@@ -585,58 +691,59 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88518', metodoEnvio: 'Uber',
     usuarioCreador: 'CVEGA_TLAQ',
   },
-  // SOL-2412: Saliente Pendiente
+  // SOL-2412: Saliente Automático Pendiente
   {
-    id: 'PET-013', solicitudId: 'SOL-2412', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 10:30', fechaActualizacion: '2026-07-01 10:30',
+    id: 'PET-013', solicitudId: 'SOL-2412', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Colón', status: 'Pendiente',
+    fechaCreacion: '2026-07-26 10:30', fechaActualizacion: '2026-07-26 10:30',
     piezas: [
       { code: 'RD-772', qtySolicitada: 2, qtySurtida: 0 },
     ],
     pedidoOrigen: '1064847', parcial: false,
     usuarioCreador: 'RGARCIA_PERI',
   },
-  // SOL-2413: Saliente Pendiente
+  // SOL-2413: Saliente Manual Pendiente
   {
-    id: 'PET-014', solicitudId: 'SOL-2413', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Zapopan', status: 'Pendiente',
-    fechaCreacion: '2026-07-02 09:45', fechaActualizacion: '2026-07-02 09:45',
+    id: 'PET-014', solicitudId: 'SOL-2413', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Pendiente',
+    fechaCreacion: '2026-07-27 09:45', fechaActualizacion: '2026-07-27 09:45',
     piezas: [
       { code: 'AC-201', qtySolicitada: 3, qtySurtida: 0 },
       { code: 'XX-999', qtySolicitada: 4, qtySurtida: 0 },
     ],
-    pedidoOrigen: '1064848', parcial: false,
+    pedidoOrigen: '', parcial: false,
+    autorizacionToken: 'PIN-1222',
     usuarioCreador: 'PLOPEZ_ZAP',
   },
-  // SOL-2414: Entrante Surtido
+  // SOL-2414: Entrante Automático Surtido
   {
-    id: 'PET-015', solicitudId: 'SOL-2414', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Surtido',
-    fechaCreacion: '2026-07-03 15:45', fechaActualizacion: '2026-07-03 17:04',
+    id: 'PET-015', solicitudId: 'SOL-2414', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Forum Tlaquepaque', status: 'Surtido',
+    fechaCreacion: '2026-07-28 15:45', fechaActualizacion: '2026-07-28 17:04',
     piezas: [
       { code: 'BP-001', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064901', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2415: Saliente Pendiente
+  // SOL-2415: Saliente Automático Surtido
   {
-    id: 'PET-016', solicitudId: 'SOL-2415', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Tonalá', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 17:25', fechaActualizacion: '2026-06-29 17:25',
+    id: 'PET-016', solicitudId: 'SOL-2415', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Central Camionera', status: 'Surtido',
+    fechaCreacion: '2026-07-14 17:25', fechaActualizacion: '2026-07-14 18:47',
     piezas: [
-      { code: 'BP-001', qtySolicitada: 1, qtySurtida: 0 },
-      { code: 'AC-201', qtySolicitada: 3, qtySurtida: 0 },
-      { code: 'BT-055', qtySolicitada: 4, qtySurtida: 0 },
+      { code: 'BP-001', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'AC-201', qtySolicitada: 3, qtySurtida: 3 },
+      { code: 'BT-055', qtySolicitada: 4, qtySurtida: 4 },
     ],
     pedidoOrigen: '1064780', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2416: Entrante Surtido
+  // SOL-2416: Entrante Manual Surtido
   {
-    id: 'PET-017', solicitudId: 'SOL-2416', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Periférico', status: 'Surtido',
-    fechaCreacion: '2026-06-30 13:00', fechaActualizacion: '2026-06-30 17:07',
+    id: 'PET-017', solicitudId: 'SOL-2416', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido',
+    fechaCreacion: '2026-07-15 13:00', fechaActualizacion: '2026-07-15 17:07',
     piezas: [
       { code: 'LT-334', qtySolicitada: 2, qtySurtida: 2 },
       { code: 'AC-201', qtySolicitada: 3, qtySurtida: 3 },
@@ -644,22 +751,23 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064953', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2417: Saliente Pendiente
+  // SOL-2417: Saliente Automático Enviado
   {
-    id: 'PET-018', solicitudId: 'SOL-2417', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 06:05', fechaActualizacion: '2026-07-01 06:05',
+    id: 'PET-018', solicitudId: 'SOL-2417', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Pelícano', status: 'Enviado',
+    fechaCreacion: '2026-07-16 06:05', fechaActualizacion: '2026-07-16 09:12',
     piezas: [
-      { code: 'AM-445', qtySolicitada: 5, qtySurtida: 0 },
+      { code: 'AM-445', qtySolicitada: 5, qtySurtida: 5 },
     ],
     pedidoOrigen: '1064942', parcial: false,
+    embarqueId: '88772', metodoEnvio: 'DHL',
     usuarioCreador: 'DSOTO_PEL',
   },
-  // SOL-2418: Entrante Surtido
+  // SOL-2418: Entrante Manual Surtido
   {
-    id: 'PET-019', solicitudId: 'SOL-2418', tipo: 'Entrante', generacion: 'Manual',
+    id: 'PET-019', solicitudId: 'SOL-2418', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Pelícano', status: 'Surtido',
-    fechaCreacion: '2026-07-02 07:50', fechaActualizacion: '2026-07-02 08:12',
+    fechaCreacion: '2026-07-17 07:50', fechaActualizacion: '2026-07-17 08:12',
     piezas: [
       { code: 'FT-223', qtySolicitada: 1, qtySurtida: 1 },
       { code: 'RD-772', qtySolicitada: 4, qtySurtida: 4 },
@@ -668,23 +776,24 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064888', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2419: Saliente Pendiente
+  // SOL-2419: Saliente Automático Entregado
   {
-    id: 'PET-020', solicitudId: 'SOL-2419', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 17:10', fechaActualizacion: '2026-07-03 17:10',
+    id: 'PET-020', solicitudId: 'SOL-2419', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Entregado',
+    fechaCreacion: '2026-07-18 17:10', fechaActualizacion: '2026-07-18 20:28',
     piezas: [
-      { code: 'LT-334', qtySolicitada: 3, qtySurtida: 0 },
-      { code: 'XX-999', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'LT-334', qtySolicitada: 3, qtySurtida: 3 },
+      { code: 'XX-999', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064798', parcial: false,
+    embarqueId: '88770', metodoEnvio: 'Estafeta',
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2420: Entrante Surtido
+  // SOL-2420: Entrante Automático Surtido
   {
-    id: 'PET-021', solicitudId: 'SOL-2420', tipo: 'Entrante', generacion: 'Automático',
+    id: 'PET-021', solicitudId: 'SOL-2420', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Surtido',
-    fechaCreacion: '2026-06-29 17:35', fechaActualizacion: '2026-06-29 18:17',
+    fechaCreacion: '2026-07-19 17:35', fechaActualizacion: '2026-07-19 18:17',
     piezas: [
       { code: 'XX-999', qtySolicitada: 5, qtySurtida: 5 },
       { code: 'BP-001', qtySolicitada: 3, qtySurtida: 3 },
@@ -692,23 +801,24 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064960', parcial: false,
     usuarioCreador: 'DSOTO_PEL',
   },
-  // SOL-2421: Saliente Pendiente
+  // SOL-2421: Saliente Manual Surtido
   {
-    id: 'PET-022', solicitudId: 'SOL-2421', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Tlaquepaque', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 18:20', fechaActualizacion: '2026-06-30 18:20',
+    id: 'PET-022', solicitudId: 'SOL-2421', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Colón', status: 'Surtido',
+    fechaCreacion: '2026-07-20 18:20', fechaActualizacion: '2026-07-20 20:07',
     piezas: [
-      { code: 'BP-001', qtySolicitada: 3, qtySurtida: 0 },
-      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'BP-001', qtySolicitada: 3, qtySurtida: 3 },
+      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 6 },
     ],
-    pedidoOrigen: '1064984', parcial: false,
+    pedidoOrigen: '', parcial: false,
+    autorizacionToken: 'PIN-1333',
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2422: Entrante Recibido
+  // SOL-2422: Entrante Automático Recibido
   {
-    id: 'PET-023', solicitudId: 'SOL-2422', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Recibido',
-    fechaCreacion: '2026-07-01 13:25', fechaActualizacion: '2026-07-01 15:14',
+    id: 'PET-023', solicitudId: 'SOL-2422', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Recibido',
+    fechaCreacion: '2026-07-21 13:25', fechaActualizacion: '2026-07-21 15:14',
     piezas: [
       { code: 'BP-001', qtySolicitada: 6, qtySurtida: 6 },
     ],
@@ -716,11 +826,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88571', metodoEnvio: 'DHL',
     usuarioCreador: 'CVEGA_TLAQ',
   },
-  // SOL-2423: Saliente Entregado Parcial
+  // SOL-2423: Saliente Manual Entregado Parcial
   {
-    id: 'PET-024', solicitudId: 'SOL-2423', tipo: 'Saliente', generacion: 'Manual',
+    id: 'PET-024', solicitudId: 'SOL-2423', tipo: 'Saliente', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Entregado',
-    fechaCreacion: '2026-07-02 13:45', fechaActualizacion: '2026-07-02 18:28',
+    fechaCreacion: '2026-07-22 13:45', fechaActualizacion: '2026-07-22 18:28',
     piezas: [
       { code: 'LT-334', qtySolicitada: 2, qtySurtida: 0 },
     ],
@@ -728,11 +838,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88563', metodoEnvio: 'DHL',
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2424: Entrante Pendiente
+  // SOL-2424: Entrante Automático Pendiente
   {
-    id: 'PET-025', solicitudId: 'SOL-2424', tipo: 'Entrante', generacion: 'Automático',
+    id: 'PET-025', solicitudId: 'SOL-2424', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 10:00', fechaActualizacion: '2026-07-03 10:00',
+    fechaCreacion: '2026-07-23 10:00', fechaActualizacion: '2026-07-23 10:00',
     piezas: [
       { code: 'BP-001', qtySolicitada: 2, qtySurtida: 0 },
       { code: 'LT-334', qtySolicitada: 3, qtySurtida: 0 },
@@ -741,11 +851,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064907', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2425: Saliente Enviado
+  // SOL-2425: Saliente Automático Enviado
   {
-    id: 'PET-026', solicitudId: 'SOL-2425', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Tlaquepaque', status: 'Enviado',
-    fechaCreacion: '2026-06-29 14:45', fechaActualizacion: '2026-06-29 19:14',
+    id: 'PET-026', solicitudId: 'SOL-2425', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Forum Tlaquepaque', status: 'Enviado',
+    fechaCreacion: '2026-07-24 14:45', fechaActualizacion: '2026-07-24 19:14',
     piezas: [
       { code: 'BP-001', qtySolicitada: 4, qtySurtida: 4 },
       { code: 'FT-223', qtySolicitada: 6, qtySurtida: 6 },
@@ -754,11 +864,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88592', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2426: Entrante Pendiente
+  // SOL-2426: Entrante Manual Pendiente
   {
-    id: 'PET-027', solicitudId: 'SOL-2426', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 17:40', fechaActualizacion: '2026-06-30 17:40',
+    id: 'PET-027', solicitudId: 'SOL-2426', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Central Camionera', status: 'Pendiente',
+    fechaCreacion: '2026-07-25 17:40', fechaActualizacion: '2026-07-25 17:40',
     piezas: [
       { code: 'XX-999', qtySolicitada: 1, qtySurtida: 0 },
       { code: 'AM-445', qtySolicitada: 5, qtySurtida: 0 },
@@ -767,58 +877,60 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064752', parcial: false,
     usuarioCreador: 'PLOPEZ_ZAP',
   },
-  // SOL-2427: Saliente Pendiente
+  // SOL-2427: Saliente Automático Enviado
   {
-    id: 'PET-028', solicitudId: 'SOL-2427', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 16:20', fechaActualizacion: '2026-07-01 16:20',
+    id: 'PET-028', solicitudId: 'SOL-2427', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Pelícano', status: 'Enviado',
+    fechaCreacion: '2026-07-26 16:20', fechaActualizacion: '2026-07-26 20:40',
     piezas: [
-      { code: 'BC-118', qtySolicitada: 3, qtySurtida: 0 },
-      { code: 'LT-334', qtySolicitada: 1, qtySurtida: 0 },
-      { code: 'AC-201', qtySolicitada: 1, qtySurtida: 0 },
+      { code: 'BC-118', qtySolicitada: 3, qtySurtida: 3 },
+      { code: 'LT-334', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'AC-201', qtySolicitada: 1, qtySurtida: 1 },
     ],
     pedidoOrigen: '1064806', parcial: false,
+    embarqueId: '88739', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'MPENICHE07',
   },
-  // SOL-2428: Entrante Surtido Parcial
+  // SOL-2428: Entrante Manual Surtido Parcial
   {
-    id: 'PET-029', solicitudId: 'SOL-2428', tipo: 'Entrante', generacion: 'Manual',
+    id: 'PET-029', solicitudId: 'SOL-2428', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Surtido',
-    fechaCreacion: '2026-07-02 15:20', fechaActualizacion: '2026-07-02 18:38',
+    fechaCreacion: '2026-07-27 15:20', fechaActualizacion: '2026-07-27 18:38',
     piezas: [
       { code: 'LT-334', qtySolicitada: 6, qtySurtida: 6 },
       { code: 'FT-223', qtySolicitada: 6, qtySurtida: 4 },
     ],
-    pedidoOrigen: '1064991', parcial: true,
+    pedidoOrigen: '', parcial: true,
+    autorizacionToken: 'PIN-1444',
     usuarioCreador: 'MPENICHE07',
   },
-  // SOL-2429: Saliente Surtido
+  // SOL-2429: Saliente Automático Surtido
   {
-    id: 'PET-030', solicitudId: 'SOL-2429', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Surtido',
-    fechaCreacion: '2026-07-03 14:40', fechaActualizacion: '2026-07-03 17:27',
+    id: 'PET-030', solicitudId: 'SOL-2429', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido',
+    fechaCreacion: '2026-07-28 14:40', fechaActualizacion: '2026-07-28 17:27',
     piezas: [
       { code: 'BP-001', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064886', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2430: Entrante Pendiente
+  // SOL-2430: Entrante Automático Pendiente
   {
-    id: 'PET-031', solicitudId: 'SOL-2430', tipo: 'Entrante', generacion: 'Automático',
+    id: 'PET-031', solicitudId: 'SOL-2430', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 11:10', fechaActualizacion: '2026-06-29 11:10',
+    fechaCreacion: '2026-07-14 11:10', fechaActualizacion: '2026-07-14 11:10',
     piezas: [
       { code: 'XX-999', qtySolicitada: 5, qtySurtida: 0 },
     ],
     pedidoOrigen: '1064958', parcial: false,
     usuarioCreador: 'PLOPEZ_ZAP',
   },
-  // SOL-2431: Saliente Entregado
+  // SOL-2431: Saliente Manual Entregado
   {
-    id: 'PET-032', solicitudId: 'SOL-2431', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Periférico', status: 'Entregado',
-    fechaCreacion: '2026-06-30 11:05', fechaActualizacion: '2026-06-30 14:29',
+    id: 'PET-032', solicitudId: 'SOL-2431', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Entregado',
+    fechaCreacion: '2026-07-15 11:05', fechaActualizacion: '2026-07-15 14:29',
     piezas: [
       { code: 'BT-055', qtySolicitada: 3, qtySurtida: 3 },
       { code: 'AM-445', qtySolicitada: 5, qtySurtida: 5 },
@@ -827,11 +939,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88694', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2432: Entrante Pendiente
+  // SOL-2432: Entrante Automático Pendiente
   {
-    id: 'PET-033', solicitudId: 'SOL-2432', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 18:15', fechaActualizacion: '2026-07-01 18:15',
+    id: 'PET-033', solicitudId: 'SOL-2432', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colón', status: 'Pendiente',
+    fechaCreacion: '2026-07-16 18:15', fechaActualizacion: '2026-07-16 18:15',
     piezas: [
       { code: 'XX-999', qtySolicitada: 4, qtySurtida: 0 },
       { code: 'FT-223', qtySolicitada: 4, qtySurtida: 0 },
@@ -840,11 +952,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064973', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2433: Saliente Entregado
+  // SOL-2433: Saliente Manual Entregado
   {
-    id: 'PET-034', solicitudId: 'SOL-2433', tipo: 'Saliente', generacion: 'Manual',
+    id: 'PET-034', solicitudId: 'SOL-2433', tipo: 'Saliente', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Entregado',
-    fechaCreacion: '2026-07-02 07:50', fechaActualizacion: '2026-07-02 09:31',
+    fechaCreacion: '2026-07-17 07:50', fechaActualizacion: '2026-07-17 09:31',
     piezas: [
       { code: 'BP-001', qtySolicitada: 4, qtySurtida: 4 },
     ],
@@ -852,48 +964,50 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88575', metodoEnvio: 'Estafeta',
     usuarioCreador: 'HDIAZ_FED',
   },
-  // SOL-2434: Entrante Pendiente
+  // SOL-2434: Entrante Automático Pendiente
   {
-    id: 'PET-035', solicitudId: 'SOL-2434', tipo: 'Entrante', generacion: 'Automático',
+    id: 'PET-035', solicitudId: 'SOL-2434', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 09:40', fechaActualizacion: '2026-07-03 09:40',
+    fechaCreacion: '2026-07-18 09:40', fechaActualizacion: '2026-07-18 09:40',
     piezas: [
       { code: 'AM-445', qtySolicitada: 2, qtySurtida: 0 },
     ],
     pedidoOrigen: '1064755', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2435: Saliente Pendiente
+  // SOL-2435: Saliente Automático Entregado
   {
-    id: 'PET-036', solicitudId: 'SOL-2435', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Tlaquepaque', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 14:20', fechaActualizacion: '2026-06-29 14:20',
+    id: 'PET-036', solicitudId: 'SOL-2435', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Entregado',
+    fechaCreacion: '2026-07-19 14:20', fechaActualizacion: '2026-07-19 16:49',
     piezas: [
-      { code: 'AM-445', qtySolicitada: 4, qtySurtida: 0 },
-      { code: 'LT-334', qtySolicitada: 1, qtySurtida: 0 },
-      { code: 'BP-001', qtySolicitada: 5, qtySurtida: 0 },
+      { code: 'AM-445', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'LT-334', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'BP-001', qtySolicitada: 5, qtySurtida: 5 },
     ],
     pedidoOrigen: '1064754', parcial: false,
+    embarqueId: '88719', metodoEnvio: 'DHL',
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2436: Entrante Enviado
+  // SOL-2436: Entrante Manual Enviado
   {
-    id: 'PET-037', solicitudId: 'SOL-2436', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Tonalá', status: 'Enviado',
-    fechaCreacion: '2026-06-30 19:20', fechaActualizacion: '2026-06-30 20:11',
+    id: 'PET-037', solicitudId: 'SOL-2436', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Forum Tlaquepaque', status: 'Enviado',
+    fechaCreacion: '2026-07-20 19:20', fechaActualizacion: '2026-07-20 20:11',
     piezas: [
       { code: 'BC-118', qtySolicitada: 6, qtySurtida: 6 },
       { code: 'RD-772', qtySolicitada: 1, qtySurtida: 1 },
     ],
-    pedidoOrigen: '1064758', parcial: false,
+    pedidoOrigen: '', parcial: false,
     embarqueId: '88654', metodoEnvio: 'Estafeta',
+    autorizacionToken: 'PIN-1555',
     usuarioCreador: 'AMORALES03',
   },
-  // SOL-2437: Saliente Surtido Parcial
+  // SOL-2437: Saliente Automático Surtido Parcial
   {
-    id: 'PET-038', solicitudId: 'SOL-2437', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Surtido',
-    fechaCreacion: '2026-07-01 14:50', fechaActualizacion: '2026-07-01 15:18',
+    id: 'PET-038', solicitudId: 'SOL-2437', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Central Camionera', status: 'Surtido',
+    fechaCreacion: '2026-07-21 14:50', fechaActualizacion: '2026-07-21 15:18',
     piezas: [
       { code: 'AC-201', qtySolicitada: 2, qtySurtida: 2 },
       { code: 'FT-223', qtySolicitada: 3, qtySurtida: 2 },
@@ -901,11 +1015,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064957', parcial: true,
     usuarioCreador: 'NTORRES_PERI',
   },
-  // SOL-2438: Entrante Enviado
+  // SOL-2438: Entrante Manual Enviado
   {
-    id: 'PET-039', solicitudId: 'SOL-2438', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Tonalá', status: 'Enviado',
-    fechaCreacion: '2026-07-02 10:55', fechaActualizacion: '2026-07-02 11:12',
+    id: 'PET-039', solicitudId: 'SOL-2438', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Adolf Horn', status: 'Enviado',
+    fechaCreacion: '2026-07-22 10:55', fechaActualizacion: '2026-07-22 11:12',
     piezas: [
       { code: 'RD-772', qtySolicitada: 4, qtySurtida: 4 },
       { code: 'BC-118', qtySolicitada: 3, qtySurtida: 3 },
@@ -915,68 +1029,71 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88623', metodoEnvio: 'Paquetexpress',
     usuarioCreador: 'PLOPEZ_ZAP',
   },
-  // SOL-2439: Saliente Pendiente
+  // SOL-2439: Saliente Automático Surtido
   {
-    id: 'PET-040', solicitudId: 'SOL-2439', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 19:45', fechaActualizacion: '2026-07-03 19:45',
+    id: 'PET-040', solicitudId: 'SOL-2439', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Pelícano', status: 'Surtido',
+    fechaCreacion: '2026-07-23 19:45', fechaActualizacion: '2026-07-23 21:21',
     piezas: [
-      { code: 'BC-118', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'BC-118', qtySolicitada: 6, qtySurtida: 6 },
     ],
     pedidoOrigen: '1064989', parcial: false,
     usuarioCreador: 'DSOTO_PEL',
   },
-  // SOL-2440: Entrante Pendiente
+  // SOL-2440: Entrante Automático Surtido
   {
-    id: 'PET-041', solicitudId: 'SOL-2440', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Tlaquepaque', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 14:40', fechaActualizacion: '2026-06-29 14:40',
+    id: 'PET-041', solicitudId: 'SOL-2440', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Surtido',
+    fechaCreacion: '2026-07-24 14:40', fechaActualizacion: '2026-07-24 18:35',
     piezas: [
-      { code: 'BT-055', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'BT-055', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064956', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2441: Saliente Surtido
+  // SOL-2441: Saliente Manual Surtido
   {
-    id: 'PET-042', solicitudId: 'SOL-2441', tipo: 'Saliente', generacion: 'Manual',
+    id: 'PET-042', solicitudId: 'SOL-2441', tipo: 'Saliente', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Surtido',
-    fechaCreacion: '2026-06-30 19:15', fechaActualizacion: '2026-07-01 00:01',
+    fechaCreacion: '2026-07-25 19:15', fechaActualizacion: '2026-07-26 00:01',
     piezas: [
       { code: 'BT-055', qtySolicitada: 5, qtySurtida: 5 },
     ],
     pedidoOrigen: '1064857', parcial: false,
     usuarioCreador: 'HDIAZ_FED',
   },
-  // SOL-2442: Entrante Pendiente
+  // SOL-2442: Entrante Automático Enviado
   {
-    id: 'PET-043', solicitudId: 'SOL-2442', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Federalismo', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 07:25', fechaActualizacion: '2026-07-01 07:25',
+    id: 'PET-043', solicitudId: 'SOL-2442', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Federalismo', status: 'Enviado',
+    fechaCreacion: '2026-07-26 07:25', fechaActualizacion: '2026-07-26 08:03',
     piezas: [
-      { code: 'BC-118', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'BC-118', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064953', parcial: false,
+    embarqueId: '88840', metodoEnvio: 'DHL',
     usuarioCreador: 'PLOPEZ_ZAP',
   },
-  // SOL-2443: Saliente Pendiente
+  // SOL-2443: Saliente Manual Enviado
   {
-    id: 'PET-044', solicitudId: 'SOL-2443', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Federalismo', status: 'Pendiente',
-    fechaCreacion: '2026-07-02 11:50', fechaActualizacion: '2026-07-02 11:50',
+    id: 'PET-044', solicitudId: 'SOL-2443', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Federalismo', status: 'Enviado',
+    fechaCreacion: '2026-07-27 11:50', fechaActualizacion: '2026-07-27 16:26',
     piezas: [
-      { code: 'LT-334', qtySolicitada: 5, qtySurtida: 0 },
-      { code: 'AM-445', qtySolicitada: 4, qtySurtida: 0 },
-      { code: 'BT-055', qtySolicitada: 4, qtySurtida: 0 },
+      { code: 'LT-334', qtySolicitada: 5, qtySurtida: 5 },
+      { code: 'AM-445', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'BT-055', qtySolicitada: 4, qtySurtida: 4 },
     ],
-    pedidoOrigen: '1064965', parcial: false,
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88852', metodoEnvio: 'DHL',
+    autorizacionToken: 'PIN-1666',
     usuarioCreador: 'HDIAZ_FED',
   },
-  // SOL-2444: Entrante Recibido Parcial
+  // SOL-2444: Entrante Automático Recibido Parcial
   {
-    id: 'PET-045', solicitudId: 'SOL-2444', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Recibido',
-    fechaCreacion: '2026-07-03 08:15', fechaActualizacion: '2026-07-03 10:41',
+    id: 'PET-045', solicitudId: 'SOL-2444', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colón', status: 'Recibido',
+    fechaCreacion: '2026-07-28 08:15', fechaActualizacion: '2026-07-28 10:41',
     piezas: [
       { code: 'FT-223', qtySolicitada: 2, qtySurtida: 2 },
       { code: 'XX-999', qtySolicitada: 6, qtySurtida: 6 },
@@ -986,11 +1103,11 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88655', metodoEnvio: 'Estafeta',
     usuarioCreador: 'DSOTO_PEL',
   },
-  // SOL-2445: Saliente Entregado
+  // SOL-2445: Saliente Automático Entregado
   {
-    id: 'PET-046', solicitudId: 'SOL-2445', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Tonalá', status: 'Entregado',
-    fechaCreacion: '2026-06-29 10:50', fechaActualizacion: '2026-06-29 13:36',
+    id: 'PET-046', solicitudId: 'SOL-2445', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Entregado',
+    fechaCreacion: '2026-07-14 10:50', fechaActualizacion: '2026-07-14 13:36',
     piezas: [
       { code: 'LT-334', qtySolicitada: 3, qtySurtida: 3 },
       { code: 'AC-201', qtySolicitada: 5, qtySurtida: 5 },
@@ -1000,94 +1117,100 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88554', metodoEnvio: 'Uber',
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2446: Entrante Pendiente
+  // SOL-2446: Entrante Manual Recibido
   {
-    id: 'PET-047', solicitudId: 'SOL-2446', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Tonalá', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 19:05', fechaActualizacion: '2026-06-30 19:05',
+    id: 'PET-047', solicitudId: 'SOL-2446', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Forum Tlaquepaque', status: 'Recibido',
+    fechaCreacion: '2026-07-15 19:05', fechaActualizacion: '2026-07-15 21:15',
     piezas: [
-      { code: 'XX-999', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'XX-999', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064989', parcial: false,
+    embarqueId: '88775', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2447: Saliente Pendiente
+  // SOL-2447: Saliente Automático Entregado
   {
-    id: 'PET-048', solicitudId: 'SOL-2447', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Tlaquepaque', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 12:45', fechaActualizacion: '2026-07-01 12:45',
+    id: 'PET-048', solicitudId: 'SOL-2447', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Central Camionera', status: 'Entregado',
+    fechaCreacion: '2026-07-16 12:45', fechaActualizacion: '2026-07-16 13:52',
     piezas: [
-      { code: 'FT-223', qtySolicitada: 4, qtySurtida: 0 },
-      { code: 'AM-445', qtySolicitada: 4, qtySurtida: 0 },
+      { code: 'FT-223', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'AM-445', qtySolicitada: 4, qtySurtida: 4 },
     ],
     pedidoOrigen: '1064861', parcial: false,
+    embarqueId: '88703', metodoEnvio: 'DHL',
     usuarioCreador: 'CVEGA_TLAQ',
   },
-  // SOL-2448: Entrante Pendiente
+  // SOL-2448: Entrante Manual Surtido
   {
-    id: 'PET-049', solicitudId: 'SOL-2448', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-07-02 16:30', fechaActualizacion: '2026-07-02 16:30',
+    id: 'PET-049', solicitudId: 'SOL-2448', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido',
+    fechaCreacion: '2026-07-17 16:30', fechaActualizacion: '2026-07-17 19:32',
     piezas: [
-      { code: 'AC-201', qtySolicitada: 5, qtySurtida: 0 },
-      { code: 'AM-445', qtySolicitada: 3, qtySurtida: 0 },
+      { code: 'AC-201', qtySolicitada: 5, qtySurtida: 5 },
+      { code: 'AM-445', qtySolicitada: 3, qtySurtida: 3 },
     ],
     pedidoOrigen: '1064785', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2449: Saliente Pendiente
+  // SOL-2449: Saliente Automático Surtido
   {
-    id: 'PET-050', solicitudId: 'SOL-2449', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Federalismo', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 12:00', fechaActualizacion: '2026-07-03 12:00',
+    id: 'PET-050', solicitudId: 'SOL-2449', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Federalismo', status: 'Surtido',
+    fechaCreacion: '2026-07-18 12:00', fechaActualizacion: '2026-07-18 14:54',
     piezas: [
-      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 6 },
     ],
     pedidoOrigen: '1064701', parcial: false,
     usuarioCreador: 'HDIAZ_FED',
   },
-  // SOL-2450: Entrante Pendiente
+  // SOL-2450: Entrante Automático Enviado
   {
-    id: 'PET-051', solicitudId: 'SOL-2450', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Tlaquepaque', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 10:30', fechaActualizacion: '2026-06-29 10:30',
+    id: 'PET-051', solicitudId: 'SOL-2450', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Enviado',
+    fechaCreacion: '2026-07-19 10:30', fechaActualizacion: '2026-07-19 12:40',
     piezas: [
-      { code: 'LT-334', qtySolicitada: 4, qtySurtida: 0 },
-      { code: 'RD-772', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'LT-334', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'RD-772', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064996', parcial: false,
+    embarqueId: '88812', metodoEnvio: 'DHL',
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2451: Saliente Pendiente
+  // SOL-2451: Saliente Manual Enviado
   {
-    id: 'PET-052', solicitudId: 'SOL-2451', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 17:40', fechaActualizacion: '2026-06-30 17:40',
+    id: 'PET-052', solicitudId: 'SOL-2451', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Colón', status: 'Enviado',
+    fechaCreacion: '2026-07-20 17:40', fechaActualizacion: '2026-07-20 21:01',
     piezas: [
-      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 0 },
-      { code: 'XX-999', qtySolicitada: 3, qtySurtida: 0 },
+      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 6 },
+      { code: 'XX-999', qtySolicitada: 3, qtySurtida: 3 },
     ],
-    pedidoOrigen: '1064855', parcial: false,
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88743', metodoEnvio: 'BlueGo',
+    autorizacionToken: 'PIN-1777',
     usuarioCreador: 'RGARCIA_PERI',
   },
-  // SOL-2452: Entrante Pendiente
+  // SOL-2452: Entrante Automático Recibido
   {
-    id: 'PET-053', solicitudId: 'SOL-2452', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 09:45', fechaActualizacion: '2026-07-01 09:45',
+    id: 'PET-053', solicitudId: 'SOL-2452', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Recibido',
+    fechaCreacion: '2026-07-21 09:45', fechaActualizacion: '2026-07-21 12:19',
     piezas: [
-      { code: 'AM-445', qtySolicitada: 1, qtySurtida: 0 },
-      { code: 'BC-118', qtySolicitada: 1, qtySurtida: 0 },
-      { code: 'LT-334', qtySolicitada: 5, qtySurtida: 0 },
+      { code: 'AM-445', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'BC-118', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'LT-334', qtySolicitada: 5, qtySurtida: 5 },
     ],
     pedidoOrigen: '1064716', parcial: false,
+    embarqueId: '88733', metodoEnvio: 'DHL',
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2453: Saliente Surtido Parcial
+  // SOL-2453: Saliente Manual Surtido Parcial
   {
-    id: 'PET-054', solicitudId: 'SOL-2453', tipo: 'Saliente', generacion: 'Manual',
+    id: 'PET-054', solicitudId: 'SOL-2453', tipo: 'Saliente', categoria: 'Manual',
     sucursalContraparte: 'Pelícano', status: 'Surtido',
-    fechaCreacion: '2026-07-02 13:15', fechaActualizacion: '2026-07-02 15:43',
+    fechaCreacion: '2026-07-22 13:15', fechaActualizacion: '2026-07-22 15:43',
     piezas: [
       { code: 'BT-055', qtySolicitada: 5, qtySurtida: 5 },
       { code: 'XX-999', qtySolicitada: 3, qtySurtida: 2 },
@@ -1095,78 +1218,82 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064734', parcial: true,
     usuarioCreador: 'MPENICHE07',
   },
-  // SOL-2454: Entrante Pendiente
+  // SOL-2454: Entrante Automático Surtido
   {
-    id: 'PET-055', solicitudId: 'SOL-2454', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 14:25', fechaActualizacion: '2026-07-03 14:25',
+    id: 'PET-055', solicitudId: 'SOL-2454', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Pelícano', status: 'Surtido',
+    fechaCreacion: '2026-07-23 14:25', fechaActualizacion: '2026-07-23 17:25',
     piezas: [
-      { code: 'RD-772', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'RD-772', qtySolicitada: 6, qtySurtida: 6 },
     ],
     pedidoOrigen: '1064741', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2455: Saliente Pendiente
+  // SOL-2455: Saliente Automático Entregado
   {
-    id: 'PET-056', solicitudId: 'SOL-2455', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-06-29 12:50', fechaActualizacion: '2026-06-29 12:50',
+    id: 'PET-056', solicitudId: 'SOL-2455', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Pelícano', status: 'Entregado',
+    fechaCreacion: '2026-07-24 12:50', fechaActualizacion: '2026-07-24 15:20',
     piezas: [
-      { code: 'XX-999', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'XX-999', qtySolicitada: 6, qtySurtida: 6 },
     ],
     pedidoOrigen: '1064818', parcial: false,
+    embarqueId: '88807', metodoEnvio: 'Uber',
     usuarioCreador: 'DSOTO_PEL',
   },
-  // SOL-2456: Entrante Pendiente
+  // SOL-2456: Entrante Manual Enviado
   {
-    id: 'PET-057', solicitudId: 'SOL-2456', tipo: 'Entrante', generacion: 'Manual',
-    sucursalContraparte: 'Tonalá', status: 'Pendiente',
-    fechaCreacion: '2026-06-30 10:55', fechaActualizacion: '2026-06-30 10:55',
+    id: 'PET-057', solicitudId: 'SOL-2456', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Forum Tlaquepaque', status: 'Enviado',
+    fechaCreacion: '2026-07-25 10:55', fechaActualizacion: '2026-07-25 15:01',
     piezas: [
-      { code: 'BC-118', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'BC-118', qtySolicitada: 2, qtySurtida: 2 },
     ],
     pedidoOrigen: '1064733', parcial: false,
+    embarqueId: '88733', metodoEnvio: 'Estafeta',
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2457: Saliente Pendiente
+  // SOL-2457: Saliente Automático Surtido
   {
-    id: 'PET-058', solicitudId: 'SOL-2457', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Zapopan', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 07:45', fechaActualizacion: '2026-07-01 07:45',
+    id: 'PET-058', solicitudId: 'SOL-2457', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Central Camionera', status: 'Surtido',
+    fechaCreacion: '2026-07-26 07:45', fechaActualizacion: '2026-07-26 11:40',
     piezas: [
-      { code: 'BP-001', qtySolicitada: 3, qtySurtida: 0 },
+      { code: 'BP-001', qtySolicitada: 3, qtySurtida: 3 },
     ],
     pedidoOrigen: '1064931', parcial: false,
     usuarioCreador: 'AMORALES03',
   },
-  // SOL-2458: Entrante Recibido
+  // SOL-2458: Entrante Manual Recibido
   {
-    id: 'PET-059', solicitudId: 'SOL-2458', tipo: 'Entrante', generacion: 'Manual',
+    id: 'PET-059', solicitudId: 'SOL-2458', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Pelícano', status: 'Recibido',
-    fechaCreacion: '2026-07-02 06:30', fechaActualizacion: '2026-07-02 06:45',
+    fechaCreacion: '2026-07-27 06:30', fechaActualizacion: '2026-07-27 06:45',
     piezas: [
       { code: 'RD-772', qtySolicitada: 2, qtySurtida: 2 },
     ],
-    pedidoOrigen: '1064799', parcial: false,
+    pedidoOrigen: '', parcial: false,
     embarqueId: '88651', metodoEnvio: 'BlueGo',
+    autorizacionToken: 'PIN-1888',
     usuarioCreador: 'RSILVA_TLAQ',
   },
-  // SOL-2459: Saliente Pendiente
+  // SOL-2459: Saliente Automático Enviado
   {
-    id: 'PET-060', solicitudId: 'SOL-2459', tipo: 'Saliente', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-07-03 11:20', fechaActualizacion: '2026-07-03 11:20',
+    id: 'PET-060', solicitudId: 'SOL-2459', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', status: 'Enviado',
+    fechaCreacion: '2026-07-28 11:20', fechaActualizacion: '2026-07-28 14:11',
     piezas: [
-      { code: 'RD-772', qtySolicitada: 1, qtySurtida: 0 },
+      { code: 'RD-772', qtySolicitada: 1, qtySurtida: 1 },
     ],
     pedidoOrigen: '1064728', parcial: false,
+    embarqueId: '88715', metodoEnvio: 'DHL',
     usuarioCreador: 'RGARCIA_PERI',
   },
-  // SOL-2460: Entrante Recibido Parcial
+  // SOL-2460: Entrante Automático Recibido Parcial
   {
-    id: 'PET-061', solicitudId: 'SOL-2460', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Recibido',
-    fechaCreacion: '2026-06-29 11:40', fechaActualizacion: '2026-06-29 12:11',
+    id: 'PET-061', solicitudId: 'SOL-2460', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Recibido',
+    fechaCreacion: '2026-07-14 11:40', fechaActualizacion: '2026-07-14 12:11',
     piezas: [
       { code: 'AC-201', qtySolicitada: 5, qtySurtida: 5 },
       { code: 'FT-223', qtySolicitada: 6, qtySurtida: 4 },
@@ -1176,39 +1303,261 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88622', metodoEnvio: 'Estafeta',
     usuarioCreador: 'LGOMEZ_TONA',
   },
-  // SOL-2461: Saliente Surtido
+  // SOL-2461: Saliente Manual Surtido
   {
-    id: 'PET-062', solicitudId: 'SOL-2461', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Zapopan', status: 'Surtido',
-    fechaCreacion: '2026-06-30 10:05', fechaActualizacion: '2026-06-30 11:28',
+    id: 'PET-062', solicitudId: 'SOL-2461', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Colón', status: 'Surtido',
+    fechaCreacion: '2026-07-15 10:05', fechaActualizacion: '2026-07-15 11:28',
     piezas: [
       { code: 'FT-223', qtySolicitada: 4, qtySurtida: 4 },
     ],
     pedidoOrigen: '1064851', parcial: false,
     usuarioCreador: 'AMORALES03',
   },
-  // SOL-2462: Entrante Pendiente
+  // SOL-2462: Entrante Automático Recibido
   {
-    id: 'PET-063', solicitudId: 'SOL-2462', tipo: 'Entrante', generacion: 'Automático',
-    sucursalContraparte: 'Periférico', status: 'Pendiente',
-    fechaCreacion: '2026-07-01 18:05', fechaActualizacion: '2026-07-01 18:05',
+    id: 'PET-063', solicitudId: 'SOL-2462', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Recibido',
+    fechaCreacion: '2026-07-16 18:05', fechaActualizacion: '2026-07-16 22:37',
     piezas: [
-      { code: 'BP-001', qtySolicitada: 1, qtySurtida: 0 },
-      { code: 'RD-772', qtySolicitada: 1, qtySurtida: 0 },
+      { code: 'BP-001', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'RD-772', qtySolicitada: 1, qtySurtida: 1 },
     ],
     pedidoOrigen: '1064927', parcial: false,
+    embarqueId: '88887', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'JMORENO11',
   },
-  // SOL-2463: Saliente Pendiente
+  // SOL-2463: Saliente Manual Entregado
   {
-    id: 'PET-064', solicitudId: 'SOL-2463', tipo: 'Saliente', generacion: 'Manual',
-    sucursalContraparte: 'Pelícano', status: 'Pendiente',
-    fechaCreacion: '2026-07-02 16:45', fechaActualizacion: '2026-07-02 16:45',
+    id: 'PET-064', solicitudId: 'SOL-2463', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Pelícano', status: 'Entregado',
+    fechaCreacion: '2026-07-17 16:45', fechaActualizacion: '2026-07-17 17:27',
     piezas: [
-      { code: 'BT-055', qtySolicitada: 5, qtySurtida: 0 },
-      { code: 'AC-201', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'BT-055', qtySolicitada: 5, qtySurtida: 5 },
+      { code: 'AC-201', qtySolicitada: 6, qtySurtida: 6 },
     ],
     pedidoOrigen: '1064783', parcial: false,
+    embarqueId: '88805', metodoEnvio: 'Paquetexpress',
     usuarioCreador: 'DSOTO_PEL',
+  },
+  // SOL-2464: Entrante CEDIS Reabasto Pendiente
+  {
+    id: 'PET-065', solicitudId: 'SOL-2464', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Pendiente',
+    fechaCreacion: '2026-07-18 08:05', fechaActualizacion: '2026-07-18 08:05',
+    piezas: [
+      { code: 'RD-772', qtySolicitada: 7, qtySurtida: 0 },
+      { code: 'AC-201', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'XX-999', qtySolicitada: 6, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    cajas: 5,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2465: Entrante CEDIS Reabasto Documentado Parcial
+  {
+    id: 'PET-066', solicitudId: 'SOL-2465', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Documentado',
+    fechaCreacion: '2026-07-19 08:55', fechaActualizacion: '2026-07-19 11:18',
+    piezas: [
+      { code: 'FT-223', qtySolicitada: 4, qtySurtida: 1 },
+      { code: 'BC-118', qtySolicitada: 3, qtySurtida: 3 },
+    ],
+    pedidoOrigen: '', parcial: true,
+    cajas: 9,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2466: Entrante CEDIS Reabasto Enviado Parcial
+  {
+    id: 'PET-067', solicitudId: 'SOL-2466', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Enviado',
+    fechaCreacion: '2026-07-20 06:30', fechaActualizacion: '2026-07-20 09:58',
+    piezas: [
+      { code: 'LT-334', qtySolicitada: 2, qtySurtida: 1 },
+      { code: 'BC-118', qtySolicitada: 2, qtySurtida: 2 },
+    ],
+    pedidoOrigen: '', parcial: true,
+    embarqueId: '88810', metodoEnvio: 'BlueGo',
+    cajas: 10,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2467: Entrante CEDIS Reabasto Recibido Parcial
+  {
+    id: 'PET-068', solicitudId: 'SOL-2467', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Recibido',
+    fechaCreacion: '2026-07-21 08:30', fechaActualizacion: '2026-07-21 11:20',
+    piezas: [
+      { code: 'LT-334', qtySolicitada: 3, qtySurtida: 3 },
+      { code: 'XX-999', qtySolicitada: 2, qtySurtida: 2 },
+      { code: 'BC-118', qtySolicitada: 3, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: true,
+    embarqueId: '88811', metodoEnvio: 'Estafeta',
+    cajas: 5,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2468: Entrante CEDIS Reabasto Pendiente
+  {
+    id: 'PET-069', solicitudId: 'SOL-2468', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Pendiente',
+    fechaCreacion: '2026-07-22 14:45', fechaActualizacion: '2026-07-22 14:45',
+    piezas: [
+      { code: 'AM-445', qtySolicitada: 8, qtySurtida: 0 },
+      { code: 'RD-772', qtySolicitada: 4, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    cajas: 12,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2469: Entrante CEDIS Reabasto Documentado
+  {
+    id: 'PET-070', solicitudId: 'SOL-2469', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Documentado',
+    fechaCreacion: '2026-07-23 17:25', fechaActualizacion: '2026-07-23 18:01',
+    piezas: [
+      { code: 'RD-772', qtySolicitada: 2, qtySurtida: 2 },
+      { code: 'AC-201', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'FT-223', qtySolicitada: 6, qtySurtida: 6 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    cajas: 6,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2470: Entrante CEDIS Reabasto Enviado Parcial
+  {
+    id: 'PET-071', solicitudId: 'SOL-2470', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Enviado',
+    fechaCreacion: '2026-07-24 14:30', fechaActualizacion: '2026-07-24 16:24',
+    piezas: [
+      { code: 'BC-118', qtySolicitada: 1, qtySurtida: 1 },
+      { code: 'RD-772', qtySolicitada: 7, qtySurtida: 7 },
+      { code: 'AC-201', qtySolicitada: 4, qtySurtida: 1 },
+    ],
+    pedidoOrigen: '', parcial: true,
+    embarqueId: '88711', metodoEnvio: 'Uber',
+    cajas: 6,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2471: Entrante CEDIS Reabasto Recibido
+  {
+    id: 'PET-072', solicitudId: 'SOL-2471', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Recibido',
+    fechaCreacion: '2026-07-25 15:20', fechaActualizacion: '2026-07-25 18:39',
+    piezas: [
+      { code: 'BC-118', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'RD-772', qtySolicitada: 4, qtySurtida: 4 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88770', metodoEnvio: 'DHL',
+    cajas: 11,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2472: Entrante CEDIS Reabasto Pendiente
+  {
+    id: 'PET-073', solicitudId: 'SOL-2472', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Pendiente',
+    fechaCreacion: '2026-07-26 18:25', fechaActualizacion: '2026-07-26 18:25',
+    piezas: [
+      { code: 'BP-001', qtySolicitada: 1, qtySurtida: 0 },
+      { code: 'LT-334', qtySolicitada: 4, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    cajas: 9,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2473: Entrante CEDIS Reabasto Documentado Parcial
+  {
+    id: 'PET-074', solicitudId: 'SOL-2473', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Documentado',
+    fechaCreacion: '2026-07-27 10:55', fechaActualizacion: '2026-07-27 11:33',
+    piezas: [
+      { code: 'RD-772', qtySolicitada: 7, qtySurtida: 7 },
+      { code: 'XX-999', qtySolicitada: 7, qtySurtida: 6 },
+      { code: 'AM-445', qtySolicitada: 7, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: true,
+    cajas: 10,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2474: Entrante CEDIS Urgencia Enviado
+  {
+    id: 'PET-075', solicitudId: 'SOL-2474', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    sucursalContraparte: 'CEDIS', status: 'Enviado',
+    fechaCreacion: '2026-07-28 16:25', fechaActualizacion: '2026-07-28 19:11',
+    piezas: [
+      { code: 'LT-334', qtySolicitada: 4, qtySurtida: 4 },
+      { code: 'BP-001', qtySolicitada: 8, qtySurtida: 8 },
+      { code: 'RD-772', qtySolicitada: 8, qtySurtida: 8 },
+    ],
+    pedidoOrigen: '1064944', parcial: false,
+    embarqueId: '88855', metodoEnvio: 'Estafeta',
+    usuarioCreador: 'PLOPEZ_ZAP',
+  },
+  // SOL-2475: Entrante CEDIS Reabasto Recibido
+  {
+    id: 'PET-076', solicitudId: 'SOL-2475', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Recibido',
+    fechaCreacion: '2026-07-14 06:40', fechaActualizacion: '2026-07-14 08:41',
+    piezas: [
+      { code: 'RD-772', qtySolicitada: 7, qtySurtida: 7 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88731', metodoEnvio: 'Estafeta',
+    cajas: 8,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2476: Entrante CEDIS Urgencia Pendiente
+  {
+    id: 'PET-077', solicitudId: 'SOL-2476', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    sucursalContraparte: 'CEDIS', status: 'Pendiente',
+    fechaCreacion: '2026-07-15 13:30', fechaActualizacion: '2026-07-15 13:30',
+    piezas: [
+      { code: 'LT-334', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'RD-772', qtySolicitada: 2, qtySurtida: 0 },
+      { code: 'BC-118', qtySolicitada: 1, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '1064869', parcial: false,
+    usuarioCreador: 'RSILVA_TLAQ',
+  },
+  // SOL-2477: Entrante CEDIS Reabasto Documentado Parcial
+  {
+    id: 'PET-078', solicitudId: 'SOL-2477', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Documentado',
+    fechaCreacion: '2026-07-16 13:20', fechaActualizacion: '2026-07-16 13:41',
+    piezas: [
+      { code: 'XX-999', qtySolicitada: 2, qtySurtida: 2 },
+      { code: 'BP-001', qtySolicitada: 8, qtySurtida: 7 },
+      { code: 'BC-118', qtySolicitada: 8, qtySurtida: 8 },
+    ],
+    pedidoOrigen: '', parcial: true,
+    cajas: 3,
+    usuarioCreador: 'CEDIS_SISTEMA',
+  },
+  // SOL-2478: Entrante CEDIS Urgencia Enviado Parcial
+  {
+    id: 'PET-079', solicitudId: 'SOL-2478', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    sucursalContraparte: 'CEDIS', status: 'Enviado',
+    fechaCreacion: '2026-07-17 07:05', fechaActualizacion: '2026-07-17 11:07',
+    piezas: [
+      { code: 'BC-118', qtySolicitada: 3, qtySurtida: 1 },
+      { code: 'FT-223', qtySolicitada: 4, qtySurtida: 2 },
+      { code: 'AM-445', qtySolicitada: 3, qtySurtida: 3 },
+    ],
+    pedidoOrigen: '1064721', parcial: true,
+    embarqueId: '88740', metodoEnvio: 'Paquetexpress',
+    usuarioCreador: 'CVEGA_TLAQ',
+  },
+  // SOL-2479: Entrante CEDIS Reabasto Recibido
+  {
+    id: 'PET-080', solicitudId: 'SOL-2479', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Recibido',
+    fechaCreacion: '2026-07-18 09:05', fechaActualizacion: '2026-07-18 12:53',
+    piezas: [
+      { code: 'FT-223', qtySolicitada: 8, qtySurtida: 8 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88803', metodoEnvio: 'Paquetexpress',
+    cajas: 8,
+    usuarioCreador: 'CEDIS_SISTEMA',
   },
 ];
