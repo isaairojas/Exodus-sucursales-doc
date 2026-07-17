@@ -547,7 +547,7 @@ export function tiempoTranscurrido(fechaIso: string): string {
 export const TRASPASOS_DB: TraspasoPeticion[] = [
   // SOL-2401: Entrante Automático Pendiente
   {
-    id: 'PET-001', solicitudId: 'SOL-2401', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-001', solicitudId: 'SOL-9001', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Pendiente',
     fechaCreacion: '2026-07-14 10:25', fechaActualizacion: '2026-07-14 10:25',
     piezas: [
@@ -559,7 +559,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2401: Entrante Manual Pendiente
   {
-    id: 'PET-002', solicitudId: 'SOL-2401', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-002', solicitudId: 'SOL-9001', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Central Camionera', status: 'Pendiente',
     fechaCreacion: '2026-07-15 10:25', fechaActualizacion: '2026-07-15 10:25',
     piezas: [
@@ -570,7 +570,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2402: Entrante Automático Surtido
   {
-    id: 'PET-003', solicitudId: 'SOL-2402', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-003', solicitudId: 'SOL-9001', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Adolf Horn', status: 'Surtido',
     fechaCreacion: '2026-07-16 08:30', fechaActualizacion: '2026-07-16 09:15',
     piezas: [
@@ -582,7 +582,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2403: Entrante Manual Enviado
   {
-    id: 'PET-004', solicitudId: 'SOL-2403', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-004', solicitudId: 'SOL-9002', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Belisario Domínguez', status: 'Enviado',
     fechaCreacion: '2026-07-17 16:40', fechaActualizacion: '2026-07-18 08:05',
     piezas: [
@@ -595,7 +595,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2404: Entrante Automático Recibido
   {
-    id: 'PET-005', solicitudId: 'SOL-2404', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-005', solicitudId: 'SOL-9002', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colón', status: 'Recibido',
     fechaCreacion: '2026-07-18 09:00', fechaActualizacion: '2026-07-18 17:30',
     piezas: [
@@ -607,7 +607,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2405: Entrante Automático Pendiente
   {
-    id: 'PET-006', solicitudId: 'SOL-2405', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-006', solicitudId: 'SOL-9003', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colonia Jalisco', status: 'Pendiente',
     fechaCreacion: '2026-07-19 11:20', fechaActualizacion: '2026-07-19 11:20',
     piezas: [
@@ -618,7 +618,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2406: Entrante Manual Pendiente
   {
-    id: 'PET-007', solicitudId: 'SOL-2406', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-007', solicitudId: 'SOL-9003', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Pendiente',
     fechaCreacion: '2026-07-20 04:30', fechaActualizacion: '2026-07-20 04:30',
     piezas: [
@@ -717,7 +717,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2414: Entrante Automático Surtido
   {
-    id: 'PET-015', solicitudId: 'SOL-2414', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-015', solicitudId: 'SOL-9004', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Forum Tlaquepaque', status: 'Surtido',
     fechaCreacion: '2026-07-28 15:45', fechaActualizacion: '2026-07-28 17:04',
     piezas: [
@@ -741,7 +741,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2416: Entrante Manual Surtido
   {
-    id: 'PET-017', solicitudId: 'SOL-2416', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-017', solicitudId: 'SOL-9004', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Adolf Horn', status: 'Surtido',
     fechaCreacion: '2026-07-15 13:00', fechaActualizacion: '2026-07-15 17:07',
     piezas: [
@@ -765,7 +765,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2418: Entrante Manual Surtido
   {
-    id: 'PET-019', solicitudId: 'SOL-2418', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-019', solicitudId: 'SOL-9004', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Pelícano', status: 'Surtido',
     fechaCreacion: '2026-07-17 07:50', fechaActualizacion: '2026-07-17 08:12',
     piezas: [
@@ -791,7 +791,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2420: Entrante Automático Surtido
   {
-    id: 'PET-021', solicitudId: 'SOL-2420', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-021', solicitudId: 'SOL-9005', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Surtido',
     fechaCreacion: '2026-07-19 17:35', fechaActualizacion: '2026-07-19 18:17',
     piezas: [
@@ -816,7 +816,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2422: Entrante Automático Recibido
   {
-    id: 'PET-023', solicitudId: 'SOL-2422', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-023', solicitudId: 'SOL-9005', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colonia Jalisco', status: 'Recibido',
     fechaCreacion: '2026-07-21 13:25', fechaActualizacion: '2026-07-21 15:14',
     piezas: [
@@ -840,7 +840,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2424: Entrante Automático Pendiente
   {
-    id: 'PET-025', solicitudId: 'SOL-2424', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-025', solicitudId: 'SOL-9006', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Pelícano', status: 'Pendiente',
     fechaCreacion: '2026-07-23 10:00', fechaActualizacion: '2026-07-23 10:00',
     piezas: [
@@ -866,7 +866,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2426: Entrante Manual Pendiente
   {
-    id: 'PET-027', solicitudId: 'SOL-2426', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-027', solicitudId: 'SOL-9006', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Central Camionera', status: 'Pendiente',
     fechaCreacion: '2026-07-25 17:40', fechaActualizacion: '2026-07-25 17:40',
     piezas: [
@@ -893,7 +893,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2428: Entrante Manual Surtido Parcial
   {
-    id: 'PET-029', solicitudId: 'SOL-2428', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-029', solicitudId: 'SOL-9006', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Federalismo', status: 'Surtido',
     fechaCreacion: '2026-07-27 15:20', fechaActualizacion: '2026-07-27 18:38',
     piezas: [
@@ -917,7 +917,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2430: Entrante Automático Pendiente
   {
-    id: 'PET-031', solicitudId: 'SOL-2430', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-031', solicitudId: 'SOL-9007', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Pendiente',
     fechaCreacion: '2026-07-14 11:10', fechaActualizacion: '2026-07-14 11:10',
     piezas: [
@@ -941,7 +941,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2432: Entrante Automático Pendiente
   {
-    id: 'PET-033', solicitudId: 'SOL-2432', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-033', solicitudId: 'SOL-9007', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colón', status: 'Pendiente',
     fechaCreacion: '2026-07-16 18:15', fechaActualizacion: '2026-07-16 18:15',
     piezas: [
@@ -966,7 +966,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2434: Entrante Automático Pendiente
   {
-    id: 'PET-035', solicitudId: 'SOL-2434', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-035', solicitudId: 'SOL-9008', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Pelícano', status: 'Pendiente',
     fechaCreacion: '2026-07-18 09:40', fechaActualizacion: '2026-07-18 09:40',
     piezas: [
@@ -991,7 +991,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2436: Entrante Manual Enviado
   {
-    id: 'PET-037', solicitudId: 'SOL-2436', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-037', solicitudId: 'SOL-9008', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Forum Tlaquepaque', status: 'Enviado',
     fechaCreacion: '2026-07-20 19:20', fechaActualizacion: '2026-07-20 20:11',
     piezas: [
@@ -1017,7 +1017,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2438: Entrante Manual Enviado
   {
-    id: 'PET-039', solicitudId: 'SOL-2438', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-039', solicitudId: 'SOL-9009', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Adolf Horn', status: 'Enviado',
     fechaCreacion: '2026-07-22 10:55', fechaActualizacion: '2026-07-22 11:12',
     piezas: [
@@ -1042,7 +1042,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2440: Entrante Automático Surtido
   {
-    id: 'PET-041', solicitudId: 'SOL-2440', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-041', solicitudId: 'SOL-9009', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Belisario Domínguez', status: 'Surtido',
     fechaCreacion: '2026-07-24 14:40', fechaActualizacion: '2026-07-24 18:35',
     piezas: [
@@ -1064,7 +1064,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2442: Entrante Automático Enviado
   {
-    id: 'PET-043', solicitudId: 'SOL-2442', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-043', solicitudId: 'SOL-9009', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Federalismo', status: 'Enviado',
     fechaCreacion: '2026-07-26 07:25', fechaActualizacion: '2026-07-26 08:03',
     piezas: [
@@ -1091,7 +1091,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2444: Entrante Automático Recibido Parcial
   {
-    id: 'PET-045', solicitudId: 'SOL-2444', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-045', solicitudId: 'SOL-9010', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colón', status: 'Recibido',
     fechaCreacion: '2026-07-28 08:15', fechaActualizacion: '2026-07-28 10:41',
     piezas: [
@@ -1119,7 +1119,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2446: Entrante Manual Recibido
   {
-    id: 'PET-047', solicitudId: 'SOL-2446', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-047', solicitudId: 'SOL-9010', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Forum Tlaquepaque', status: 'Recibido',
     fechaCreacion: '2026-07-15 19:05', fechaActualizacion: '2026-07-15 21:15',
     piezas: [
@@ -1144,7 +1144,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2448: Entrante Manual Surtido
   {
-    id: 'PET-049', solicitudId: 'SOL-2448', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-049', solicitudId: 'SOL-9011', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Adolf Horn', status: 'Surtido',
     fechaCreacion: '2026-07-17 16:30', fechaActualizacion: '2026-07-17 19:32',
     piezas: [
@@ -1167,7 +1167,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2450: Entrante Automático Enviado
   {
-    id: 'PET-051', solicitudId: 'SOL-2450', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-051', solicitudId: 'SOL-9011', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Belisario Domínguez', status: 'Enviado',
     fechaCreacion: '2026-07-19 10:30', fechaActualizacion: '2026-07-19 12:40',
     piezas: [
@@ -1194,7 +1194,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2452: Entrante Automático Recibido
   {
-    id: 'PET-053', solicitudId: 'SOL-2452', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-053', solicitudId: 'SOL-9011', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colonia Jalisco', status: 'Recibido',
     fechaCreacion: '2026-07-21 09:45', fechaActualizacion: '2026-07-21 12:19',
     piezas: [
@@ -1220,7 +1220,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2454: Entrante Automático Surtido
   {
-    id: 'PET-055', solicitudId: 'SOL-2454', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-055', solicitudId: 'SOL-9012', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Pelícano', status: 'Surtido',
     fechaCreacion: '2026-07-23 14:25', fechaActualizacion: '2026-07-23 17:25',
     piezas: [
@@ -1243,7 +1243,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2456: Entrante Manual Enviado
   {
-    id: 'PET-057', solicitudId: 'SOL-2456', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-057', solicitudId: 'SOL-9012', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Forum Tlaquepaque', status: 'Enviado',
     fechaCreacion: '2026-07-25 10:55', fechaActualizacion: '2026-07-25 15:01',
     piezas: [
@@ -1266,7 +1266,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2458: Entrante Manual Recibido
   {
-    id: 'PET-059', solicitudId: 'SOL-2458', tipo: 'Entrante', categoria: 'Manual',
+    id: 'PET-059', solicitudId: 'SOL-9013', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Pelícano', status: 'Recibido',
     fechaCreacion: '2026-07-27 06:30', fechaActualizacion: '2026-07-27 06:45',
     piezas: [
@@ -1291,7 +1291,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2460: Entrante Automático Recibido Parcial
   {
-    id: 'PET-061', solicitudId: 'SOL-2460', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-061', solicitudId: 'SOL-9013', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Belisario Domínguez', status: 'Recibido',
     fechaCreacion: '2026-07-14 11:40', fechaActualizacion: '2026-07-14 12:11',
     piezas: [
@@ -1316,7 +1316,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2462: Entrante Automático Recibido
   {
-    id: 'PET-063', solicitudId: 'SOL-2462', tipo: 'Entrante', categoria: 'Automático',
+    id: 'PET-063', solicitudId: 'SOL-9014', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Colonia Jalisco', status: 'Recibido',
     fechaCreacion: '2026-07-16 18:05', fechaActualizacion: '2026-07-16 22:37',
     piezas: [
@@ -1342,7 +1342,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2464: Entrante CEDIS Reabasto Pendiente
   {
-    id: 'PET-065', solicitudId: 'SOL-2464', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-065', solicitudId: 'SOL-9014', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Pendiente',
     fechaCreacion: '2026-07-18 08:05', fechaActualizacion: '2026-07-18 08:05',
     piezas: [
@@ -1356,7 +1356,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2465: Entrante CEDIS Reabasto Documentado Parcial
   {
-    id: 'PET-066', solicitudId: 'SOL-2465', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-066', solicitudId: 'SOL-9014', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Documentado',
     fechaCreacion: '2026-07-19 08:55', fechaActualizacion: '2026-07-19 11:18',
     piezas: [
@@ -1369,7 +1369,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2466: Entrante CEDIS Reabasto Enviado Parcial
   {
-    id: 'PET-067', solicitudId: 'SOL-2466', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-067', solicitudId: 'SOL-9015', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Enviado',
     fechaCreacion: '2026-07-20 06:30', fechaActualizacion: '2026-07-20 09:58',
     piezas: [
@@ -1383,7 +1383,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2467: Entrante CEDIS Reabasto Recibido Parcial
   {
-    id: 'PET-068', solicitudId: 'SOL-2467', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-068', solicitudId: 'SOL-9015', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Recibido',
     fechaCreacion: '2026-07-21 08:30', fechaActualizacion: '2026-07-21 11:20',
     piezas: [
@@ -1398,7 +1398,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2468: Entrante CEDIS Reabasto Pendiente
   {
-    id: 'PET-069', solicitudId: 'SOL-2468', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-069', solicitudId: 'SOL-9016', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Pendiente',
     fechaCreacion: '2026-07-22 14:45', fechaActualizacion: '2026-07-22 14:45',
     piezas: [
@@ -1411,7 +1411,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2469: Entrante CEDIS Reabasto Documentado
   {
-    id: 'PET-070', solicitudId: 'SOL-2469', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-070', solicitudId: 'SOL-9016', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Documentado',
     fechaCreacion: '2026-07-23 17:25', fechaActualizacion: '2026-07-23 18:01',
     piezas: [
@@ -1425,7 +1425,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2470: Entrante CEDIS Reabasto Enviado Parcial
   {
-    id: 'PET-071', solicitudId: 'SOL-2470', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-071', solicitudId: 'SOL-9016', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Enviado',
     fechaCreacion: '2026-07-24 14:30', fechaActualizacion: '2026-07-24 16:24',
     piezas: [
@@ -1440,7 +1440,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2471: Entrante CEDIS Reabasto Recibido
   {
-    id: 'PET-072', solicitudId: 'SOL-2471', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-072', solicitudId: 'SOL-9017', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Recibido',
     fechaCreacion: '2026-07-25 15:20', fechaActualizacion: '2026-07-25 18:39',
     piezas: [
@@ -1454,7 +1454,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2472: Entrante CEDIS Reabasto Pendiente
   {
-    id: 'PET-073', solicitudId: 'SOL-2472', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-073', solicitudId: 'SOL-9017', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Pendiente',
     fechaCreacion: '2026-07-26 18:25', fechaActualizacion: '2026-07-26 18:25',
     piezas: [
@@ -1467,7 +1467,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2473: Entrante CEDIS Reabasto Documentado Parcial
   {
-    id: 'PET-074', solicitudId: 'SOL-2473', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-074', solicitudId: 'SOL-9018', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Documentado',
     fechaCreacion: '2026-07-27 10:55', fechaActualizacion: '2026-07-27 11:33',
     piezas: [
@@ -1481,7 +1481,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2474: Entrante CEDIS Urgencia Enviado
   {
-    id: 'PET-075', solicitudId: 'SOL-2474', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    id: 'PET-075', solicitudId: 'SOL-9018', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
     sucursalContraparte: 'CEDIS', status: 'Enviado',
     fechaCreacion: '2026-07-28 16:25', fechaActualizacion: '2026-07-28 19:11',
     piezas: [
@@ -1495,7 +1495,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2475: Entrante CEDIS Reabasto Recibido
   {
-    id: 'PET-076', solicitudId: 'SOL-2475', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-076', solicitudId: 'SOL-9019', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Recibido',
     fechaCreacion: '2026-07-14 06:40', fechaActualizacion: '2026-07-14 08:41',
     piezas: [
@@ -1508,7 +1508,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2476: Entrante CEDIS Urgencia Pendiente
   {
-    id: 'PET-077', solicitudId: 'SOL-2476', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    id: 'PET-077', solicitudId: 'SOL-9019', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
     sucursalContraparte: 'CEDIS', status: 'Pendiente',
     fechaCreacion: '2026-07-15 13:30', fechaActualizacion: '2026-07-15 13:30',
     piezas: [
@@ -1521,7 +1521,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2477: Entrante CEDIS Reabasto Documentado Parcial
   {
-    id: 'PET-078', solicitudId: 'SOL-2477', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-078', solicitudId: 'SOL-9019', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Documentado',
     fechaCreacion: '2026-07-16 13:20', fechaActualizacion: '2026-07-16 13:41',
     piezas: [
@@ -1535,7 +1535,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2478: Entrante CEDIS Urgencia Enviado Parcial
   {
-    id: 'PET-079', solicitudId: 'SOL-2478', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    id: 'PET-079', solicitudId: 'SOL-9020', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
     sucursalContraparte: 'CEDIS', status: 'Enviado',
     fechaCreacion: '2026-07-17 07:05', fechaActualizacion: '2026-07-17 11:07',
     piezas: [
@@ -1549,7 +1549,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   },
   // SOL-2479: Entrante CEDIS Reabasto Recibido
   {
-    id: 'PET-080', solicitudId: 'SOL-2479', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    id: 'PET-080', solicitudId: 'SOL-9020', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
     sucursalContraparte: 'CEDIS', status: 'Recibido',
     fechaCreacion: '2026-07-18 09:05', fechaActualizacion: '2026-07-18 12:53',
     piezas: [

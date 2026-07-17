@@ -65,6 +65,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const [filterStatus, setFilterStatus] = useState<'ALL' | TraspasoStatus>('ALL');
   const [filterCategoria, setFilterCategoria] = useState<'ALL' | 'Automático' | 'Manual'>('ALL');
   const [searchText, setSearchText] = useState('');
+  // Switch Pendiente / Finalizado (solo aplica a "Por recibir")
+  const [vistaSwitch, setVistaSwitch] = useState<'Pendiente' | 'Finalizado'>('Pendiente');
 
   // Selección de fila
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -100,9 +102,28 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     [traspasos, embarcarPetId]
   );
 
+  // Dashboard (solo "Por recibir" / Entrante) — métricas sobre el conjunto del tipo
+  const esPorRecibir = tipoFilter === 'Entrante';
+  const dashboard = useMemo(() => {
+    const activos = traspasosDelTipo.filter(t => t.status !== 'Recibido');
+    const finalizados = traspasosDelTipo.filter(t => t.status === 'Recibido');
+    return {
+      solicitudesActivas: new Set(activos.map(t => t.solicitudId)).size,
+      peticionesActivas: activos.length,
+      atendidas: traspasosDelTipo.filter(t => t.status === 'Surtido').length,
+      enCamino: traspasosDelTipo.filter(t => t.status === 'Enviado').length,
+      finalizadasSolicitudes: new Set(finalizados.map(t => t.solicitudId)).size,
+      finalizadasPeticiones: finalizados.length,
+    };
+  }, [traspasosDelTipo]);
+
   // Filtrado principal
   const filteredTraspasos = useMemo(() => {
     return traspasosDelTipo.filter(t => {
+      if (esPorRecibir) {
+        if (vistaSwitch === 'Pendiente' && !(t.status === 'Pendiente' || t.status === 'Surtido' || t.status === 'Enviado')) return false;
+        if (vistaSwitch === 'Finalizado' && t.status !== 'Recibido') return false;
+      }
       if (filterStatus !== 'ALL' && t.status !== filterStatus) return false;
       if (filterCategoria !== 'ALL' && t.categoria !== filterCategoria) return false;
       const fechaDate = t.fechaCreacion.slice(0, 10);
@@ -118,7 +139,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       }
       return true;
     });
-  }, [traspasosDelTipo, filterStatus, filterCategoria, fechaInicial, fechaFinal, searchText]);
+  }, [traspasosDelTipo, esPorRecibir, vistaSwitch, filterStatus, filterCategoria, fechaInicial, fechaFinal, searchText]);
 
   const handleClearFilters = () => {
     setFechaInicial(TODAY);
@@ -126,6 +147,27 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     setFilterStatus('ALL');
     setFilterCategoria('ALL');
     setSearchText('');
+  };
+
+  // Click en tarjeta del dashboard → filtra por ese estatus (toggle).
+  // Ambos estatus (Surtido/Enviado) viven en la vista "Pendiente".
+  const toggleDashFilter = (status: TraspasoStatus) => {
+    if (filterStatus === status) {
+      setFilterStatus('ALL');
+    } else {
+      setVistaSwitch('Pendiente');
+      setFilterStatus(status);
+    }
+  };
+
+  // Click en tarjeta "Finalizado" → cambia a la vista Finalizado (estatus Recibido).
+  const toggleFinalizado = () => {
+    if (vistaSwitch === 'Finalizado') {
+      setVistaSwitch('Pendiente');
+    } else {
+      setFilterStatus('ALL');
+      setVistaSwitch('Finalizado');
+    }
   };
 
   const handleRowClick = (id: string) => setSelectedId(prev => prev === id ? null : id);
@@ -242,6 +284,110 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           </button>
         )}
       </div>
+
+      {/* ── Dashboard + switch (solo "Por recibir") ── */}
+      {esPorRecibir && (
+        <div
+          className="flex items-center gap-4 px-6 py-3 flex-wrap"
+          style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}
+        >
+          {([
+            { label: 'Solicitudes activas', value: dashboard.solicitudesActivas, icon: 'assignment', color: '#1a2b6b', status: null },
+            { label: 'Peticiones activas', value: dashboard.peticionesActivas, icon: 'swap_horiz', color: '#0891b2', status: null },
+            { label: 'Peticiones atendidas', value: dashboard.atendidas, icon: 'inventory_2', color: '#7c3aed', status: 'Surtido' as TraspasoStatus },
+            { label: 'Peticiones en camino', value: dashboard.enCamino, icon: 'local_shipping', color: '#2563eb', status: 'Enviado' as TraspasoStatus },
+          ] as const).map(card => {
+            const clickable = card.status !== null;
+            const active = clickable && filterStatus === card.status;
+            return (
+              <button
+                key={card.label}
+                type="button"
+                onClick={clickable ? () => toggleDashFilter(card.status as TraspasoStatus) : undefined}
+                aria-pressed={clickable ? active : undefined}
+                title={clickable ? (active ? 'Quitar filtro' : `Filtrar por ${card.label.toLowerCase()}`) : undefined}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-left transition-all"
+                style={{
+                  background: active ? `${card.color}0F` : '#fff',
+                  border: `${active ? 2 : 1}px solid ${active ? card.color : '#e5e7eb'}`,
+                  minWidth: 210,
+                  cursor: clickable ? 'pointer' : 'default',
+                  boxShadow: active ? `0 2px 8px ${card.color}33` : 'none',
+                }}
+              >
+                <span
+                  className="flex items-center justify-center rounded-lg"
+                  style={{ width: 38, height: 38, background: `${card.color}14` }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: card.color }}>{card.icon}</span>
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-2xl font-bold leading-none" style={{ color: card.color }}>{card.value}</span>
+                  <span className="text-[11px] mt-0.5 flex items-center gap-1" style={{ color: '#6b7280' }}>
+                    {card.label}
+                    {active && <span className="material-symbols-outlined" style={{ fontSize: 13, color: card.color }}>filter_alt</span>}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+
+          {/* Tarjeta Finalizado (estatus Recibido) */}
+          {(() => {
+            const color = '#16a34a';
+            const active = vistaSwitch === 'Finalizado';
+            return (
+              <button
+                type="button"
+                onClick={toggleFinalizado}
+                aria-pressed={active}
+                title={active ? 'Ver activas' : 'Ver finalizadas (recibidas)'}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-left transition-all"
+                style={{
+                  background: active ? `${color}0F` : '#fff',
+                  border: `${active ? 2 : 1}px solid ${active ? color : '#e5e7eb'}`,
+                  minWidth: 210,
+                  cursor: 'pointer',
+                  boxShadow: active ? `0 2px 8px ${color}33` : 'none',
+                }}
+              >
+                <span className="flex items-center justify-center rounded-lg" style={{ width: 38, height: 38, background: `${color}14` }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20, color }}>task_alt</span>
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-2xl font-bold leading-none" style={{ color }}>{dashboard.finalizadasPeticiones}</span>
+                  <span className="text-[11px] mt-0.5 flex items-center gap-1" style={{ color: '#6b7280' }}>
+                    Finalizado · {dashboard.finalizadasSolicitudes} sol.
+                    {active && <span className="material-symbols-outlined" style={{ fontSize: 13, color }}>filter_alt</span>}
+                  </span>
+                </div>
+              </button>
+            );
+          })()}
+
+          {/* Switch Pendiente / Finalizado */}
+          <div className="flex items-center gap-2 md:ml-auto">
+            <span className="text-xs font-medium" style={{ color: '#6b7280' }}>Mostrar</span>
+            <div className="inline-flex rounded-lg p-0.5" style={{ background: '#eef1f6', border: '1px solid #e5e7eb' }}>
+              {(['Pendiente', 'Finalizado'] as const).map(v => {
+                const active = vistaSwitch === v;
+                return (
+                  <button
+                    key={v}
+                    onClick={() => setVistaSwitch(v)}
+                    className="px-4 py-1.5 rounded-md text-xs font-semibold transition-all"
+                    style={active
+                      ? { background: '#fff', color: '#1a2b6b', boxShadow: '0 1px 3px rgba(0,0,0,0.12)' }
+                      : { background: 'transparent', color: '#9ca3af' }}
+                  >
+                    {v}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Tabla ── */}
       <div className="flex-1 overflow-auto" style={{ borderTop: '1px solid #e5e7eb' }}>

@@ -6,8 +6,8 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
-  TraspasoPeticion, TraspasoStatus, TraspasoSubtipoCedis, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_CEDIS,
-  CEDIS_SUBTIPO_COLORS, tiempoTranscurrido,
+  TraspasoStatus, TraspasoSubtipoCedis, TRASPASO_STATUS_CEDIS,
+  CEDIS_SUBTIPO_COLORS,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSolicitarCedis from './ModalSolicitarCedis';
@@ -16,16 +16,21 @@ interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
 }
 
-function TraspasoStatusBadge({ status }: { status: TraspasoStatus }) {
-  const c = TRASPASO_STATUS_COLORS[status];
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap"
-      style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
-    >
-      {status}
-    </span>
-  );
+// Papeleta determinista de 6 dígitos derivada del folio de la petición.
+function papeletaFor(id: string): string {
+  const n = parseInt(id.replace(/\D/g, ''), 10) || 0;
+  return String(400000 + (n * 6131) % 599999).padStart(6, '0');
+}
+
+// Porcentaje de avance según el estatus del pipeline CEDIS.
+function cedisProgress(status: TraspasoStatus): number {
+  switch (status) {
+    case 'Pendiente':   return 0;
+    case 'Documentado': return 50;
+    case 'Enviado':     return 80;
+    case 'Recibido':    return 100;
+    default:            return 0;
+  }
 }
 
 function CedisSubtipoBadge({ subtipo }: { subtipo: TraspasoSubtipoCedis }) {
@@ -120,16 +125,6 @@ export default function ScreenTraspasosCedis({ showToast }: Props) {
     active
       ? { border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white', cursor: 'pointer' }
       : { border: '1.5px solid #e5e7eb', color: '#9ca3af', background: 'white', cursor: 'not-allowed', opacity: 0.6 };
-
-  // Helpers de tiempo y colores
-  const getTiempoStyle = (t: TraspasoPeticion) => {
-    const txt = tiempoTranscurrido(t.fechaCreacion);
-    const isLate = t.status === 'Pendiente' && (
-      txt.includes('d') ||
-      (txt.includes('h') && parseInt(txt) >= 4)
-    );
-    return { text: txt, color: isLate ? '#dc2626' : '#6b7280', showIcon: isLate };
-  };
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
@@ -245,7 +240,7 @@ export default function ScreenTraspasosCedis({ showToast }: Props) {
         <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
             <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-              {['Tipo','Folio','Origen','Pedido origen','Estatus','Fecha','Tiempo','Cantidad'].map(col => (
+              {['Tipo','Folio','Papeleta','Origen','Pedido origen','Porcentaje de avance','Fecha creación','Fecha arribo','Cantidad'].map(col => (
                 <th
                   key={col}
                   className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
@@ -259,16 +254,18 @@ export default function ScreenTraspasosCedis({ showToast }: Props) {
           <tbody>
             {filteredTraspasos.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-sm" style={{ color: '#9ca3af' }}>
+                <td colSpan={9} className="text-center py-12 text-sm" style={{ color: '#9ca3af' }}>
                   No hay traspasos de CEDIS que coincidan con los filtros
                 </td>
               </tr>
             )}
             {filteredTraspasos.map(t => {
               const isSelected = t.id === selectedId;
-              const { text: tiempoTxt, color: tiempoColor, showIcon: tiempoIcon } = getTiempoStyle(t);
               const totalSol = t.piezas.reduce((s, p) => s + p.qtySolicitada, 0);
               const totalSurt = t.piezas.reduce((s, p) => s + p.qtySurtida, 0);
+              const pct = cedisProgress(t.status);
+              const pctColor = pct === 100 ? '#16a34a' : '#2563eb';
+              const arribo = t.status === 'Recibido' ? t.fechaActualizacion : '—';
 
               return (
                 <tr
@@ -289,6 +286,9 @@ export default function ScreenTraspasosCedis({ showToast }: Props) {
                   <td className="px-3 py-2.5">
                     <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>#{t.id}</span>
                   </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs font-medium" style={{ color: '#374151' }}>{papeletaFor(t.id)}</span>
+                  </td>
                   <td className="px-3 py-2.5 text-sm" style={{ color: '#374151' }}>
                     <span style={{ color: '#9ca3af' }}>De: </span>
                     {t.sucursalContraparte}
@@ -299,18 +299,18 @@ export default function ScreenTraspasosCedis({ showToast }: Props) {
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <TraspasoStatusBadge status={t.status} />
+                    <div className="flex items-center gap-2" style={{ minWidth: 130 }}>
+                      <div style={{ flex: 1, height: 6, background: '#eef1f6', borderRadius: 999, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: pctColor, borderRadius: 999, transition: 'width 0.3s' }} />
+                      </div>
+                      <span className="text-xs font-semibold" style={{ color: pctColor, minWidth: 34, textAlign: 'right' }}>{pct}%</span>
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }}>{t.fechaCreacion}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="flex items-center gap-1 text-xs" style={{ color: tiempoColor }}>
-                      {tiempoIcon && (
-                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>schedule</span>
-                      )}
-                      {tiempoTxt}
-                    </span>
+                    <span className="text-xs whitespace-nowrap" style={{ color: arribo === '—' ? '#9ca3af' : '#374151' }}>{arribo}</span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>
