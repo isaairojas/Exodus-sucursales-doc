@@ -1,69 +1,63 @@
 // ============================================================
 // APYMSA — ScreenTraspasos
-// Gestión de traspasos de mercancía entre sucursales
+// Gestión de traspasos de mercancía: vista unificada estilo almacén
+// (entre sucursales + CEDIS en una sola tabla, por Tipo Pendiente/Recibir)
 // Design: Enterprise Precision
 // ============================================================
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
-  TraspasoStatus, TraspasoTipo, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_POR_TIPO, TRASPASO_CATEGORIA_LABELS,
+  TraspasoStatus, TraspasoTipo, TRASPASO_STATUS_POR_TIPO, TRASPASO_CATEGORIA_LABELS,
+  TraspasoCategoria, SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtirTraspaso from './ModalSurtirTraspaso';
 import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
 import ModalEmbarcarTraspaso from './ModalEmbarcarTraspaso';
+import ModalHistorialTraspaso from './ModalHistorialTraspaso';
+import ModalDetalleCajaTraspaso from './ModalDetalleCajaTraspaso';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
   tipoFilter: TraspasoTipo;
   onNuevaSolicitud?: () => void;
-}
-
-function TraspasoStatusBadge({ status }: { status: TraspasoStatus }) {
-  const c = TRASPASO_STATUS_COLORS[status];
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap"
-      style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
-    >
-      {status}
-    </span>
-  );
-}
-
-function CategoriaBadge({ categoria }: { categoria: 'Automático' | 'Manual' }) {
-  const isAutomatico = categoria === 'Automático';
-  return (
-    <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-      style={{
-        background: isAutomatico ? 'rgba(107,114,128,0.10)' : 'rgba(217,119,6,0.10)',
-        color: isAutomatico ? '#6b7280' : '#d97706',
-        border: `1px solid ${isAutomatico ? 'rgba(107,114,128,0.25)' : 'rgba(217,119,6,0.25)'}`,
-      }}
-    >
-      {TRASPASO_CATEGORIA_LABELS[categoria]}
-    </span>
-  );
+  onSolicitarCedis?: () => void;
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
-export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud }: Props) {
-  const { traspasos } = useApp();
+function porcentajeColor(pct: number) {
+  if (pct >= 100) return '#16a34a';
+  if (pct >= 50) return '#d97706';
+  if (pct > 0) return '#d97706';
+  return '#9ca3af';
+}
+
+export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis }: Props) {
+  const { traspasos, entregarTraspaso } = useApp();
 
   const traspasosDelTipo = useMemo(
-    () => traspasos.filter(t => t.tipo === tipoFilter && t.categoria !== 'CEDIS'),
+    () => traspasos.filter(t => t.tipo === tipoFilter),
     [traspasos, tipoFilter]
   );
 
   const sucursalPrefix = tipoFilter === 'Entrante' ? 'De: ' : 'A: ';
 
+  // Etiquetas de columna: la tabla es una recepción (Entrante) o un envío (Saliente)
+  const colFechaSegunda = tipoFilter === 'Entrante' ? 'Fecha Arribo' : 'Fecha Envío';
+  const colCajas = tipoFilter === 'Entrante' ? 'Cajas Recibidas' : 'Cajas Enviadas';
+  const colPorcentaje = tipoFilter === 'Entrante' ? '% Recepción' : '% Enviado';
+  const COLUMNS = [
+    'No. de pedido', 'No. Papeleta', 'No. Almacén', 'Nombre Almacén',
+    'Fecha traspaso', colFechaSegunda, 'Packing List', colCajas, colPorcentaje,
+    'Historial', 'Detalle caja',
+  ];
+
   // Filtros
   const [fechaInicial, setFechaInicial] = useState(TODAY);
   const [fechaFinal, setFechaFinal] = useState(TODAY);
   const [filterStatus, setFilterStatus] = useState<'ALL' | TraspasoStatus>('ALL');
-  const [filterCategoria, setFilterCategoria] = useState<'ALL' | 'Automático' | 'Manual'>('ALL');
+  const [filterCategoria, setFilterCategoria] = useState<'ALL' | TraspasoCategoria>('ALL');
   const [searchText, setSearchText] = useState('');
 
   // Selección de fila
@@ -74,6 +68,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const [surtirPetId, setSurtirPetId] = useState<string | null>(null);
   const [recepcionPetId, setRecepcionPetId] = useState<string | null>(null);
   const [embarcarPetId, setEmbarcarPetId] = useState<string | null>(null);
+  const [historialPetId, setHistorialPetId] = useState<string | null>(null);
+  const [detalleCajaPetId, setDetalleCajaPetId] = useState<string | null>(null);
 
   const selectedPeticion = useMemo(
     () => traspasos.find(t => t.id === selectedId) ?? null,
@@ -100,6 +96,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     [traspasos, embarcarPetId]
   );
 
+  const historialPeticion = useMemo(
+    () => traspasos.find(t => t.id === historialPetId) ?? null,
+    [traspasos, historialPetId]
+  );
+
+  const detalleCajaPeticion = useMemo(
+    () => traspasos.find(t => t.id === detalleCajaPetId) ?? null,
+    [traspasos, detalleCajaPetId]
+  );
+
   // Filtrado principal
   const filteredTraspasos = useMemo(() => {
     return traspasosDelTipo.filter(t => {
@@ -113,8 +119,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         const matchSol = t.solicitudId.toLowerCase().includes(q);
         const matchPet = t.id.toLowerCase().includes(q);
         const matchSuc = t.sucursalContraparte.toLowerCase().includes(q);
+        const matchPapeleta = t.noPapeleta.toLowerCase().includes(q);
         const matchCode = t.piezas.some(p => p.code.toLowerCase().includes(q));
-        if (!matchSol && !matchPet && !matchSuc && !matchCode) return false;
+        if (!matchSol && !matchPet && !matchSuc && !matchPapeleta && !matchCode) return false;
       }
       return true;
     });
@@ -137,6 +144,18 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const canDarEntrada = !!sel && sel.status === 'Enviado';
   const canSurtir = !!sel && sel.status === 'Pendiente';
   const canEmbarcar = !!sel && sel.status === 'Surtido';
+
+  // Reabasto de CEDIS es de recepción ciega: sin modal de escaneo, entrada directa.
+  const handleDarEntrada = () => {
+    if (!sel) return;
+    if (sel.categoria === 'CEDIS' && sel.subtipoCedis === 'Reabasto') {
+      entregarTraspaso(sel.id);
+      showToast(`Traspaso ${sel.id} marcado como recibido`, 'success');
+      setSelectedId(null);
+    } else {
+      setRecepcionPetId(sel.id);
+    }
+  };
 
   const btnEnabled = (active: boolean, bg: string) =>
     active
@@ -182,11 +201,11 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             <span className="material-symbols-outlined absolute left-2" style={{ fontSize: 15, color: '#9ca3af' }}>search</span>
             <input
               type="text"
-              placeholder="Buscar solicitud, sucursal, código…"
+              placeholder="Buscar solicitud, sucursal, papeleta, código…"
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               className="text-xs rounded border pl-7 pr-3 py-1"
-              style={{ borderColor: '#d1d5db', width: 240 }}
+              style={{ borderColor: '#d1d5db', width: 260 }}
             />
           </div>
 
@@ -204,13 +223,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
           <select
             value={filterCategoria}
-            onChange={e => setFilterCategoria(e.target.value as 'ALL' | 'Automático' | 'Manual')}
+            onChange={e => setFilterCategoria(e.target.value as 'ALL' | TraspasoCategoria)}
             className="text-xs rounded border px-2 py-1"
             style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
           >
             <option value="ALL">Todos los tipos</option>
             <option value="Automático">{TRASPASO_CATEGORIA_LABELS.Automático}</option>
             <option value="Manual">{TRASPASO_CATEGORIA_LABELS.Manual}</option>
+            <option value="CEDIS">{TRASPASO_CATEGORIA_LABELS.CEDIS}</option>
           </select>
 
           <button
@@ -231,16 +251,28 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           </button>
         </div>
 
-        {onNuevaSolicitud && (
-          <button
-            onClick={onNuevaSolicitud}
-            className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold text-white md:ml-auto transition-all"
-            style={{ background: '#1a2b6b', boxShadow: '0 2px 8px rgba(26,43,107,0.3)' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-            Nueva solicitud
-          </button>
-        )}
+        <div className="flex items-center gap-2 md:ml-auto">
+          {onSolicitarCedis && (
+            <button
+              onClick={onSolicitarCedis}
+              className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all"
+              style={{ border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>warehouse</span>
+              Solicitar a CEDIS
+            </button>
+          )}
+          {onNuevaSolicitud && (
+            <button
+              onClick={onNuevaSolicitud}
+              className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold text-white transition-all"
+              style={{ background: '#1a2b6b', boxShadow: '0 2px 8px rgba(26,43,107,0.3)' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+              Nueva solicitud
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Tabla ── */}
@@ -248,7 +280,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
             <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-              {['Tipo','Pedido origen','Solicitud','Petición','Sucursal','Estatus','Fecha','Piezas'].map(col => (
+              {COLUMNS.map(col => (
                 <th
                   key={col}
                   className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
@@ -262,16 +294,15 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           <tbody>
             {filteredTraspasos.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-sm" style={{ color: '#9ca3af' }}>
+                <td colSpan={COLUMNS.length} className="text-center py-12 text-sm" style={{ color: '#9ca3af' }}>
                   No hay traspasos que coincidan con los filtros
                 </td>
               </tr>
             )}
             {filteredTraspasos.map(t => {
               const isSelected = t.id === selectedId;
-              const totalSol = t.piezas.reduce((s, p) => s + p.qtySolicitada, 0);
-              const totalSurt = t.piezas.reduce((s, p) => s + p.qtySurtida, 0);
               const pedidosLabel = t.pedidoOrigen ? `#${t.pedidoOrigen}` : '—';
+              const pct = t.cajasTotal > 0 ? Math.round((t.cajasRecibidas / t.cajasTotal) * 100) : 0;
 
               return (
                 <tr
@@ -287,36 +318,58 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   }}
                 >
                   <td className="px-3 py-2.5">
-                    <CategoriaBadge categoria={t.categoria as 'Automático' | 'Manual'} />
-                  </td>
-                  <td className="px-3 py-2.5">
                     <span className="text-xs" style={{ color: '#6b7280' }}>{pedidosLabel}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-xs" style={{ color: '#9ca3af' }}>#{t.solicitudId}</span>
+                    <span className="text-xs font-medium" style={{ color: '#374151' }}>{t.noPapeleta}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>#{t.id}</span>
+                    <span className="text-xs" style={{ color: '#6b7280' }}>
+                      {SUCURSAL_ALMACEN_CODIGOS[t.sucursalContraparte] ?? '—'}
+                    </span>
                   </td>
                   <td className="px-3 py-2.5 text-sm" style={{ color: '#374151' }}>
                     <span style={{ color: '#9ca3af' }}>{sucursalPrefix}</span>
                     {t.sucursalContraparte}
                   </td>
                   <td className="px-3 py-2.5">
-                    <TraspasoStatusBadge status={t.status} />
+                    <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }}>{formatFechaCorta(t.fechaCreacion)}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }}>{t.fechaCreacion}</span>
+                    <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }}>
+                      {t.fechaArribo ? formatFechaCorta(t.fechaArribo) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs font-medium" style={{ color: t.packingList ? '#16a34a' : '#9ca3af' }}>
+                      {t.packingList ? 'Sí' : 'No'}
+                    </span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>
-                      {totalSurt} / {totalSol}
+                      {t.cajasRecibidas}/{t.cajasTotal}
                     </span>
-                    {t.parcial && (
-                      <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(217,119,6,0.12)', color: '#d97706', border: '1px solid rgba(217,119,6,0.3)' }}>
-                        Parcial
-                      </span>
-                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs font-semibold" style={{ color: porcentajeColor(pct) }}>{pct}%</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={e => { e.stopPropagation(); setHistorialPetId(t.id); }}
+                      className="text-xs font-medium underline"
+                      style={{ color: '#2563eb' }}
+                    >
+                      Ver
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={e => { e.stopPropagation(); setDetalleCajaPetId(t.id); }}
+                      className="text-xs font-medium underline"
+                      style={{ color: '#2563eb' }}
+                    >
+                      Ver
+                    </button>
                   </td>
                 </tr>
               );
@@ -347,7 +400,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         {tipoFilter === 'Entrante' ? (
           <button
             disabled={!canDarEntrada}
-            onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
+            onClick={handleDarEntrada}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
             style={btnEnabled(canDarEntrada, '#16a34a')}
           >
@@ -414,6 +467,20 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           peticion={embarcarPeticion}
           onClose={() => { setEmbarcarPetId(null); setSelectedId(null); }}
           showToast={showToast}
+        />
+      )}
+
+      {historialPeticion && (
+        <ModalHistorialTraspaso
+          peticion={historialPeticion}
+          onClose={() => setHistorialPetId(null)}
+        />
+      )}
+
+      {detalleCajaPeticion && (
+        <ModalDetalleCajaTraspaso
+          peticion={detalleCajaPeticion}
+          onClose={() => setDetalleCajaPetId(null)}
         />
       )}
     </div>

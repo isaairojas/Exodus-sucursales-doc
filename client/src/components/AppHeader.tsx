@@ -2,18 +2,16 @@
 // APYMSA — AppHeader
 // Design: Enterprise Precision — navy sticky header with nav tabs
 // ============================================================
-import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useLocation } from 'wouter';
 
-type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales' | 'traspasos-cedis';
+type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales';
 
 interface Props {
   activeView?: DesktopView;
   onNavigateToOrders?: () => void;
   onNavigateToEmbarques?: () => void;
   onNavigateToTraspasosEntreSucursales?: () => void;
-  onNavigateToTraspasosCedis?: () => void;
 }
 
 export default function AppHeader({
@@ -21,36 +19,10 @@ export default function AppHeader({
   onNavigateToOrders,
   onNavigateToEmbarques,
   onNavigateToTraspasosEntreSucursales,
-  onNavigateToTraspasosCedis,
 }: Props) {
   const { state } = useApp();
   const [, navigate] = useLocation();
   const showNav = state.currentScreen === 'orders';
-
-  const [traspasosOpen, setTraspasosOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const handleTriggerClick = () => {
-    setTraspasosOpen(o => !o);
-  };
-
-  const closeNow = () => {
-    setTraspasosOpen(false);
-  };
-
-  // Cierra al hacer click fuera del menú
-  useEffect(() => {
-    if (!traspasosOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        closeNow();
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [traspasosOpen]);
-
-  const isTraspasosActive = activeView === 'traspasos-entre-sucursales' || activeView === 'traspasos-cedis';
 
   const tabStyle = (active: boolean) => ({
     padding: '0 16px',
@@ -68,23 +40,6 @@ export default function AppHeader({
     borderBottomWidth: 2,
     borderBottomStyle: 'solid' as const,
     borderBottomColor: active ? '#60a5fa' : 'transparent',
-    whiteSpace: 'nowrap' as const,
-  });
-
-  const submenuItemStyle = (active: boolean) => ({
-    display: 'flex' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    gap: 10,
-    width: '100%',
-    padding: '10px 14px',
-    fontSize: 13,
-    fontWeight: active ? 700 : 500,
-    color: active ? '#1a2b6b' : '#374151',
-    background: active ? 'rgba(26,43,107,0.06)' : 'transparent',
-    border: 'none',
-    cursor: 'pointer' as const,
-    textAlign: 'left' as const,
     whiteSpace: 'nowrap' as const,
   });
 
@@ -142,62 +97,13 @@ export default function AppHeader({
             Embarques
           </button>
 
-          {/* Traspasos — dropdown menu (se abre solo con click) */}
-          <div
-            ref={containerRef}
-            className="relative"
+          <button
+            style={tabStyle(activeView === 'traspasos-entre-sucursales')}
+            onClick={onNavigateToTraspasosEntreSucursales}
           >
-            <button
-              style={tabStyle(isTraspasosActive)}
-              onClick={handleTriggerClick}
-              aria-haspopup="true"
-              aria-expanded={traspasosOpen}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>swap_horiz</span>
-              Traspasos
-              <span
-                className="material-symbols-outlined"
-                style={{ fontSize: 16, transition: 'transform 0.15s', transform: traspasosOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-              >
-                expand_more
-              </span>
-            </button>
-
-            {traspasosOpen && (
-              <div
-                className="absolute rounded-lg overflow-hidden"
-                style={{
-                  top: '100%',
-                  left: 0,
-                  minWidth: 200,
-                  background: '#fff',
-                  boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
-                  border: '1px solid #e5e7eb',
-                  padding: '6px 0',
-                  zIndex: 60,
-                }}
-              >
-                <button
-                  style={submenuItemStyle(activeView === 'traspasos-entre-sucursales')}
-                  onClick={() => { onNavigateToTraspasosEntreSucursales?.(); closeNow(); }}
-                >
-                  Entre sucursales
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#2563eb' }}>
-                    swap_horiz
-                  </span>
-                </button>
-                <button
-                  style={submenuItemStyle(activeView === 'traspasos-cedis')}
-                  onClick={() => { onNavigateToTraspasosCedis?.(); closeNow(); }}
-                >
-                  CEDIS
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#7c3aed' }}>
-                    warehouse
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>swap_horiz</span>
+            Traspasos
+          </button>
         </div>
       )}
 

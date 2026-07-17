@@ -8,6 +8,7 @@ import { useApp } from '@/contexts/AppContext';
 import { TraspasoTipo, TraspasoStatus, TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS } from '@/lib/data';
 import ScreenTraspasos from './ScreenTraspasos';
 import ModalNuevaSolicitudTraspaso from './ModalNuevaSolicitudTraspaso';
+import ModalSolicitarCedis from './ModalSolicitarCedis';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -19,6 +20,7 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
   const { traspasos } = useApp();
   const [activeTab, setActiveTab] = useState<TraspasoTipo>('Entrante');
   const [showNuevaSolicitud, setShowNuevaSolicitud] = useState(false);
+  const [showSolicitarCedis, setShowSolicitarCedis] = useState(false);
 
   // Estatus que representa "pendiente de acción" en cada tab:
   // Por recibir (Entrante) → Enviado, esperando que demos entrada.
@@ -28,7 +30,6 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
   const contadorPorTipo = useMemo(() => {
     const counts: Record<TraspasoTipo, number> = { Entrante: 0, Saliente: 0 };
     traspasos.forEach(t => {
-      if (t.categoria === 'CEDIS') return;
       if (t.status === STATUS_ACCIONABLE[t.tipo]) counts[t.tipo]++;
     });
     return counts;
@@ -42,12 +43,10 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
         className="flex-shrink-0 flex items-center gap-4 px-6 py-3"
         style={{ background: '#fff', borderBottom: '1px solid #e5e7eb' }}
       >
-        <span className="flex items-center gap-1.5 text-sm font-medium text-gray-500">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>swap_horiz</span>
           Traspasos
         </span>
-        <span className="text-gray-300">/</span>
-        <span className="text-sm font-semibold text-gray-700">Entre sucursales</span>
       </div>
 
       {/* ── Tabs (subrayado estilo Material) ── */}
@@ -97,12 +96,20 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
           showToast={showToast}
           tipoFilter={activeTab}
           onNuevaSolicitud={activeTab === 'Entrante' ? () => setShowNuevaSolicitud(true) : undefined}
+          onSolicitarCedis={activeTab === 'Entrante' ? () => setShowSolicitarCedis(true) : undefined}
         />
       </div>
 
       {showNuevaSolicitud && (
         <ModalNuevaSolicitudTraspaso
           onClose={() => setShowNuevaSolicitud(false)}
+          showToast={showToast}
+        />
+      )}
+
+      {showSolicitarCedis && (
+        <ModalSolicitarCedis
+          onClose={() => setShowSolicitarCedis(false)}
           showToast={showToast}
         />
       )}

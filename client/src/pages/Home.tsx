@@ -13,10 +13,9 @@ import ScreenReview from '@/components/ScreenReview';
 import ScreenSummary from '@/components/ScreenSummary';
 import ScreenEmbarques from '@/components/ScreenEmbarques';
 import ScreenTraspasosEntreSucursales from '@/components/ScreenTraspasosEntreSucursales';
-import ScreenTraspasosCedis from '@/components/ScreenTraspasosCedis';
 import ToastContainer from '@/components/ToastContainer';
 
-type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales' | 'traspasos-cedis';
+type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales';
 
 export default function Home() {
   const { state, resetReview } = useApp();
@@ -52,7 +51,6 @@ export default function Home() {
   };
 
   const handleNavigateToTraspasosEntreSucursales = () => setDesktopView('traspasos-entre-sucursales');
-  const handleNavigateToTraspasosCedis = () => setDesktopView('traspasos-cedis');
 
   const isReviewFlowOpen = state.currentScreen === 'review' || state.currentScreen === 'summary';
   const canShowMainPanels = state.currentScreen === 'orders' || state.currentScreen === 'select' || isReviewFlowOpen;
@@ -64,7 +62,6 @@ export default function Home() {
         onNavigateToOrders={handleNavigateToOrders}
         onNavigateToEmbarques={() => handleNavigateToEmbarques()}
         onNavigateToTraspasosEntreSucursales={handleNavigateToTraspasosEntreSucursales}
-        onNavigateToTraspasosCedis={handleNavigateToTraspasosCedis}
       />
 
       <main className="flex flex-col flex-1 overflow-hidden">
@@ -91,14 +88,9 @@ export default function Home() {
           />
         )}
 
-        {/* Traspasos — Entre sucursales */}
+        {/* Traspasos */}
         {canShowMainPanels && desktopView === 'traspasos-entre-sucursales' && (
           <ScreenTraspasosEntreSucursales showToast={showToast} />
-        )}
-
-        {/* Traspasos — CEDIS */}
-        {canShowMainPanels && desktopView === 'traspasos-cedis' && (
-          <ScreenTraspasosCedis showToast={showToast} />
         )}
       </main>
 
