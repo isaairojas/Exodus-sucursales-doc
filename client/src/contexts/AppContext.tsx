@@ -205,11 +205,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     setTraspasos(prev => prev.map(t => {
       if (t.id !== petId || t.status !== 'Enviado') return t;
+      // Las cajas llegan físicamente aunque falte alguna pieza dentro (discrepancia de contenido, no de cajas).
       if (!piezasRecibidas) {
-        return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now };
+        return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, cajasRecibidas: t.cajasTotal };
       }
       const parcial = piezasRecibidas.some(p => p.qtySurtida < p.qtySolicitada);
-      return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRecibidas, parcial };
+      return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRecibidas, parcial, cajasRecibidas: t.cajasTotal };
     }));
   }, []);
 
@@ -251,22 +252,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
     const solicitudId = `SOL-${String(ts).slice(-4)}`;
-    const nuevas: TraspasoPeticion[] = data.sucursales.map((suc, i) => ({
-      id: `PET-N${ts}-${i}`,
-      solicitudId,
-      tipo: 'Entrante' as const,
-      categoria: 'Manual' as const,
-      sucursalContraparte: suc,
-      status: 'Pendiente' as TraspasoStatus,
-      fechaCreacion: now,
-      fechaActualizacion: now,
-      piezas: (data.piezasPorSucursal[suc] ?? []).map(p => ({ ...p, qtySurtida: 0 })),
-      pedidoOrigen: data.pedidoOrigen,
-      parcial: false,
-      observaciones: data.observaciones,
-      autorizacionToken: data.pedidoOrigen ? undefined : data.autorizacionToken,
-      usuarioCreador: 'JMORENO11',
-    }));
+    const nuevas: TraspasoPeticion[] = data.sucursales.map((suc, i) => {
+      const piezas = (data.piezasPorSucursal[suc] ?? []).map(p => ({ ...p, qtySurtida: 0 }));
+      const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
+      return {
+        id: `PET-N${ts}-${i}`,
+        solicitudId,
+        tipo: 'Entrante' as const,
+        categoria: 'Manual' as const,
+        sucursalContraparte: suc,
+        status: 'Pendiente' as TraspasoStatus,
+        fechaCreacion: now,
+        fechaActualizacion: now,
+        piezas,
+        pedidoOrigen: data.pedidoOrigen,
+        parcial: false,
+        observaciones: data.observaciones,
+        autorizacionToken: data.pedidoOrigen ? undefined : data.autorizacionToken,
+        usuarioCreador: 'JMORENO11',
+        noPapeleta: String(400000 + Math.floor(Math.random() * 99999)),
+        packingList: false,
+        cajasTotal: Math.max(1, Math.min(12, Math.ceil((totalQty || 1) / 4))),
+        cajasRecibidas: 0,
+      };
+    });
     setTraspasos(prev => [...nuevas, ...prev]);
     return solicitudId;
   }, []);
@@ -275,6 +284,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
     const solicitudId = `SOL-${String(ts).slice(-4)}`;
+    const piezas = data.piezas.map(p => ({ ...p, qtySurtida: 0 }));
+    const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
     const nueva: TraspasoPeticion = {
       id: `PET-N${ts}`,
       solicitudId,
@@ -285,11 +296,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       status: 'Pendiente',
       fechaCreacion: now,
       fechaActualizacion: now,
-      piezas: data.piezas.map(p => ({ ...p, qtySurtida: 0 })),
+      piezas,
       pedidoOrigen: data.pedidoOrigen,
       parcial: false,
       observaciones: data.observaciones,
       usuarioCreador: 'JMORENO11',
+      noPapeleta: String(400000 + Math.floor(Math.random() * 99999)),
+      packingList: false,
+      cajasTotal: Math.max(1, Math.min(12, Math.ceil((totalQty || 1) / 4))),
+      cajasRecibidas: 0,
     };
     setTraspasos(prev => [nueva, ...prev]);
     return solicitudId;

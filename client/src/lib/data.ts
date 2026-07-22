@@ -441,6 +441,30 @@ export interface TraspasoPeticion {
   usuarioCreador: string;
   autorizacionToken?: string;   // solo Manual sin pedidoOrigen: token/PIN de autorización
   cajas?: number;               // solo CEDIS Reabasto: recepción ciega por caja, sin desglose de piezas
+  noPapeleta: string;           // folio de papeleta física (vista unificada estilo almacén)
+  fechaArribo?: string;         // fecha esperada de llegada; solo una vez enviado ('YYYY-MM-DD HH:mm')
+  packingList: boolean;
+  cajasTotal: number;
+  cajasRecibidas: number;
+}
+
+// Código interno de almacén por sucursal (vista unificada estilo almacén).
+export const SUCURSAL_ALMACEN_CODIGOS: Record<string, string> = {
+  'Pelícano': '9',
+  'Federalismo': '1',
+  'Central Camionera': '14',
+  'Adolf Horn': '27',
+  'Belisario Domínguez': '3',
+  'Colón': '36',
+  'Colonia Jalisco': '24',
+  'Forum Tlaquepaque': '6',
+  'CEDIS': 'AL1',
+};
+
+// Convierte 'YYYY-MM-DD HH:mm' a 'DD/MM/YY' para la vista unificada estilo almacén.
+export function formatFechaCorta(fechaIso: string): string {
+  const [y, m, d] = fechaIso.slice(0, 10).split('-');
+  return `${d}/${m}/${y.slice(2)}`;
 }
 
 export const SUCURSALES = [
@@ -497,6 +521,12 @@ export const TRASPASO_STATUS_COLORS: Record<TraspasoStatus, { bg: string; text: 
 export const CEDIS_SUBTIPO_COLORS: Record<TraspasoSubtipoCedis, { bg: string; text: string; border: string }> = {
   'Urgencia': { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
   'Reabasto': { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
+};
+
+// Colores de chip para las categorías que se originan en sucursal (CEDIS usa CEDIS_SUBTIPO_COLORS).
+export const TRASPASO_CATEGORIA_COLORS: Record<'Automático' | 'Manual', { bg: string; text: string; border: string }> = {
+  'Automático': { bg: 'rgba(13,148,136,0.10)', text: '#0d9488', border: 'rgba(13,148,136,0.3)' },
+  'Manual':     { bg: 'rgba(79,70,229,0.10)',  text: '#4f46e5', border: 'rgba(79,70,229,0.3)'  },
 };
 
 export const CEDIS_SUCURSAL_CONTRAPARTE = 'CEDIS';
@@ -556,6 +586,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064772', parcial: false,
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '400750', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2401: Entrante Manual Pendiente
   {
@@ -567,6 +599,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064847', parcial: false,
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '401500', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2402: Entrante Automático Surtido
   {
@@ -579,6 +613,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064838', parcial: false,
     usuarioCreador: 'AMORALES03',
+    noPapeleta: '402250', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2403: Entrante Manual Enviado
   {
@@ -592,6 +628,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064844', parcial: false,
     embarqueId: '88516', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'AMORALES03',
+    noPapeleta: '403000', packingList: false,
+    fechaArribo: '2026-07-19 16:40',
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2404: Entrante Automático Recibido
   {
@@ -604,6 +643,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064853', parcial: false,
     embarqueId: '88514', metodoEnvio: 'BlueGo',
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '403750', packingList: true,
+    fechaArribo: '2026-07-20 09:00',
+    cajasTotal: 1, cajasRecibidas: 1,
   },
   // SOL-2405: Entrante Automático Pendiente
   {
@@ -615,6 +657,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064848', parcial: false,
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '404409', packingList: true,
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2406: Entrante Manual Pendiente
   {
@@ -628,6 +672,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     autorizacionToken: 'PIN-1111',
     usuarioCreador: 'MPENICHE07',
+    noPapeleta: '405159', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2407: Saliente Automático Pendiente
   {
@@ -640,6 +686,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064834', parcial: false,
     usuarioCreador: 'RGARCIA_PERI',
+    noPapeleta: '405909', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2408: Saliente Manual Pendiente
   {
@@ -651,6 +699,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064844', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '406659', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2409: Saliente Automático Surtido Parcial
   {
@@ -663,6 +713,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064851', parcial: true,
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '407409', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2410: Saliente Automático Enviado
   {
@@ -676,6 +728,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064853', parcial: false,
     embarqueId: '88509', metodoEnvio: 'Estafeta',
     usuarioCreador: 'HDIAZ_FED',
+    noPapeleta: '408068', packingList: true,
+    fechaArribo: '2026-07-26 09:15',
+    cajasTotal: 3, cajasRecibidas: 1,
   },
   // SOL-2411: Saliente Manual Entregado
   {
@@ -690,6 +745,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064838', parcial: false,
     embarqueId: '88518', metodoEnvio: 'Uber',
     usuarioCreador: 'CVEGA_TLAQ',
+    noPapeleta: '408818', packingList: true,
+    fechaArribo: '2026-07-27 11:00',
+    cajasTotal: 3, cajasRecibidas: 3,
   },
   // SOL-2412: Saliente Automático Pendiente
   {
@@ -701,6 +759,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064847', parcial: false,
     usuarioCreador: 'RGARCIA_PERI',
+    noPapeleta: '409568', packingList: false,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2413: Saliente Manual Pendiente
   {
@@ -714,6 +774,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     autorizacionToken: 'PIN-1222',
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '410318', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2414: Entrante Automático Surtido
   {
@@ -725,6 +787,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064901', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '411068', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2415: Saliente Automático Surtido
   {
@@ -738,6 +802,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064780', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '411818', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2416: Entrante Manual Surtido
   {
@@ -750,6 +816,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064953', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '412477', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2417: Saliente Automático Enviado
   {
@@ -762,6 +830,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064942', parcial: false,
     embarqueId: '88772', metodoEnvio: 'DHL',
     usuarioCreador: 'DSOTO_PEL',
+    noPapeleta: '413227', packingList: true,
+    fechaArribo: '2026-07-18 06:05',
+    cajasTotal: 2, cajasRecibidas: 1,
   },
   // SOL-2418: Entrante Manual Surtido
   {
@@ -775,6 +846,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064888', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '413977', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2419: Saliente Automático Entregado
   {
@@ -788,6 +861,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064798', parcial: false,
     embarqueId: '88770', metodoEnvio: 'Estafeta',
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '414727', packingList: true,
+    fechaArribo: '2026-07-20 17:10',
+    cajasTotal: 2, cajasRecibidas: 2,
   },
   // SOL-2420: Entrante Automático Surtido
   {
@@ -800,6 +876,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064960', parcial: false,
     usuarioCreador: 'DSOTO_PEL',
+    noPapeleta: '415477', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2421: Saliente Manual Surtido
   {
@@ -813,6 +891,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     autorizacionToken: 'PIN-1333',
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '416136', packingList: false,
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2422: Entrante Automático Recibido
   {
@@ -825,6 +905,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064910', parcial: false,
     embarqueId: '88571', metodoEnvio: 'DHL',
     usuarioCreador: 'CVEGA_TLAQ',
+    noPapeleta: '416886', packingList: true,
+    fechaArribo: '2026-07-23 13:25',
+    cajasTotal: 2, cajasRecibidas: 2,
   },
   // SOL-2423: Saliente Manual Entregado Parcial
   {
@@ -837,6 +920,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064835', parcial: true,
     embarqueId: '88563', metodoEnvio: 'DHL',
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '417636', packingList: true,
+    fechaArribo: '2026-07-24 13:45',
+    cajasTotal: 1, cajasRecibidas: 1,
   },
   // SOL-2424: Entrante Automático Pendiente
   {
@@ -850,6 +936,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064907', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '418386', packingList: false,
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2425: Saliente Automático Enviado
   {
@@ -863,6 +951,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064959', parcial: false,
     embarqueId: '88592', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '419136', packingList: true,
+    fechaArribo: '2026-07-26 14:45',
+    cajasTotal: 3, cajasRecibidas: 1,
   },
   // SOL-2426: Entrante Manual Pendiente
   {
@@ -876,6 +967,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064752', parcial: false,
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '419795', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2427: Saliente Automático Enviado
   {
@@ -890,6 +983,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064806', parcial: false,
     embarqueId: '88739', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'MPENICHE07',
+    noPapeleta: '420545', packingList: false,
+    fechaArribo: '2026-07-28 16:20',
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2428: Entrante Manual Surtido Parcial
   {
@@ -903,6 +999,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: true,
     autorizacionToken: 'PIN-1444',
     usuarioCreador: 'MPENICHE07',
+    noPapeleta: '421295', packingList: false,
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2429: Saliente Automático Surtido
   {
@@ -914,6 +1012,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064886', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '422045', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2430: Entrante Automático Pendiente
   {
@@ -925,6 +1025,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064958', parcial: false,
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '422795', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2431: Saliente Manual Entregado
   {
@@ -938,6 +1040,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064891', parcial: false,
     embarqueId: '88694', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '423545', packingList: true,
+    fechaArribo: '2026-07-17 11:05',
+    cajasTotal: 2, cajasRecibidas: 2,
   },
   // SOL-2432: Entrante Automático Pendiente
   {
@@ -951,6 +1056,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064973', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '424204', packingList: true,
+    cajasTotal: 4, cajasRecibidas: 0,
   },
   // SOL-2433: Saliente Manual Entregado
   {
@@ -963,6 +1070,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064803', parcial: false,
     embarqueId: '88575', metodoEnvio: 'Estafeta',
     usuarioCreador: 'HDIAZ_FED',
+    noPapeleta: '424954', packingList: false,
+    fechaArribo: '2026-07-19 07:50',
+    cajasTotal: 1, cajasRecibidas: 1,
   },
   // SOL-2434: Entrante Automático Pendiente
   {
@@ -974,6 +1084,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064755', parcial: false,
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '425704', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2435: Saliente Automático Entregado
   {
@@ -988,6 +1100,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064754', parcial: false,
     embarqueId: '88719', metodoEnvio: 'DHL',
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '426454', packingList: true,
+    fechaArribo: '2026-07-21 14:20',
+    cajasTotal: 3, cajasRecibidas: 3,
   },
   // SOL-2436: Entrante Manual Enviado
   {
@@ -1002,6 +1117,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88654', metodoEnvio: 'Estafeta',
     autorizacionToken: 'PIN-1555',
     usuarioCreador: 'AMORALES03',
+    noPapeleta: '427204', packingList: true,
+    fechaArribo: '2026-07-22 19:20',
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2437: Saliente Automático Surtido Parcial
   {
@@ -1014,6 +1132,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064957', parcial: true,
     usuarioCreador: 'NTORRES_PERI',
+    noPapeleta: '427863', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2438: Entrante Manual Enviado
   {
@@ -1028,6 +1148,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064824', parcial: false,
     embarqueId: '88623', metodoEnvio: 'Paquetexpress',
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '428613', packingList: true,
+    fechaArribo: '2026-07-24 10:55',
+    cajasTotal: 3, cajasRecibidas: 2,
   },
   // SOL-2439: Saliente Automático Surtido
   {
@@ -1039,6 +1162,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064989', parcial: false,
     usuarioCreador: 'DSOTO_PEL',
+    noPapeleta: '429363', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2440: Entrante Automático Surtido
   {
@@ -1050,6 +1175,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064956', parcial: false,
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '430113', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2441: Saliente Manual Surtido
   {
@@ -1061,6 +1188,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064857', parcial: false,
     usuarioCreador: 'HDIAZ_FED',
+    noPapeleta: '430863', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2442: Entrante Automático Enviado
   {
@@ -1073,6 +1202,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064953', parcial: false,
     embarqueId: '88840', metodoEnvio: 'DHL',
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '431522', packingList: false,
+    fechaArribo: '2026-07-28 07:25',
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2443: Saliente Manual Enviado
   {
@@ -1088,6 +1220,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88852', metodoEnvio: 'DHL',
     autorizacionToken: 'PIN-1666',
     usuarioCreador: 'HDIAZ_FED',
+    noPapeleta: '432272', packingList: false,
+    fechaArribo: '2026-07-29 11:50',
+    cajasTotal: 4, cajasRecibidas: 2,
   },
   // SOL-2444: Entrante Automático Recibido Parcial
   {
@@ -1102,6 +1237,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064971', parcial: true,
     embarqueId: '88655', metodoEnvio: 'Estafeta',
     usuarioCreador: 'DSOTO_PEL',
+    noPapeleta: '433022', packingList: true,
+    fechaArribo: '2026-07-30 08:15',
+    cajasTotal: 4, cajasRecibidas: 4,
   },
   // SOL-2445: Saliente Automático Entregado
   {
@@ -1116,6 +1254,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064937', parcial: false,
     embarqueId: '88554', metodoEnvio: 'Uber',
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '433772', packingList: false,
+    fechaArribo: '2026-07-16 10:50',
+    cajasTotal: 4, cajasRecibidas: 4,
   },
   // SOL-2446: Entrante Manual Recibido
   {
@@ -1128,6 +1269,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064989', parcial: false,
     embarqueId: '88775', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '434522', packingList: true,
+    fechaArribo: '2026-07-17 19:05',
+    cajasTotal: 1, cajasRecibidas: 1,
   },
   // SOL-2447: Saliente Automático Entregado
   {
@@ -1141,6 +1285,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064861', parcial: false,
     embarqueId: '88703', metodoEnvio: 'DHL',
     usuarioCreador: 'CVEGA_TLAQ',
+    noPapeleta: '435272', packingList: true,
+    fechaArribo: '2026-07-18 12:45',
+    cajasTotal: 2, cajasRecibidas: 2,
   },
   // SOL-2448: Entrante Manual Surtido
   {
@@ -1153,6 +1300,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064785', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '435931', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2449: Saliente Automático Surtido
   {
@@ -1164,6 +1313,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064701', parcial: false,
     usuarioCreador: 'HDIAZ_FED',
+    noPapeleta: '436681', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2450: Entrante Automático Enviado
   {
@@ -1177,6 +1328,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064996', parcial: false,
     embarqueId: '88812', metodoEnvio: 'DHL',
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '437431', packingList: true,
+    fechaArribo: '2026-07-21 10:30',
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2451: Saliente Manual Enviado
   {
@@ -1191,6 +1345,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88743', metodoEnvio: 'BlueGo',
     autorizacionToken: 'PIN-1777',
     usuarioCreador: 'RGARCIA_PERI',
+    noPapeleta: '438181', packingList: false,
+    fechaArribo: '2026-07-22 17:40',
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2452: Entrante Automático Recibido
   {
@@ -1205,6 +1362,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064716', parcial: false,
     embarqueId: '88733', metodoEnvio: 'DHL',
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '438931', packingList: true,
+    fechaArribo: '2026-07-23 09:45',
+    cajasTotal: 2, cajasRecibidas: 2,
   },
   // SOL-2453: Saliente Manual Surtido Parcial
   {
@@ -1217,6 +1377,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064734', parcial: true,
     usuarioCreador: 'MPENICHE07',
+    noPapeleta: '439590', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2454: Entrante Automático Surtido
   {
@@ -1228,6 +1390,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064741', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '440340', packingList: false,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2455: Saliente Automático Entregado
   {
@@ -1240,6 +1404,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064818', parcial: false,
     embarqueId: '88807', metodoEnvio: 'Uber',
     usuarioCreador: 'DSOTO_PEL',
+    noPapeleta: '441090', packingList: true,
+    fechaArribo: '2026-07-26 12:50',
+    cajasTotal: 2, cajasRecibidas: 2,
   },
   // SOL-2456: Entrante Manual Enviado
   {
@@ -1252,6 +1419,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064733', parcial: false,
     embarqueId: '88733', metodoEnvio: 'Estafeta',
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '441840', packingList: true,
+    fechaArribo: '2026-07-27 10:55',
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2457: Saliente Automático Surtido
   {
@@ -1263,6 +1433,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064931', parcial: false,
     usuarioCreador: 'AMORALES03',
+    noPapeleta: '442590', packingList: false,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2458: Entrante Manual Recibido
   {
@@ -1276,6 +1448,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88651', metodoEnvio: 'BlueGo',
     autorizacionToken: 'PIN-1888',
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '443249', packingList: true,
+    fechaArribo: '2026-07-29 06:30',
+    cajasTotal: 1, cajasRecibidas: 1,
   },
   // SOL-2459: Saliente Automático Enviado
   {
@@ -1288,6 +1463,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064728', parcial: false,
     embarqueId: '88715', metodoEnvio: 'DHL',
     usuarioCreador: 'RGARCIA_PERI',
+    noPapeleta: '443999', packingList: true,
+    fechaArribo: '2026-07-30 11:20',
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2460: Entrante Automático Recibido Parcial
   {
@@ -1302,6 +1480,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064976', parcial: true,
     embarqueId: '88622', metodoEnvio: 'Estafeta',
     usuarioCreador: 'LGOMEZ_TONA',
+    noPapeleta: '444749', packingList: false,
+    fechaArribo: '2026-07-16 11:40',
+    cajasTotal: 4, cajasRecibidas: 4,
   },
   // SOL-2461: Saliente Manual Surtido
   {
@@ -1313,6 +1494,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064851', parcial: false,
     usuarioCreador: 'AMORALES03',
+    noPapeleta: '445499', packingList: true,
+    cajasTotal: 1, cajasRecibidas: 0,
   },
   // SOL-2462: Entrante Automático Recibido
   {
@@ -1326,6 +1509,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064927', parcial: false,
     embarqueId: '88887', metodoEnvio: 'Transporte interno',
     usuarioCreador: 'JMORENO11',
+    noPapeleta: '446249', packingList: true,
+    fechaArribo: '2026-07-18 18:05',
+    cajasTotal: 1, cajasRecibidas: 1,
   },
   // SOL-2463: Saliente Manual Entregado
   {
@@ -1339,6 +1525,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064783', parcial: false,
     embarqueId: '88805', metodoEnvio: 'Paquetexpress',
     usuarioCreador: 'DSOTO_PEL',
+    noPapeleta: '446999', packingList: false,
+    fechaArribo: '2026-07-19 16:45',
+    cajasTotal: 3, cajasRecibidas: 3,
   },
   // SOL-2464: Entrante CEDIS Reabasto Pendiente
   {
@@ -1353,6 +1542,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     cajas: 5,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '447658', packingList: false,
+    cajasTotal: 5, cajasRecibidas: 0,
   },
   // SOL-2465: Entrante CEDIS Reabasto Documentado Parcial
   {
@@ -1366,6 +1557,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: true,
     cajas: 9,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '448408', packingList: false,
+    cajasTotal: 9, cajasRecibidas: 0,
   },
   // SOL-2466: Entrante CEDIS Reabasto Enviado Parcial
   {
@@ -1380,6 +1573,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88810', metodoEnvio: 'BlueGo',
     cajas: 10,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '449158', packingList: false,
+    fechaArribo: '2026-07-22 06:30',
+    cajasTotal: 10, cajasRecibidas: 5,
   },
   // SOL-2467: Entrante CEDIS Reabasto Recibido Parcial
   {
@@ -1395,6 +1591,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88811', metodoEnvio: 'Estafeta',
     cajas: 5,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '449908', packingList: true,
+    fechaArribo: '2026-07-23 08:30',
+    cajasTotal: 5, cajasRecibidas: 5,
   },
   // SOL-2468: Entrante CEDIS Reabasto Pendiente
   {
@@ -1408,6 +1607,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     cajas: 12,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '450658', packingList: false,
+    cajasTotal: 12, cajasRecibidas: 0,
   },
   // SOL-2469: Entrante CEDIS Reabasto Documentado
   {
@@ -1422,6 +1623,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     cajas: 6,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '451317', packingList: false,
+    cajasTotal: 6, cajasRecibidas: 0,
   },
   // SOL-2470: Entrante CEDIS Reabasto Enviado Parcial
   {
@@ -1437,6 +1640,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88711', metodoEnvio: 'Uber',
     cajas: 6,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '452067', packingList: false,
+    fechaArribo: '2026-07-26 14:30',
+    cajasTotal: 6, cajasRecibidas: 4,
   },
   // SOL-2471: Entrante CEDIS Reabasto Recibido
   {
@@ -1451,6 +1657,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88770', metodoEnvio: 'DHL',
     cajas: 11,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '452817', packingList: false,
+    fechaArribo: '2026-07-27 15:20',
+    cajasTotal: 11, cajasRecibidas: 11,
   },
   // SOL-2472: Entrante CEDIS Reabasto Pendiente
   {
@@ -1464,6 +1673,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: false,
     cajas: 9,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '453567', packingList: true,
+    cajasTotal: 9, cajasRecibidas: 0,
   },
   // SOL-2473: Entrante CEDIS Reabasto Documentado Parcial
   {
@@ -1478,6 +1689,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: true,
     cajas: 10,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '454317', packingList: false,
+    cajasTotal: 10, cajasRecibidas: 0,
   },
   // SOL-2474: Entrante CEDIS Urgencia Enviado
   {
@@ -1492,6 +1705,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064944', parcial: false,
     embarqueId: '88855', metodoEnvio: 'Estafeta',
     usuarioCreador: 'PLOPEZ_ZAP',
+    noPapeleta: '454976', packingList: true,
+    fechaArribo: '2026-07-30 16:25',
+    cajasTotal: 5, cajasRecibidas: 4,
   },
   // SOL-2475: Entrante CEDIS Reabasto Recibido
   {
@@ -1505,6 +1721,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88731', metodoEnvio: 'Estafeta',
     cajas: 8,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '455726', packingList: false,
+    fechaArribo: '2026-07-16 06:40',
+    cajasTotal: 8, cajasRecibidas: 8,
   },
   // SOL-2476: Entrante CEDIS Urgencia Pendiente
   {
@@ -1518,6 +1737,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     ],
     pedidoOrigen: '1064869', parcial: false,
     usuarioCreador: 'RSILVA_TLAQ',
+    noPapeleta: '456476', packingList: true,
+    cajasTotal: 2, cajasRecibidas: 0,
   },
   // SOL-2477: Entrante CEDIS Reabasto Documentado Parcial
   {
@@ -1532,6 +1753,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '', parcial: true,
     cajas: 3,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '457226', packingList: false,
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2478: Entrante CEDIS Urgencia Enviado Parcial
   {
@@ -1546,6 +1769,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     pedidoOrigen: '1064721', parcial: true,
     embarqueId: '88740', metodoEnvio: 'Paquetexpress',
     usuarioCreador: 'CVEGA_TLAQ',
+    noPapeleta: '457976', packingList: false,
+    fechaArribo: '2026-07-19 07:05',
+    cajasTotal: 3, cajasRecibidas: 0,
   },
   // SOL-2479: Entrante CEDIS Reabasto Recibido
   {
@@ -1559,5 +1785,8 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     embarqueId: '88803', metodoEnvio: 'Paquetexpress',
     cajas: 8,
     usuarioCreador: 'CEDIS_SISTEMA',
+    noPapeleta: '458726', packingList: false,
+    fechaArribo: '2026-07-20 09:05',
+    cajasTotal: 8, cajasRecibidas: 8,
   },
 ];
