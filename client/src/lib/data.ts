@@ -450,14 +450,14 @@ export interface TraspasoPeticion {
 
 // Código interno de almacén por sucursal (vista unificada estilo almacén).
 export const SUCURSAL_ALMACEN_CODIGOS: Record<string, string> = {
-  'Pelícano': 'SUC1',
-  'Federalismo': 'SUC2',
-  'Central Camionera': 'SUC3',
-  'Adolf Horn': 'SUC4',
-  'Belisario Domínguez': 'SUC5',
-  'Colón': 'SUC6',
-  'Colonia Jalisco': 'SUC7',
-  'Forum Tlaquepaque': 'SUC8',
+  'Pelícano': '9',
+  'Federalismo': '1',
+  'Central Camionera': '14',
+  'Adolf Horn': '27',
+  'Belisario Domínguez': '3',
+  'Colón': '36',
+  'Colonia Jalisco': '24',
+  'Forum Tlaquepaque': '6',
   'CEDIS': 'AL1',
 };
 
@@ -521,6 +521,12 @@ export const TRASPASO_STATUS_COLORS: Record<TraspasoStatus, { bg: string; text: 
 export const CEDIS_SUBTIPO_COLORS: Record<TraspasoSubtipoCedis, { bg: string; text: string; border: string }> = {
   'Urgencia': { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
   'Reabasto': { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
+};
+
+// Colores de chip para las categorías que se originan en sucursal (CEDIS usa CEDIS_SUBTIPO_COLORS).
+export const TRASPASO_CATEGORIA_COLORS: Record<'Automático' | 'Manual', { bg: string; text: string; border: string }> = {
+  'Automático': { bg: 'rgba(13,148,136,0.10)', text: '#0d9488', border: 'rgba(13,148,136,0.3)' },
+  'Manual':     { bg: 'rgba(79,70,229,0.10)',  text: '#4f46e5', border: 'rgba(79,70,229,0.3)'  },
 };
 
 export const CEDIS_SUCURSAL_CONTRAPARTE = 'CEDIS';

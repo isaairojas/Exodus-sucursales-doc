@@ -7,15 +7,13 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
-  TraspasoStatus, TraspasoTipo, TRASPASO_STATUS_POR_TIPO, TRASPASO_CATEGORIA_LABELS,
-  TraspasoCategoria, SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta,
+  TraspasoTipo, TraspasoPeticion, TRASPASO_CATEGORIA_LABELS,
+  SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta, CEDIS_SUBTIPO_COLORS, TRASPASO_CATEGORIA_COLORS,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtirTraspaso from './ModalSurtirTraspaso';
 import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
 import ModalEmbarcarTraspaso from './ModalEmbarcarTraspaso';
-import ModalHistorialTraspaso from './ModalHistorialTraspaso';
-import ModalDetalleCajaTraspaso from './ModalDetalleCajaTraspaso';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -26,11 +24,38 @@ interface Props {
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
+type FilterTipo = 'ALL' | 'Automático' | 'Manual' | 'CEDIS-Reabasto' | 'CEDIS-Urgencia';
+
 function porcentajeColor(pct: number) {
   if (pct >= 100) return '#16a34a';
   if (pct >= 50) return '#d97706';
   if (pct > 0) return '#d97706';
   return '#9ca3af';
+}
+
+// Recibido/Enviado: CEDIS se cuenta por cajas, entre sucursales por piezas.
+function calcularRecibido(t: TraspasoPeticion) {
+  const totalSolicitada = t.piezas.reduce((sum, p) => sum + p.qtySolicitada, 0);
+
+  if (t.categoria === 'CEDIS') {
+    const estatus: 'En camino' | 'Recibido' = t.cajasTotal > 0 && t.cajasRecibidas >= t.cajasTotal ? 'Recibido' : 'En camino';
+    return { num: t.cajasRecibidas, den: t.cajasTotal, unidad: 'cajas' as const, estatus };
+  }
+
+  if (t.tipo === 'Saliente') {
+    // Aquí qtySurtida sí representa lo que esta sucursal ha surtido/enviado hasta ahora.
+    const totalSurtida = t.piezas.reduce((sum, p) => sum + p.qtySurtida, 0);
+    const estatus: 'En camino' | 'Recibido' = totalSolicitada > 0 && totalSurtida >= totalSolicitada ? 'Recibido' : 'En camino';
+    return { num: totalSurtida, den: totalSolicitada, unidad: 'piezas' as const, estatus };
+  }
+
+  // Entrante entre sucursales: antes de "Dar entrada", qtySurtida es lo que la sucursal
+  // donante ya surtió/envió (no lo que nosotros hemos recibido) — solo cuenta como
+  // recibido una vez que el estatus avanzó a 'Recibido'.
+  const yaRecibido = t.status === 'Recibido' || t.status === 'Entregado';
+  const totalRecibida = yaRecibido ? t.piezas.reduce((sum, p) => sum + p.qtySurtida, 0) : 0;
+  const estatus: 'En camino' | 'Recibido' = yaRecibido && totalSolicitada > 0 && totalRecibida >= totalSolicitada ? 'Recibido' : 'En camino';
+  return { num: totalRecibida, den: totalSolicitada, unidad: 'piezas' as const, estatus };
 }
 
 export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis }: Props) {
@@ -45,19 +70,17 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
   // Etiquetas de columna: la tabla es una recepción (Entrante) o un envío (Saliente)
   const colFechaSegunda = tipoFilter === 'Entrante' ? 'Fecha Arribo' : 'Fecha Envío';
-  const colCajas = tipoFilter === 'Entrante' ? 'Cajas Recibidas' : 'Cajas Enviadas';
+  const colRecibido = tipoFilter === 'Entrante' ? 'Recibido' : 'Enviado';
   const colPorcentaje = tipoFilter === 'Entrante' ? '% Recepción' : '% Enviado';
   const COLUMNS = [
-    'No. de pedido', 'No. Papeleta', 'No. Almacén', 'Nombre Almacén',
-    'Fecha traspaso', colFechaSegunda, 'Packing List', colCajas, colPorcentaje,
-    'Historial', 'Detalle caja',
+    'Tipo', 'Almacén', 'No. de pedido', 'No. Papeleta',
+    'Fecha traspaso', colFechaSegunda, colRecibido, colPorcentaje, 'Estatus',
   ];
 
   // Filtros
   const [fechaInicial, setFechaInicial] = useState(TODAY);
   const [fechaFinal, setFechaFinal] = useState(TODAY);
-  const [filterStatus, setFilterStatus] = useState<'ALL' | TraspasoStatus>('ALL');
-  const [filterCategoria, setFilterCategoria] = useState<'ALL' | TraspasoCategoria>('ALL');
+  const [filterTipo, setFilterTipo] = useState<FilterTipo>('ALL');
   const [searchText, setSearchText] = useState('');
 
   // Selección de fila
@@ -68,8 +91,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const [surtirPetId, setSurtirPetId] = useState<string | null>(null);
   const [recepcionPetId, setRecepcionPetId] = useState<string | null>(null);
   const [embarcarPetId, setEmbarcarPetId] = useState<string | null>(null);
-  const [historialPetId, setHistorialPetId] = useState<string | null>(null);
-  const [detalleCajaPetId, setDetalleCajaPetId] = useState<string | null>(null);
 
   const selectedPeticion = useMemo(
     () => traspasos.find(t => t.id === selectedId) ?? null,
@@ -96,21 +117,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     [traspasos, embarcarPetId]
   );
 
-  const historialPeticion = useMemo(
-    () => traspasos.find(t => t.id === historialPetId) ?? null,
-    [traspasos, historialPetId]
-  );
-
-  const detalleCajaPeticion = useMemo(
-    () => traspasos.find(t => t.id === detalleCajaPetId) ?? null,
-    [traspasos, detalleCajaPetId]
-  );
-
   // Filtrado principal
   const filteredTraspasos = useMemo(() => {
     return traspasosDelTipo.filter(t => {
-      if (filterStatus !== 'ALL' && t.status !== filterStatus) return false;
-      if (filterCategoria !== 'ALL' && t.categoria !== filterCategoria) return false;
+      if (filterTipo === 'CEDIS-Reabasto') {
+        if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Reabasto')) return false;
+      } else if (filterTipo === 'CEDIS-Urgencia') {
+        if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Urgencia')) return false;
+      } else if (filterTipo !== 'ALL' && t.categoria !== filterTipo) {
+        return false;
+      }
       const fechaDate = t.fechaCreacion.slice(0, 10);
       if (fechaInicial && fechaDate < fechaInicial) return false;
       if (fechaFinal && fechaDate > fechaFinal) return false;
@@ -125,13 +141,12 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       }
       return true;
     });
-  }, [traspasosDelTipo, filterStatus, filterCategoria, fechaInicial, fechaFinal, searchText]);
+  }, [traspasosDelTipo, filterTipo, fechaInicial, fechaFinal, searchText]);
 
   const handleClearFilters = () => {
     setFechaInicial(TODAY);
     setFechaFinal(TODAY);
-    setFilterStatus('ALL');
-    setFilterCategoria('ALL');
+    setFilterTipo('ALL');
     setSearchText('');
   };
 
@@ -141,7 +156,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Lógica de botones de acción
   const sel = selectedPeticion;
   const canVerDetalle = !!sel;
-  const canDarEntrada = !!sel && sel.status === 'Enviado';
+  // Debe estar realmente en tránsito (Enviado) además de no estar ya recibido —
+  // si no, se puede "dar entrada" a peticiones que ni siquiera se han surtido.
+  const canDarEntrada = !!sel && sel.status === 'Enviado' && calcularRecibido(sel).estatus === 'En camino';
   const canSurtir = !!sel && sel.status === 'Pendiente';
   const canEmbarcar = !!sel && sel.status === 'Surtido';
 
@@ -210,27 +227,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           </div>
 
           <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value as 'ALL' | TraspasoStatus)}
-            className="text-xs rounded border px-2 py-1"
-            style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
-          >
-            <option value="ALL">Todos los estatus</option>
-            {TRASPASO_STATUS_POR_TIPO[tipoFilter].map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-
-          <select
-            value={filterCategoria}
-            onChange={e => setFilterCategoria(e.target.value as 'ALL' | TraspasoCategoria)}
+            value={filterTipo}
+            onChange={e => setFilterTipo(e.target.value as FilterTipo)}
             className="text-xs rounded border px-2 py-1"
             style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
           >
             <option value="ALL">Todos los tipos</option>
             <option value="Automático">{TRASPASO_CATEGORIA_LABELS.Automático}</option>
             <option value="Manual">{TRASPASO_CATEGORIA_LABELS.Manual}</option>
-            <option value="CEDIS">{TRASPASO_CATEGORIA_LABELS.CEDIS}</option>
+            <option value="CEDIS-Reabasto">CEDIS Reabasto</option>
+            <option value="CEDIS-Urgencia">CEDIS Urgencia</option>
           </select>
 
           <button
@@ -302,7 +308,13 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             {filteredTraspasos.map(t => {
               const isSelected = t.id === selectedId;
               const pedidosLabel = t.pedidoOrigen ? `#${t.pedidoOrigen}` : '—';
-              const pct = t.cajasTotal > 0 ? Math.round((t.cajasRecibidas / t.cajasTotal) * 100) : 0;
+              const tipoLabel = t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
+              const tipoColor = t.categoria === 'CEDIS' && t.subtipoCedis
+                ? CEDIS_SUBTIPO_COLORS[t.subtipoCedis]
+                : TRASPASO_CATEGORIA_COLORS[t.categoria as 'Automático' | 'Manual'];
+
+              const { num: recibidoNum, den: recibidoDen, unidad: recibidoUnidad, estatus: estatusRecibido } = calcularRecibido(t);
+              const pct = recibidoDen > 0 ? Math.round((recibidoNum / recibidoDen) * 100) : 0;
 
               return (
                 <tr
@@ -318,19 +330,28 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   }}
                 >
                   <td className="px-3 py-2.5">
+                    <span
+                      className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                      style={{
+                        background: tipoColor.bg,
+                        color: tipoColor.text,
+                        border: `1px solid ${tipoColor.border}`,
+                      }}
+                    >
+                      {tipoLabel}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs font-medium" style={{ color: '#374151' }}>
+                      <span style={{ color: '#9ca3af' }}>{sucursalPrefix}</span>
+                      {t.sucursalContraparte} ({SUCURSAL_ALMACEN_CODIGOS[t.sucursalContraparte] ?? '—'})
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
                     <span className="text-xs" style={{ color: '#6b7280' }}>{pedidosLabel}</span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>{t.noPapeleta}</span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-xs" style={{ color: '#6b7280' }}>
-                      {SUCURSAL_ALMACEN_CODIGOS[t.sucursalContraparte] ?? '—'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-sm" style={{ color: '#374151' }}>
-                    <span style={{ color: '#9ca3af' }}>{sucursalPrefix}</span>
-                    {t.sucursalContraparte}
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }}>{formatFechaCorta(t.fechaCreacion)}</span>
@@ -341,35 +362,24 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-xs font-medium" style={{ color: t.packingList ? '#16a34a' : '#9ca3af' }}>
-                      {t.packingList ? 'Sí' : 'No'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-xs font-medium" style={{ color: '#374151' }}>
-                      {t.cajasRecibidas}/{t.cajasTotal}
+                    <span className="text-xs font-medium whitespace-nowrap" style={{ color: '#374151' }}>
+                      {recibidoNum}/{recibidoDen} {recibidoUnidad}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-semibold" style={{ color: porcentajeColor(pct) }}>{pct}%</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      onClick={e => { e.stopPropagation(); setHistorialPetId(t.id); }}
-                      className="text-xs font-medium underline"
-                      style={{ color: '#2563eb' }}
+                    <span
+                      className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                      style={
+                        estatusRecibido === 'Recibido'
+                          ? { background: 'rgba(22,163,74,0.10)', color: '#16a34a', border: '1px solid rgba(22,163,74,0.3)' }
+                          : { background: 'rgba(217,119,6,0.10)', color: '#d97706', border: '1px solid rgba(217,119,6,0.3)' }
+                      }
                     >
-                      Ver
-                    </button>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <button
-                      onClick={e => { e.stopPropagation(); setDetalleCajaPetId(t.id); }}
-                      className="text-xs font-medium underline"
-                      style={{ color: '#2563eb' }}
-                    >
-                      Ver
-                    </button>
+                      {estatusRecibido}
+                    </span>
                   </td>
                 </tr>
               );
@@ -470,19 +480,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         />
       )}
 
-      {historialPeticion && (
-        <ModalHistorialTraspaso
-          peticion={historialPeticion}
-          onClose={() => setHistorialPetId(null)}
-        />
-      )}
-
-      {detalleCajaPeticion && (
-        <ModalDetalleCajaTraspaso
-          peticion={detalleCajaPeticion}
-          onClose={() => setDetalleCajaPetId(null)}
-        />
-      )}
     </div>
   );
 }

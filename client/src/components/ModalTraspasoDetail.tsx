@@ -174,19 +174,11 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
           </section>
 
           {/* Sección 3: Piezas (Reabasto no desglosa — recepción ciega por caja) */}
+          {!isReabastoCiego && (
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
-              {isReabastoCiego ? 'Cajas' : 'Piezas'}
+              Piezas
             </h3>
-            {isReabastoCiego ? (
-              <div className="rounded-lg p-4 flex items-center gap-3" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#7c3aed' }}>inventory_2</span>
-                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>
-                  <span className="text-2xl font-bold">{peticion.cajas ?? 0}</span>{' '}
-                  caja{(peticion.cajas ?? 0) !== 1 ? 's' : ''}
-                </p>
-              </div>
-            ) : (
             <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
@@ -235,7 +227,42 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
                 })}
               </tbody>
             </table>
-            )}
+          </section>
+          )}
+
+          {/* Sección: Cajas */}
+          <section>
+            <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
+              Cajas
+            </h3>
+            <div className="flex items-center gap-4 mb-3 text-xs" style={{ color: '#6b7280' }}>
+              <span>No. Papeleta <strong style={{ color: '#1a2b6b' }}>{peticion.noPapeleta}</strong></span>
+              <span>·</span>
+              <span><strong style={{ color: '#16a34a' }}>{peticion.cajasRecibidas}</strong> / {peticion.cajasTotal} recibidas</span>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {Array.from({ length: peticion.cajasTotal }, (_, i) => {
+                const recibida = i < peticion.cajasRecibidas;
+                return (
+                  <div
+                    key={i}
+                    className="flex flex-col items-center gap-1.5 rounded-lg py-3"
+                    style={{
+                      background: recibida ? 'rgba(22,163,74,0.06)' : '#f9fafb',
+                      border: `1px solid ${recibida ? 'rgba(22,163,74,0.3)' : '#e5e7eb'}`,
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 22, color: recibida ? '#16a34a' : '#9ca3af' }}>
+                      {recibida ? 'inventory_2' : 'inventory'}
+                    </span>
+                    <span className="text-xs font-semibold" style={{ color: recibida ? '#16a34a' : '#6b7280' }}>C{i + 1}</span>
+                    <span className="text-[10px]" style={{ color: recibida ? '#16a34a' : '#9ca3af' }}>
+                      {recibida ? 'Recibida' : 'Pendiente'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </section>
 
           {/* Sección 4: Pedido origen (no aplica a Reabasto, nunca lleva pedido) */}

@@ -205,11 +205,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     setTraspasos(prev => prev.map(t => {
       if (t.id !== petId || t.status !== 'Enviado') return t;
+      // Las cajas llegan físicamente aunque falte alguna pieza dentro (discrepancia de contenido, no de cajas).
       if (!piezasRecibidas) {
-        return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now };
+        return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, cajasRecibidas: t.cajasTotal };
       }
       const parcial = piezasRecibidas.some(p => p.qtySurtida < p.qtySolicitada);
-      return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRecibidas, parcial };
+      return { ...t, status: 'Recibido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRecibidas, parcial, cajasRecibidas: t.cajasTotal };
     }));
   }, []);
 
