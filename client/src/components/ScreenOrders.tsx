@@ -5,8 +5,13 @@
 // ============================================================
 import { useEffect, useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL, PRODUCT_CATALOG } from '@/lib/data';
+import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, TIPO_ENVIO_DESCRIPCIONES, SUCURSAL_LOCAL } from '@/lib/data';
 import ModalFacturacion from '@/components/ModalFacturacion';
+import ModalSurtirPedido from '@/components/ModalSurtirPedido';
+import ResumenTraspasosPedido from '@/components/ResumenTraspasosPedido';
+
+// Existencia local usada al surtir con lo disponible (sucursal de referencia).
+const SUCURSAL_LOCAL_SURTIDO = SUCURSAL_LOCAL;
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -753,7 +758,13 @@ function ModalEmbarcar({
 
 // ── Main ScreenOrders ─────────────────────────────────────────
 export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFacturaOrderId, onFacturaOrderHandled }: Props) {
-  const { state, goToScreen, loadOrder, updateOrderStatus } = useApp();
+  const { state, goToScreen, loadOrder, updateOrderStatus, traspasos, cancelarPeticiones } = useApp();
+
+  // Peticiones de traspaso relacionadas a un pedido (por convención de IDs: P + folio).
+  const peticionesDePedido = (orderId: string) =>
+    traspasos.filter(t => t.pedidoOrigen === `P${orderId.replace(/\D/g, '').padStart(7, '0')}`);
+
+  const [surtirWarnOrderId, setSurtirWarnOrderId] = useState<string | null>(null);
 
   // Filters
   const [fechaInicial, setFechaInicial] = useState('2026-04-22');
@@ -827,11 +838,34 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
   const canDocumentar   = activeOrder?.status === 'Facturado';
   const canVerEmbarques = activeOrder?.status === 'Documentado' || activeOrder?.status === 'Enviado';
 
+  const surtirPedidoDirecto = (orderId: string) => {
+    updateOrderStatus(orderId, 'Surtido');
+    showToast(`Pedido #${orderId} marcado como Surtido`, 'success');
+    setSelectedId(orderId);
+  };
+
   const handleSurtir = () => {
     if (!activeOrder) return;
-    updateOrderStatus(activeOrder.id, 'Surtido');
-    showToast(`Pedido #${activeOrder.id} marcado como Surtido`, 'success');
-    setSelectedId(activeOrder.id);
+    // Si el pedido tiene peticiones de traspaso aún NO recibidas, advertir.
+    const pendientes = peticionesDePedido(activeOrder.id)
+      .filter(t => !['Recibido', 'Entregado', 'Cancelado'].includes(t.status));
+    if (pendientes.length > 0) {
+      setSurtirWarnOrderId(activeOrder.id);
+      return;
+    }
+    surtirPedidoDirecto(activeOrder.id);
+  };
+
+  const handleConfirmSurtirConExistencia = () => {
+    const orderId = surtirWarnOrderId;
+    if (!orderId) return;
+    const pendientes = peticionesDePedido(orderId)
+      .filter(t => !['Recibido', 'Entregado', 'Cancelado'].includes(t.status));
+    if (pendientes.length > 0) cancelarPeticiones(pendientes.map(t => t.id), 'solicitud-cancelada');
+    updateOrderStatus(orderId, 'Surtido');
+    showToast(`Pedido #${orderId} surtido con existencia · ${pendientes.length} petición(es) cancelada(s)`, 'warning');
+    setSelectedId(orderId);
+    setSurtirWarnOrderId(null);
   };
 
   const handleRevisarClick = () => {
@@ -972,7 +1006,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-                  {['Origen','Status','PedidoID','Fecha Captura','Fecha Entrega','Hora Entrega','Zona','Local','ClienteID','Cliente','VendedorID','Vendedor','Plazo','Total'].map(col => (
+                  {['Origen','Status','PedidoID','Fecha Captura','Tipo de envío','Zona','Local','ClienteID','Cliente','VendedorID','Vendedor','Plazo','Total'].map(col => (
                     <th
                       key={col}
                       className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
@@ -985,7 +1019,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
               <tbody>
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="text-center py-12 text-gray-400 text-sm">
+                    <td colSpan={13} className="text-center py-12 text-gray-400 text-sm">
                       No se encontraron pedidos con los filtros seleccionados
                     </td>
                   </tr>
@@ -1015,8 +1049,17 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                         </td>
                         <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{order.id}</td>
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaCaptura}</td>
-                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.fechaEntrega || '—'}</td>
-                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{order.horaEntrega || '—'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {order.tipoEnvio ? (
+                            <span
+                              title={TIPO_ENVIO_DESCRIPCIONES[order.tipoEnvio]}
+                              className="text-xs font-bold text-gray-800"
+                              style={{ textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3, cursor: 'help' }}
+                            >
+                              {order.tipoEnvio}
+                            </span>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{order.zona || '—'}</td>
                         <td className="px-3 py-2 text-center">
                           {order.local ? (
@@ -1070,8 +1113,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                 ['Status', detailOrder.status],
                 ['PedidoID', detailOrder.id],
                 ['Fecha Captura', detailOrder.fechaCaptura],
-                ['Fecha Entrega', detailOrder.fechaEntrega || '—'],
-                ['Hora Entrega', detailOrder.horaEntrega || '—'],
+                ['Tipo de envío', detailOrder.tipoEnvio || '—'],
                 ['Zona', detailOrder.zona || '—'],
                 ['Local', detailOrder.local ? 'Sí' : 'No'],
                 ['ClienteID', detailOrder.clienteId],
@@ -1129,6 +1171,12 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                 <p className="text-lg font-black" style={{ color: '#1a2b6b' }}>{detailOrder.total}</p>
               </div>
             </div>
+
+            {peticionesDePedido(detailOrder.id).length > 0 && (
+              <div className="rounded-xl p-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                <ResumenTraspasosPedido pedidoOrigen={`P${detailOrder.id.replace(/\D/g, '').padStart(7, '0')}`} />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1266,6 +1314,17 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
             setShowFacturaModal(false);
             onFacturaOrderHandled?.();
           }}
+        />
+      )}
+
+      {/* Advertencia: surtir pedido con peticiones de traspaso sin recibir */}
+      {surtirWarnOrderId && ORDERS_DB[surtirWarnOrderId] && (
+        <ModalSurtirPedido
+          order={ORDERS_DB[surtirWarnOrderId]}
+          peticiones={peticionesDePedido(surtirWarnOrderId)}
+          existencias={EXISTENCIA_POR_SUCURSAL[SUCURSAL_LOCAL_SURTIDO] ?? {}}
+          onClose={() => setSurtirWarnOrderId(null)}
+          onConfirm={handleConfirmSurtirConExistencia}
         />
       )}
 

@@ -8,6 +8,7 @@ import {
   TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS, TRASPASO_CATEGORIA_LABELS, CEDIS_SUBTIPO_COLORS,
   PRODUCT_CATALOG, tiempoTranscurrido,
 } from '@/lib/data';
+import ResumenTraspasosPedido from './ResumenTraspasosPedido';
 
 interface Props {
   peticion: TraspasoPeticion;
@@ -131,6 +132,11 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
               )}
             </div>
           </section>
+
+          {/* Sección: Resumen de traspasos del pedido (cobertura / recálculo) */}
+          {peticion.pedidoOrigen && (
+            <ResumenTraspasosPedido pedidoOrigen={peticion.pedidoOrigen} currentPetId={peticion.id} />
+          )}
 
           {/* Sección 2: Timeline */}
           <section>
