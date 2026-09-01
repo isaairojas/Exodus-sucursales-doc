@@ -11,7 +11,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, CrearSolicitudData } from '@/contexts/AppContext';
 import {
   SUCURSALES, PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle,
-  EXISTENCIA_POR_SUCURSAL, calcularSucursalRecomendada,
+  EXISTENCIA_POR_SUCURSAL, calcularSucursalRecomendada, PRODUCTOS_ALTA_ROTACION,
+  SUCURSAL_LOCAL,
 } from '@/lib/data';
 
 interface Props {
@@ -116,7 +117,29 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
 
   const ORDER_IDS = Object.keys(ORDERS_DB);
 
+  // Cantidad requerida por el pedido para un código (null si el producto no
+  // pertenece al pedido — p. ej. un recomendado de alta rotación).
+  const requeridoDe = (code: string): number | null => {
+    if (!pedidoSelected) return null;
+    return ORDERS_DB[pedidoSelected].partidas.find(p => p.code === code)?.qty ?? null;
+  };
+
   // ── Paso 1 ──
+  const handleSelectPedido = (id: string) => {
+    setPedidoSelected(id);
+    // Precarga los productos del pedido con su cantidad requerida.
+    setPiezas(ORDERS_DB[id].partidas.map(p => ({ code: p.code, qty: p.qty })));
+    setSucursalesAgregadas([]);
+    setAsignaciones({});
+  };
+
+  const handleClearPedido = () => {
+    setPedidoSelected(null);
+    setPiezas([]);
+    setSucursalesAgregadas([]);
+    setAsignaciones({});
+  };
+
   const handleOmitirPedido = () => {
     setPedidoSelected(null);
     setStep(2);
@@ -152,7 +175,23 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
   };
 
   const handleUpdateQty = (code: string, qty: number) => {
-    setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: Math.max(1, qty) } : p));
+    // Para traspasos entre sucursales, la cantidad NO puede superar lo requerido
+    // por el pedido (tope duro). Los recomendados/extra no tienen tope.
+    const req = requeridoDe(code);
+    let next = Math.max(1, qty);
+    if (req != null && next > req) {
+      next = req;
+      showToast(`No puedes superar lo requerido por el pedido (${req}) para ${code}`, 'warning');
+    }
+    setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: next } : p));
+  };
+
+  // Recomendados de alta rotación que aún no están en la lista.
+  const recomendadosAltaRotacion = PRODUCTOS_ALTA_ROTACION
+    .filter(code => !piezas.some(p => p.code === code) && PRODUCT_CATALOG[code]);
+
+  const handleAddRecomendado = (code: string) => {
+    setPiezas(prev => [...prev, { code, qty: 1 }]);
   };
 
   const canGoToStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
@@ -220,7 +259,8 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
     const data: CrearSolicitudData = {
       sucursales: sucursalesConPiezas,
       piezasPorSucursal,
-      pedidoOrigen: pedidoSelected ?? '',
+      // Convención de IDs: pedidos de clientes con prefijo P + 7 dígitos.
+      pedidoOrigen: pedidoSelected ? `P${pedidoSelected.replace(/\D/g, '').padStart(7, '0')}` : '',
       observaciones: observaciones.trim() || undefined,
       autorizacionToken: requiereAutorizacion ? autorizacionToken.trim() : undefined,
     };
@@ -317,7 +357,7 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                       <span className="ml-2 text-xs" style={{ color: '#6b7280' }}>{ORDERS_DB[pedidoSelected].cliente}</span>
                     </div>
                     <button
-                      onClick={() => setPedidoSelected(null)}
+                      onClick={handleClearPedido}
                       className="w-7 h-7 flex items-center justify-center rounded-full"
                       style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
                     >
@@ -331,7 +371,7 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                     getId={id => id}
                     getLabel={id => `#${id}`}
                     getSubLabel={id => ORDERS_DB[id].cliente}
-                    onSelect={id => setPedidoSelected(id)}
+                    onSelect={handleSelectPedido}
                   />
                 )}
               </div>
@@ -343,37 +383,97 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                 <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>¿Qué piezas necesitas?</p>
                 <p className="text-xs" style={{ color: '#6b7280' }}>
                   {pedidoSelected
-                    ? `Solo se muestran las piezas incluidas en el pedido #${pedidoSelected}.`
+                    ? `Productos precargados del pedido #${pedidoSelected}. La cantidad no puede superar lo requerido.`
                     : 'Busca cualquier pieza del catálogo.'}
                 </p>
+                <p className="text-[11px] flex items-center gap-1" style={{ color: '#9ca3af' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
+                  Se muestra tu existencia en <strong style={{ color: '#6b7280' }}>{SUCURSAL_LOCAL}</strong>. Si solicitas más de lo que tienes, la cantidad se marca en <span style={{ color: '#dc2626', fontWeight: 600 }}>rojo</span> (traes mercancía de más por traspaso).
+                </p>
 
-                <BuscadorSugerencias
-                  placeholder="Buscar pieza por código o nombre…"
-                  options={opcionesPiezas}
-                  getId={p => p.code}
-                  getLabel={p => p.code}
-                  getSubLabel={p => p.name}
-                  onSelect={handleAddPieza}
-                  disabled={opcionesPiezas.length === 0}
-                />
+                {!pedidoSelected && (
+                  <BuscadorSugerencias
+                    placeholder="Buscar pieza por código o nombre…"
+                    options={opcionesPiezas}
+                    getId={p => p.code}
+                    getLabel={p => p.code}
+                    getSubLabel={p => p.name}
+                    onSelect={handleAddPieza}
+                    disabled={opcionesPiezas.length === 0}
+                  />
+                )}
+
+                {/* Recomendación: productos más vendidos / alta rotación */}
+                {recomendadosAltaRotacion.length > 0 && (
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(13,148,136,0.06)', border: '1px solid rgba(13,148,136,0.25)' }}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#0d9488' }}>trending_up</span>
+                      <span className="text-xs font-bold" style={{ color: '#0f766e' }}>Recomendados (más vendidos / alta rotación)</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {recomendadosAltaRotacion.map(code => (
+                        <button key={code} onClick={() => handleAddRecomendado(code)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+                          style={{ background: '#fff', border: '1px solid rgba(13,148,136,0.4)', color: '#0f766e' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>add</span>
+                          {code}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Encabezado de columnas */}
+                {piezas.length > 0 && (
+                  <div className="flex items-center gap-2 px-2.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#9ca3af' }}>
+                    <div className="flex-1">Producto</div>
+                    <div style={{ width: 70, textAlign: 'center' }}>Requerido</div>
+                    <div style={{ width: 78, textAlign: 'center' }} title={`Existencia disponible en tu sucursal (${SUCURSAL_LOCAL})`}>Existencia</div>
+                    <div style={{ width: 64, textAlign: 'center' }}>A solicitar</div>
+                    <div style={{ width: 28 }} />
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2">
                   {piezas.map(p => {
                     const prod = PRODUCT_CATALOG[p.code];
+                    const req = requeridoDe(p.code);
+                    const existenciaLocal = EXISTENCIA_POR_SUCURSAL[SUCURSAL_LOCAL]?.[p.code] ?? 0;
+                    // Solicitar más de lo que hay en la sucursal local es lo normal
+                    // (por eso se pide traspaso), pero se marca en rojo con tooltip.
+                    const solicitaDeMas = p.qty > existenciaLocal;
+                    const tooltip = solicitaDeMas
+                      ? `Solicitas ${p.qty} pzs y solo tienes ${existenciaLocal} en existencia (${SUCURSAL_LOCAL}). Se traerían ${p.qty - existenciaLocal} pzs de más por traspaso para completar el pedido.`
+                      : `Existencia suficiente en ${SUCURSAL_LOCAL} (${existenciaLocal} pzs).`;
                     return (
                       <div key={p.code} className="flex items-center gap-2 rounded-lg p-2.5" style={{ border: '1px solid #e5e7eb' }}>
                         <div className="flex-1 min-w-0">
                           <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>{p.code}</span>
                           <span className="ml-1.5 text-xs" style={{ color: '#6b7280' }}>{prod?.name}</span>
+                          {req == null && pedidoSelected && (
+                            <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>Recomendado</span>
+                          )}
                         </div>
-                        <label className="text-xs whitespace-nowrap" style={{ color: '#6b7280' }}>Cantidad</label>
+                        <div style={{ width: 70, textAlign: 'center' }}>
+                          <span className="text-xs font-semibold" style={{ color: req != null ? '#1a2b6b' : '#9ca3af' }}>{req != null ? req : '—'}</span>
+                        </div>
+                        <div style={{ width: 78, textAlign: 'center' }} title={tooltip}>
+                          <span className="text-xs font-semibold" style={{ color: solicitaDeMas ? '#dc2626' : '#16a34a', cursor: 'help' }}>{existenciaLocal}</span>
+                        </div>
                         <input
                           type="number"
                           min={1}
+                          max={req ?? undefined}
                           value={p.qty}
+                          title={tooltip}
                           onChange={e => handleUpdateQty(p.code, parseInt(e.target.value) || 1)}
-                          className="text-xs rounded border px-2 py-1.5 text-center"
-                          style={{ borderColor: '#d1d5db', width: 64 }}
+                          className="text-xs rounded border px-2 py-1.5 text-center font-semibold"
+                          style={{
+                            borderColor: solicitaDeMas ? '#dc2626' : (req != null && p.qty >= req ? '#0d9488' : '#d1d5db'),
+                            color: solicitaDeMas ? '#dc2626' : '#111827',
+                            background: solicitaDeMas ? 'rgba(220,38,38,0.05)' : '#fff',
+                            width: 64,
+                          }}
                         />
                         <button
                           onClick={() => handleRemovePieza(p.code)}

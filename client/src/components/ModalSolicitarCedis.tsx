@@ -5,9 +5,12 @@
 // restricción de piezas — se puede pedir cualquier producto).
 // Design: Enterprise Precision
 // ============================================================
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, CrearSolicitudCedisData } from '@/contexts/AppContext';
-import { PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle } from '@/lib/data';
+import { PRODUCT_CATALOG, TraspasoPiezaDetalle, EXISTENCIA_POR_SUCURSAL, SUCURSAL_LOCAL } from '@/lib/data';
+import { PEDIDOS_URGENCIA_DEMO, getPedidoUrgenciaDemo, horasDesdeCaptura } from '@/lib/traspasoCedisDemo';
+import { validarSeleccionPedidoUrgencia, calcularImpactoPeticiones } from '@/lib/traspasoRules';
+import { PEDIDO_VIGENCIA_URGENCIA_HORAS } from '@/lib/traspasoConfig';
 
 interface Props {
   onClose: () => void;
@@ -92,33 +95,68 @@ function BuscadorSugerencias<T>({
 }
 
 export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
-  const { crearSolicitudCedisUrgencia } = useApp();
+  const { crearSolicitudCedisUrgencia, cancelarPeticiones, traspasos } = useApp();
   const [step, setStep] = useState<Step>(1);
 
   // Paso 1: pedido origen (obligatorio para Urgencia)
   const [pedidoSelected, setPedidoSelected] = useState<string | null>(null);
+  const [bloqueoMsg, setBloqueoMsg] = useState<string | null>(null);
 
-  // Paso 2: piezas (sin restricción — cualquier producto del catálogo)
+  // Paso 2: piezas (se precargan del pedido; editables)
   const [piezas, setPiezas] = useState<PiezaSeleccionada[]>([]);
 
   // Paso 3: observaciones
   const [observaciones, setObservaciones] = useState('');
 
-  const ORDER_IDS = Object.keys(ORDERS_DB);
+  const pedidoDemo = pedidoSelected ? getPedidoUrgenciaDemo(pedidoSelected) : null;
+
+  // Validación de selección + precarga de productos del pedido (ERB-51530).
+  const handleSelectPedido = (id: string) => {
+    const pedido = getPedidoUrgenciaDemo(id);
+    if (!pedido) return;
+    const estadoPedido = pedido.estado === 'entregado' ? 'facturado'
+      : pedido.estado === 'cancelado' ? 'cancelado' : 'activo';
+    const val = validarSeleccionPedidoUrgencia({
+      estado: estadoPedido,
+      usadoEnUrgencia: pedido.usadoEnUrgencia,
+      horasDesdeCaptura: horasDesdeCaptura(pedido.fechaCaptura),
+      vigenciaHoras: PEDIDO_VIGENCIA_URGENCIA_HORAS,
+    });
+    if (!val.ok) {
+      setBloqueoMsg(val.mensaje ?? 'No es posible seleccionar este pedido.');
+      setPedidoSelected(null);
+      setPiezas([]);
+      return;
+    }
+    setBloqueoMsg(null);
+    setPedidoSelected(id);
+    // Precarga de los productos del pedido.
+    setPiezas(pedido.partidas.map(p => ({ code: p.code, qty: p.qty })));
+  };
+
+  // Impacto sobre peticiones auto/semi existentes (eliminación/ajuste).
+  const impacto = useMemo(() => {
+    if (!pedidoDemo?.pedidoRealVinculado || piezas.length === 0) return null;
+    const relacionadas = traspasos.filter(t =>
+      t.pedidoOrigen === pedidoDemo.pedidoRealVinculado &&
+      (t.flujo === 'Automatico' || t.flujo === 'Semiautomatico'));
+    if (relacionadas.length === 0) return null;
+    const res = calcularImpactoPeticiones(relacionadas, piezas.map(p => ({ code: p.code, qty: p.qty })));
+    if (res.cancelar.length + res.ajustar.length + res.enTransito.length === 0) return null;
+    return res;
+  }, [pedidoDemo, traspasos, piezas]);
 
   // ── Paso 2 ──
-  const opcionesPiezas = Object.keys(PRODUCT_CATALOG)
-    .filter(code => !piezas.some(p => p.code === code))
-    .map(code => PRODUCT_CATALOG[code]);
-
-  const handleAddPieza = (prod: (typeof PRODUCT_CATALOG)[string]) => {
-    setPiezas(prev => [...prev, { code: prod.code, qty: 1 }]);
-  };
+  // CEDIS: no se puede agregar mercancía fuera del pedido (sin buscador).
+  // Cantidad requerida por el pedido para un código.
+  const requeridoDe = (code: string): number | null =>
+    pedidoDemo?.partidas.find(p => p.code === code)?.qty ?? null;
 
   const handleRemovePieza = (code: string) => {
     setPiezas(prev => prev.filter(p => p.code !== code));
   };
 
+  // CEDIS permite superar la cantidad del pedido (solo muestra leyenda).
   const handleUpdateQty = (code: string, qty: number) => {
     setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: Math.max(1, qty) } : p));
   };
@@ -130,13 +168,18 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
 
   const handleConfirmar = () => {
     if (!canConfirmar || !pedidoSelected) return;
+    // Eliminación de peticiones sustituidas (no toca las que están en tránsito).
+    if (impacto && impacto.cancelar.length > 0) {
+      cancelarPeticiones(impacto.cancelar, 'urgencia-cedis');
+    }
     const data: CrearSolicitudCedisData = {
       piezas: piezas.map(p => ({ code: p.code, qtySolicitada: p.qty, qtySurtida: 0 } as TraspasoPiezaDetalle)),
-      pedidoOrigen: pedidoSelected,
+      pedidoOrigen: pedidoDemo?.pedidoRealVinculado ?? pedidoSelected,
       observaciones: observaciones.trim() || undefined,
     };
     const solicitudId = crearSolicitudCedisUrgencia(data);
-    showToast(`Solicitud de urgencia ${solicitudId} enviada a CEDIS`, 'success');
+    const extra = impacto && impacto.cancelar.length > 0 ? ` · ${impacto.cancelar.length} petición(es) cancelada(s)` : '';
+    showToast(`Solicitud de urgencia ${solicitudId} enviada a CEDIS${extra}`, 'success');
     onClose();
   };
 
@@ -220,14 +263,22 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                   </p>
                 </div>
 
-                {pedidoSelected ? (
+                {bloqueoMsg && (
+                  <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#dc2626' }}>block</span>
+                    <p className="text-xs font-medium" style={{ color: '#b91c1c' }}>{bloqueoMsg}</p>
+                  </div>
+                )}
+
+                {pedidoSelected && pedidoDemo ? (
                   <div className="flex items-center justify-between rounded-lg p-3" style={{ background: 'rgba(26,43,107,0.06)', border: '1.5px solid #1a2b6b' }}>
                     <div>
                       <span className="font-bold text-sm" style={{ color: '#1a2b6b' }}>#{pedidoSelected}</span>
-                      <span className="ml-2 text-xs" style={{ color: '#6b7280' }}>{ORDERS_DB[pedidoSelected].cliente}</span>
+                      <span className="ml-2 text-xs" style={{ color: '#6b7280' }}>{pedidoDemo.cliente}</span>
+                      <div className="text-[11px] mt-0.5" style={{ color: '#16a34a' }}>Productos precargados del pedido ({pedidoDemo.partidas.length})</div>
                     </div>
                     <button
-                      onClick={() => setPedidoSelected(null)}
+                      onClick={() => { setPedidoSelected(null); setPiezas([]); }}
                       className="w-7 h-7 flex items-center justify-center rounded-full"
                       style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
                     >
@@ -237,62 +288,98 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                 ) : (
                   <BuscadorSugerencias
                     placeholder="Buscar pedido por número o cliente…"
-                    options={ORDER_IDS}
+                    options={PEDIDOS_URGENCIA_DEMO.map(p => p.id)}
                     getId={id => id}
                     getLabel={id => `#${id}`}
-                    getSubLabel={id => ORDERS_DB[id].cliente}
-                    onSelect={id => setPedidoSelected(id)}
+                    getSubLabel={id => {
+                      const p = getPedidoUrgenciaDemo(id)!;
+                      return `${p.cliente}${p.etiquetaDemo ? ' · ' + p.etiquetaDemo : ''}`;
+                    }}
+                    onSelect={handleSelectPedido}
                   />
                 )}
               </div>
             )}
 
-            {/* Paso 2: Piezas (sin restricción) */}
+            {/* Paso 2: Piezas (solo las del pedido — sin buscador) */}
             {step === 2 && (
               <div className="flex flex-col gap-4">
-                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>¿Qué piezas necesitas?</p>
-                <p className="text-xs" style={{ color: '#6b7280' }}>Busca cualquier pieza del catálogo, sin restricción.</p>
+                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>Productos del pedido a solicitar a CEDIS</p>
+                <p className="text-xs" style={{ color: '#6b7280' }}>
+                  Solo puedes solicitar productos del pedido #{pedidoSelected}. Puedes superar la cantidad requerida; se avisará con una leyenda.
+                </p>
+                <p className="text-[11px] flex items-center gap-1" style={{ color: '#9ca3af' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
+                  Se muestra tu existencia en <strong style={{ color: '#6b7280' }}>{SUCURSAL_LOCAL}</strong>. Si solicitas más de lo que tienes, la cantidad se marca en <span style={{ color: '#dc2626', fontWeight: 600 }}>rojo</span> (traes mercancía de más de CEDIS).
+                </p>
 
-                <BuscadorSugerencias
-                  placeholder="Buscar pieza por código o nombre…"
-                  options={opcionesPiezas}
-                  getId={p => p.code}
-                  getLabel={p => p.code}
-                  getSubLabel={p => p.name}
-                  onSelect={handleAddPieza}
-                  disabled={opcionesPiezas.length === 0}
-                />
+                {/* Encabezado de columnas */}
+                {piezas.length > 0 && (
+                  <div className="flex items-center gap-2 px-2.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#9ca3af' }}>
+                    <div className="flex-1">Producto</div>
+                    <div style={{ width: 70, textAlign: 'center' }}>Requerido</div>
+                    <div style={{ width: 78, textAlign: 'center' }} title={`Existencia disponible en tu sucursal (${SUCURSAL_LOCAL})`}>Existencia</div>
+                    <div style={{ width: 64, textAlign: 'center' }}>A solicitar</div>
+                    <div style={{ width: 28 }} />
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2">
                   {piezas.map(p => {
                     const prod = PRODUCT_CATALOG[p.code];
+                    const req = requeridoDe(p.code);
+                    const excede = req != null && p.qty > req;
+                    const existenciaLocal = EXISTENCIA_POR_SUCURSAL[SUCURSAL_LOCAL]?.[p.code] ?? 0;
+                    const solicitaDeMas = p.qty > existenciaLocal;
+                    const tooltip = solicitaDeMas
+                      ? `Solicitas ${p.qty} pzs y solo tienes ${existenciaLocal} en existencia (${SUCURSAL_LOCAL}). Se traerían ${p.qty - existenciaLocal} pzs de más de CEDIS para completar el pedido.`
+                      : `Existencia suficiente en ${SUCURSAL_LOCAL} (${existenciaLocal} pzs).`;
                     return (
-                      <div key={p.code} className="flex items-center gap-2 rounded-lg p-2.5" style={{ border: '1px solid #e5e7eb' }}>
-                        <div className="flex-1 min-w-0">
-                          <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>{p.code}</span>
-                          <span className="ml-1.5 text-xs" style={{ color: '#6b7280' }}>{prod?.name}</span>
+                      <div key={p.code} className="rounded-lg p-2.5" style={{ border: `1px solid ${excede ? 'rgba(217,119,6,0.4)' : '#e5e7eb'}` }}>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>{p.code}</span>
+                            <span className="ml-1.5 text-xs" style={{ color: '#6b7280' }}>{prod?.name}</span>
+                          </div>
+                          <div style={{ width: 70, textAlign: 'center' }}>
+                            <span className="text-xs font-semibold" style={{ color: '#1a2b6b' }}>{req ?? '—'}</span>
+                          </div>
+                          <div style={{ width: 78, textAlign: 'center' }} title={tooltip}>
+                            <span className="text-xs font-semibold" style={{ color: solicitaDeMas ? '#dc2626' : '#16a34a', cursor: 'help' }}>{existenciaLocal}</span>
+                          </div>
+                          <input
+                            type="number"
+                            min={1}
+                            value={p.qty}
+                            title={tooltip}
+                            onChange={e => handleUpdateQty(p.code, parseInt(e.target.value) || 1)}
+                            className="text-xs rounded border px-2 py-1.5 text-center font-semibold"
+                            style={{
+                              borderColor: solicitaDeMas ? '#dc2626' : (excede ? '#d97706' : '#d1d5db'),
+                              color: solicitaDeMas ? '#dc2626' : '#111827',
+                              background: solicitaDeMas ? 'rgba(220,38,38,0.05)' : '#fff',
+                              width: 64,
+                            }}
+                          />
+                          <button
+                            onClick={() => handleRemovePieza(p.code)}
+                            className="w-7 h-7 flex items-center justify-center rounded transition-all"
+                            style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
+                          </button>
                         </div>
-                        <label className="text-xs whitespace-nowrap" style={{ color: '#6b7280' }}>Cantidad</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={p.qty}
-                          onChange={e => handleUpdateQty(p.code, parseInt(e.target.value) || 1)}
-                          className="text-xs rounded border px-2 py-1.5 text-center"
-                          style={{ borderColor: '#d1d5db', width: 64 }}
-                        />
-                        <button
-                          onClick={() => handleRemovePieza(p.code)}
-                          className="w-7 h-7 flex items-center justify-center rounded transition-all"
-                          style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
-                        </button>
+                        {excede && (
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#d97706' }}>info</span>
+                            <span className="text-[11px] font-medium" style={{ color: '#b45309' }}>Se superó la cantidad del pedido (requerido: {req}).</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                   {piezas.length === 0 && (
-                    <p className="text-xs text-center py-6" style={{ color: '#9ca3af' }}>Aún no agregas piezas.</p>
+                    <p className="text-xs text-center py-6" style={{ color: '#9ca3af' }}>Selecciona un pedido para cargar sus productos.</p>
                   )}
                 </div>
               </div>
@@ -313,12 +400,28 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                       <span className="text-xs ml-1" style={{ color: '#6b7280' }}>origen</span>
                     </div>
                   </div>
-                  {pedidoSelected && (
+                  {pedidoSelected && pedidoDemo && (
                     <div className="text-xs mt-1" style={{ color: '#6b7280' }}>
-                      Pedido origen: <strong style={{ color: '#1a2b6b' }}>#{pedidoSelected}</strong> — {ORDERS_DB[pedidoSelected].cliente}
+                      Pedido origen: <strong style={{ color: '#1a2b6b' }}>#{pedidoSelected}</strong> — {pedidoDemo.cliente}
                     </div>
                   )}
                 </div>
+
+                {/* Impacto: eliminación/ajuste de peticiones existentes (ERB-51530) */}
+                {impacto && (
+                  <div className="rounded-lg p-4 flex flex-col gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.3)' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>warning</span>
+                      <p className="text-xs font-bold" style={{ color: '#b45309' }}>Esta urgencia sustituye mercancía de peticiones existentes</p>
+                    </div>
+                    <ul className="text-xs flex flex-col gap-1" style={{ color: '#374151' }}>
+                      <li>• Se cancelarán <strong>{impacto.cancelar.length}</strong> petición(es): {impacto.cancelar.join(', ') || '—'}</li>
+                      <li>• Con ajuste parcial: <strong>{impacto.ajustar.length}</strong> {impacto.ajustar.length ? `(${impacto.ajustar.map(a => a.id).join(', ')})` : ''}</li>
+                      <li>• En tránsito que continúan (no se cancelan): <strong>{impacto.enTransito.length}</strong> {impacto.enTransito.length ? `(${impacto.enTransito.join(', ')})` : ''}</li>
+                    </ul>
+                    <p className="text-[11px]" style={{ color: '#9ca3af' }}>Al confirmar se aplicará este impacto. Cancelar no modifica nada.</p>
+                  </div>
+                )}
 
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#1a2b6b' }}>Piezas solicitadas</p>

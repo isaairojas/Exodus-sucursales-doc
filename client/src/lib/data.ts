@@ -25,6 +25,23 @@ export type OrderStatus =
   | 'Facturado'
   | 'Cancelado';
 
+// Tipo de envío del pedido (indica, entre otros, si requiere traspasos).
+export type TipoEnvioPedido =
+  | 'Envío a domicilio'
+  | 'Pickup'
+  | 'Envío a domicilio/TLC'
+  | 'Envío a domicilio/Traspasos'
+  | 'Envío a domicilio/División de facturas';
+
+// Descripción de cada tipo de envío (tooltip al pasar el mouse).
+export const TIPO_ENVIO_DESCRIPCIONES: Record<TipoEnvioPedido, string> = {
+  'Envío a domicilio': 'El pedido se entrega en el domicilio del cliente.',
+  'Pickup': 'El cliente recoge el pedido directamente en la sucursal.',
+  'Envío a domicilio/TLC': 'Envío a domicilio bajo el programa TLC (Te Lo Consigo): la mercancía que no hay en existencia se consigue para el cliente.',
+  'Envío a domicilio/Traspasos': 'Envío a domicilio que requiere traspasos de otras sucursales para completar la mercancía del pedido.',
+  'Envío a domicilio/División de facturas': 'Envío a domicilio cuya mercancía se divide en más de una factura.',
+};
+
 export interface Order {
   id: string;
   clienteId: string;
@@ -34,6 +51,7 @@ export interface Order {
   plazo: string;
   total: string;
   status: OrderStatus;
+  tipoEnvio?: TipoEnvioPedido;
   elaboro: string;
   origen: string;
   observaciones: string;
@@ -109,6 +127,18 @@ export const PRODUCT_CATALOG: Record<string, Product> = {
 
 // ── Orders database (8 real orders from system) ──────────────
 export const ORDERS_DB: Record<string, Order> = {
+  // Pedido demo para el resumen de traspasos con FALTANTE (recálculo con rechazo).
+  '1065001': {
+    id: '1065001', clienteId: '10260', cliente: 'AUTOPARTES DEMO SMC',
+    vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
+    total: '$3,120.00', status: 'Creado', tipoEnvio: 'Envío a domicilio/Traspasos',
+    elaboro: 'Sistema SMC', origen: 'Exodus ERP', observaciones: 'Requiere traspasos para completar',
+    fechaCaptura: '2026-04-22 08:30', fechaEntrega: '', horaEntrega: '', horaReparto: '', zona: '', local: false,
+    horaInicioSurtido: '', horaFinSurtido: '',
+    partidas: [
+      { code: 'BP-001', qty: 10 },
+    ],
+  },
   '1064772': {
     id: '1064772', clienteId: '10241', cliente: 'AUTOPARTES COBIAN',
     vendedorId: '90', vendedor: 'MOSTRADOR PELICANO', plazo: '',
@@ -362,10 +392,55 @@ export const SHIPMENT_STATUS_COLORS: Record<ShipmentStatus, { bg: string; text: 
 export type TraspasoStatus =
   | 'Pendiente'
   | 'Surtido'
+  | 'Revisado'
   | 'Documentado'
   | 'Enviado'
   | 'Recibido'
-  | 'Entregado';
+  | 'Entregado'
+  | 'Cancelado';
+
+// ── Estado de alto nivel del traspaso (segmentador Pendiente/Finalizado/Cancelado) ──
+// Pendiente = cualquier estatus distinto a Cancelado, Entregado o Recibido.
+export type TraspasoEstadoAlto = 'Pendiente' | 'Finalizado' | 'Cancelado';
+export function estadoAltoTraspaso(status: TraspasoStatus): TraspasoEstadoAlto {
+  if (status === 'Cancelado') return 'Cancelado';
+  if (status === 'Entregado' || status === 'Recibido') return 'Finalizado';
+  return 'Pendiente';
+}
+
+// ── Etapa operativa visible del traspaso (filtro de etapa) ──
+export type TraspasoEtapa =
+  | 'Sin surtir'
+  | 'Surtido'
+  | 'Revisado'
+  | 'Embarcado'
+  | 'Enviado / En camino'
+  | 'Recibido'
+  | 'Cancelado';
+export const TRASPASO_ETAPAS: TraspasoEtapa[] = [
+  'Sin surtir', 'Surtido', 'Revisado', 'Embarcado', 'Enviado / En camino', 'Recibido', 'Cancelado',
+];
+export function etapaTraspaso(status: TraspasoStatus): TraspasoEtapa {
+  switch (status) {
+    case 'Pendiente':   return 'Sin surtir';
+    case 'Surtido':     return 'Surtido';
+    case 'Revisado':    return 'Revisado';
+    case 'Documentado': return 'Embarcado';
+    case 'Enviado':     return 'Enviado / En camino';
+    case 'Recibido':
+    case 'Entregado':   return 'Recibido';
+    case 'Cancelado':   return 'Cancelado';
+  }
+}
+export const TRASPASO_ETAPA_COLORS: Record<TraspasoEtapa, { bg: string; text: string; border: string }> = {
+  'Sin surtir':          { bg: 'rgba(217,119,6,0.10)',  text: '#d97706', border: 'rgba(217,119,6,0.3)'  },
+  'Surtido':             { bg: 'rgba(124,58,237,0.10)', text: '#7c3aed', border: 'rgba(124,58,237,0.3)' },
+  'Revisado':            { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
+  'Embarcado':           { bg: 'rgba(13,148,136,0.10)', text: '#0d9488', border: 'rgba(13,148,136,0.3)' },
+  'Enviado / En camino': { bg: 'rgba(22,163,74,0.10)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  'Recibido':            { bg: 'rgba(26,43,107,0.10)',  text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'  },
+  'Cancelado':           { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
+};
 
 export type TraspasoTipo = 'Entrante' | 'Saliente';
 
@@ -399,6 +474,38 @@ export interface TraspasoPiezaDetalle {
   qtySurtida: number;
   motivoNegacion?: string;
 }
+
+// ── Trazabilidad del flujo automático / semiautomático (SMC) ──────────────
+// Fuente funcional: ERB-42439, ERB-51528, ERB-51529, ERB-51530, ERB-51531.
+// Clasificación del flujo de la petición. Complementa `categoria`:
+// - 'Automatico'/'Semiautomatico': flujo SMC (recálculo, exclusión de sucursal, máx. 3).
+// - 'Manual': flujo manual (solo validaciones/mensajes, NO recálculo).
+// - 'CEDIS': proveniente de CEDIS.
+export type TraspasoFlujo = 'Automatico' | 'Semiautomatico' | 'Manual' | 'CEDIS';
+
+// Estado de la SOLICITUD (agrupa una o varias peticiones de una misma necesidad).
+export type SolicitudEstado = 'activa' | 'en-progreso' | 'finalizada' | 'cancelada' | 'agotada';
+
+// Resultado operativo de una PETICIÓN dentro del ciclo de la solicitud.
+export type PeticionResultado =
+  | 'vigente'
+  | 'surtida'
+  | 'surtida-parcial'
+  | 'rechazada'
+  | 'cancelada'
+  | 'revisada'
+  | 'documentada'
+  | 'enviada'
+  | 'recibida';
+
+// Causa registrada cuando una petición se cancela o ajusta.
+export type MotivoCancelacion =
+  | 'pedido-facturado'
+  | 'pedido-cancelado'
+  | 'cubierta-otro-traspaso'
+  | 'urgencia-cedis'
+  | 'manual-sustituye'
+  | 'solicitud-cancelada';
 
 // Categoría real del traspaso (contexto de negocio):
 // - Automático: generado por el sistema cuando un pedido web no tiene todo el stock en una sola sucursal.
@@ -446,6 +553,16 @@ export interface TraspasoPeticion {
   packingList: boolean;
   cajasTotal: number;
   cajasRecibidas: number;
+  // ── Trazabilidad SMC (opcional, no rompe datos existentes) ──
+  flujo?: TraspasoFlujo;             // clasificación del flujo (Automatico/Semiautomatico/Manual/CEDIS)
+  intento?: number;                  // 1..MAX_EVALUACIONES_PETICION dentro de la misma solicitud
+  resultado?: PeticionResultado;     // resultado operativo dentro del ciclo de la solicitud
+  motivoRechazo?: string;            // motivo capturado al rechazar/cancelar
+  motivoCancelacion?: MotivoCancelacion; // causa tipificada de cancelación/ajuste
+  peticionAnteriorId?: string;       // eslabón previo en la cadena de recálculo
+  peticionSiguienteId?: string;      // eslabón siguiente (petición derivada)
+  sucursalesExcluidas?: string[];    // sucursales que ya rechazaron esta necesidad (no reelegibles)
+  solicitudEstado?: SolicitudEstado; // estado de la solicitud origen
 }
 
 // Código interno de almacén por sucursal (vista unificada estilo almacén).
@@ -471,6 +588,11 @@ export const SUCURSALES = [
   'Pelícano', 'Federalismo', 'Central Camionera', 'Adolf Horn',
   'Belisario Domínguez', 'Colón', 'Colonia Jalisco', 'Forum Tlaquepaque',
 ] as const;
+
+// Sucursal local (la que opera esta app). Se usa para comparar la existencia
+// propia contra lo requerido al generar solicitudes de traspaso: normalmente
+// no alcanza y por eso se pide traspaso/urgencia.
+export const SUCURSAL_LOCAL = 'Colón';
 
 // Existencia disponible por sucursal y código de producto (mock).
 export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
@@ -512,10 +634,12 @@ export function calcularSucursalRecomendada(
 export const TRASPASO_STATUS_COLORS: Record<TraspasoStatus, { bg: string; text: string; border: string }> = {
   'Pendiente':  { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
   'Surtido':    { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
-  'Documentado':{ bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
+  'Revisado':   { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
+  'Documentado':{ bg: 'rgba(13,148,136,0.12)',  text: '#0d9488', border: 'rgba(13,148,136,0.3)'  },
   'Enviado':    { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
   'Recibido':   { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
   'Entregado':  { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
+  'Cancelado':  { bg: 'rgba(220,38,38,0.12)',   text: '#dc2626', border: 'rgba(220,38,38,0.3)'   },
 };
 
 export const CEDIS_SUBTIPO_COLORS: Record<TraspasoSubtipoCedis, { bg: string; text: string; border: string }> = {
@@ -533,6 +657,10 @@ export const CEDIS_SUCURSAL_CONTRAPARTE = 'CEDIS';
 
 // Paqueterías disponibles para embarcar traspasos entre sucursales.
 export const TRASPASO_PAQUETERIAS = ['Transporte interno', 'BlueGo', 'Estafeta', 'DHL', 'Paquetexpress', 'Uber'];
+
+// Productos más vendidos / de alta rotación (mock) — se recomiendan al armar
+// una solicitud de traspaso entre sucursales.
+export const PRODUCTOS_ALTA_ROTACION: string[] = ['AC-201', 'FT-223', 'BP-001', 'BT-055', 'LT-334'];
 
 // Embarque que agrupa una o más peticiones de traspaso Saliente con el mismo
 // destino (sucursalDestino), de forma análoga a los embarques de pedidos.
@@ -575,6 +703,135 @@ export function tiempoTranscurrido(fechaIso: string): string {
 }
 
 export const TRASPASOS_DB: TraspasoPeticion[] = [
+  // ══════════════════════════════════════════════════════════════
+  // Escenarios variados por ETAPA (mes en curso) — Envío y Recepción
+  // Cubren: Sin surtir, Surtido, En revisión, Embarcado, Enviado/En camino,
+  // Recibido/Entregado (Finalizado) y Cancelado — para ambos tipos.
+  // ══════════════════════════════════════════════════════════════
+
+  // ── SALIENTE (Por enviar) ──
+  { id: 'DEMO-S-PEN', solicitudId: 'SOL-D101', tipo: 'Saliente', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Federalismo', status: 'Pendiente', intento: 1, resultado: 'vigente',
+    fechaCreacion: '2026-07-02 09:10', fechaActualizacion: '2026-07-02 09:10',
+    piezas: [{ code: 'BP-001', qtySolicitada: 6, qtySurtida: 0 }, { code: 'FT-223', qtySolicitada: 3, qtySurtida: 0 }],
+    pedidoOrigen: '1064772', parcial: false, usuarioCreador: 'JMORENO11', noPapeleta: '410101', packingList: false, cajasTotal: 2, cajasRecibidas: 0 },
+  { id: 'DEMO-S-SUR', solicitudId: 'SOL-D102', tipo: 'Saliente', categoria: 'Automático', flujo: 'Semiautomatico',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido', intento: 1, resultado: 'surtida',
+    fechaCreacion: '2026-07-03 11:40', fechaActualizacion: '2026-07-03 12:20',
+    piezas: [{ code: 'BC-118', qtySolicitada: 4, qtySurtida: 4 }], pedidoOrigen: '1064838', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '410102', packingList: true, cajasTotal: 1, cajasRecibidas: 0 },
+  { id: 'DEMO-S-REV', solicitudId: 'SOL-D103', tipo: 'Saliente', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Colón', status: 'Revisado', intento: 1, resultado: 'revisada',
+    fechaCreacion: '2026-07-05 08:15', fechaActualizacion: '2026-07-05 09:05',
+    piezas: [{ code: 'AC-201', qtySolicitada: 5, qtySurtida: 5 }], pedidoOrigen: '1064847', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '410103', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
+  { id: 'DEMO-S-DOC', solicitudId: 'SOL-D104', tipo: 'Saliente', categoria: 'Manual', flujo: 'Manual',
+    sucursalContraparte: 'Pelícano', status: 'Documentado', resultado: 'documentada',
+    fechaCreacion: '2026-07-07 14:00', fechaActualizacion: '2026-07-07 15:10',
+    piezas: [{ code: 'LT-334', qtySolicitada: 3, qtySurtida: 3 }], pedidoOrigen: '1064901', parcial: false,
+    embarqueId: '88750', metodoEnvio: 'Transporte interno',
+    usuarioCreador: 'JMORENO11', noPapeleta: '410104', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
+  { id: 'DEMO-S-ENV', solicitudId: 'SOL-D105', tipo: 'Saliente', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Central Camionera', status: 'Enviado', resultado: 'enviada',
+    fechaCreacion: '2026-07-09 10:30', fechaActualizacion: '2026-07-09 13:20', fechaArribo: '2026-07-10 11:00',
+    piezas: [{ code: 'RD-772', qtySolicitada: 2, qtySurtida: 2 }, { code: 'XX-999', qtySolicitada: 6, qtySurtida: 6 }],
+    pedidoOrigen: '1064853', parcial: false, embarqueId: '88751', metodoEnvio: 'Estafeta',
+    usuarioCreador: 'JMORENO11', noPapeleta: '410105', packingList: true, cajasTotal: 3, cajasRecibidas: 0 },
+  { id: 'DEMO-S-ENT', solicitudId: 'SOL-D106', tipo: 'Saliente', categoria: 'Automático', flujo: 'Semiautomatico',
+    sucursalContraparte: 'Belisario Domínguez', status: 'Entregado', resultado: 'recibida',
+    fechaCreacion: '2026-07-11 09:00', fechaActualizacion: '2026-07-12 16:45', fechaArribo: '2026-07-12 15:30',
+    piezas: [{ code: 'BP-001', qtySolicitada: 5, qtySurtida: 5 }], pedidoOrigen: '1064798', parcial: false,
+    embarqueId: '88752', metodoEnvio: 'DHL',
+    usuarioCreador: 'JMORENO11', noPapeleta: '410106', packingList: true, cajasTotal: 2, cajasRecibidas: 2 },
+  { id: 'DEMO-S-CAN', solicitudId: 'SOL-D107', tipo: 'Saliente', categoria: 'Manual', flujo: 'Manual',
+    sucursalContraparte: 'Colonia Jalisco', status: 'Cancelado', resultado: 'cancelada', motivoCancelacion: 'pedido-cancelado',
+    fechaCreacion: '2026-07-13 12:10', fechaActualizacion: '2026-07-13 17:40', motivoRechazo: 'Pedido origen cancelado',
+    piezas: [{ code: 'AM-445', qtySolicitada: 3, qtySurtida: 0 }], pedidoOrigen: '1064835', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '410107', packingList: false, cajasTotal: 1, cajasRecibidas: 0 },
+
+  // ── ENTRANTE (Por recibir) ──
+  { id: 'DEMO-E-PEN', solicitudId: 'SOL-D201', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Federalismo', status: 'Pendiente', intento: 1, resultado: 'vigente',
+    fechaCreacion: '2026-07-02 10:00', fechaActualizacion: '2026-07-02 10:00',
+    piezas: [{ code: 'FT-223', qtySolicitada: 4, qtySurtida: 0 }], pedidoOrigen: '1064772', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420201', packingList: false, cajasTotal: 1, cajasRecibidas: 0 },
+  { id: 'DEMO-E-SUR', solicitudId: 'SOL-D202', tipo: 'Entrante', categoria: 'Automático', flujo: 'Semiautomatico',
+    sucursalContraparte: 'Adolf Horn', status: 'Surtido', intento: 1, resultado: 'surtida',
+    fechaCreacion: '2026-07-04 09:30', fechaActualizacion: '2026-07-04 10:20',
+    piezas: [{ code: 'BT-055', qtySolicitada: 3, qtySurtida: 3 }], pedidoOrigen: '1064953', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420202', packingList: true, cajasTotal: 1, cajasRecibidas: 0 },
+  { id: 'DEMO-E-REV', solicitudId: 'SOL-D203', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Pelícano', status: 'Revisado', intento: 1, resultado: 'revisada',
+    fechaCreacion: '2026-07-06 13:00', fechaActualizacion: '2026-07-06 13:45',
+    piezas: [{ code: 'RD-772', qtySolicitada: 4, qtySurtida: 4 }], pedidoOrigen: '1064888', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420203', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
+  { id: 'DEMO-E-DOC', solicitudId: 'SOL-D204', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    sucursalContraparte: 'CEDIS', status: 'Documentado', resultado: 'documentada',
+    fechaCreacion: '2026-07-08 11:15', fechaActualizacion: '2026-07-08 12:30',
+    piezas: [{ code: 'BC-118', qtySolicitada: 6, qtySurtida: 6 }], pedidoOrigen: '1064910', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420204', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
+  { id: 'DEMO-E-ENV', solicitudId: 'SOL-D205', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Colón', status: 'Enviado', resultado: 'enviada',
+    fechaCreacion: '2026-07-10 08:40', fechaActualizacion: '2026-07-10 12:10', fechaArribo: '2026-07-11 10:30',
+    piezas: [{ code: 'LT-334', qtySolicitada: 2, qtySurtida: 2 }, { code: 'AC-201', qtySolicitada: 3, qtySurtida: 3 }],
+    pedidoOrigen: '1064960', parcial: false, embarqueId: '88760', metodoEnvio: 'BlueGo',
+    usuarioCreador: 'JMORENO11', noPapeleta: '420205', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
+  { id: 'DEMO-E-REC', solicitudId: 'SOL-D206', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', status: 'Recibido', resultado: 'recibida',
+    fechaCreacion: '2026-07-12 09:20', fechaActualizacion: '2026-07-13 10:05', fechaArribo: '2026-07-13 09:40',
+    piezas: [{ code: 'XX-999', qtySolicitada: 8, qtySurtida: 8 }], pedidoOrigen: '', parcial: false,
+    embarqueId: '88761', metodoEnvio: 'Transporte interno', cajas: 3,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420206', packingList: true, cajasTotal: 3, cajasRecibidas: 3 },
+  { id: 'DEMO-E-CAN', solicitudId: 'SOL-D207', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Central Camionera', status: 'Cancelado', resultado: 'cancelada', motivoCancelacion: 'cubierta-otro-traspaso',
+    fechaCreacion: '2026-07-14 15:00', fechaActualizacion: '2026-07-14 16:20', motivoRechazo: 'Necesidad cubierta por otro traspaso',
+    piezas: [{ code: 'BP-001', qtySolicitada: 4, qtySurtida: 0 }], pedidoOrigen: '1064907', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420207', packingList: false, cajasTotal: 1, cajasRecibidas: 0 },
+
+  // ── Un mismo PEDIDO (#1064953) con VARIAS peticiones bajo la MISMA solicitud (SOL-D210):
+  //    el motor SMC repartió la necesidad entre 3 sucursales donantes (cada una en distinta etapa).
+  { id: 'DEMO-E-MP1', solicitudId: 'SOL-D210', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Federalismo', status: 'Pendiente', intento: 1, resultado: 'vigente',
+    fechaCreacion: '2026-07-15 09:00', fechaActualizacion: '2026-07-15 09:00',
+    piezas: [{ code: 'BP-001', qtySolicitada: 4, qtySurtida: 0 }], pedidoOrigen: '1064953', parcial: false,
+    usuarioCreador: 'JMORENO11', noPapeleta: '420210', packingList: false, cajasTotal: 1, cajasRecibidas: 0 },
+  { id: 'DEMO-E-MP2', solicitudId: 'SOL-D210', tipo: 'Entrante', categoria: 'Automático', flujo: 'Semiautomatico',
+    sucursalContraparte: 'Adolf Horn', status: 'Enviado', intento: 1, resultado: 'enviada',
+    fechaCreacion: '2026-07-15 09:05', fechaActualizacion: '2026-07-15 12:30', fechaArribo: '2026-07-16 10:00',
+    piezas: [{ code: 'FT-223', qtySolicitada: 3, qtySurtida: 3 }], pedidoOrigen: '1064953', parcial: false,
+    embarqueId: '88770', metodoEnvio: 'BlueGo',
+    usuarioCreador: 'JMORENO11', noPapeleta: '420211', packingList: true, cajasTotal: 1, cajasRecibidas: 0 },
+  { id: 'DEMO-E-MP3', solicitudId: 'SOL-D210', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Colón', status: 'Recibido', intento: 1, resultado: 'recibida',
+    fechaCreacion: '2026-07-15 09:08', fechaActualizacion: '2026-07-16 11:20', fechaArribo: '2026-07-16 10:40',
+    piezas: [{ code: 'AM-445', qtySolicitada: 2, qtySurtida: 2 }], pedidoOrigen: '1064953', parcial: false,
+    embarqueId: '88771', metodoEnvio: 'Transporte interno',
+    usuarioCreador: 'JMORENO11', noPapeleta: '420212', packingList: true, cajasTotal: 1, cajasRecibidas: 1 },
+
+  // ── Pedido #1065001 (10 pzs BP-001): cadena de recálculo con RECHAZO y FALTANTE.
+  //    Intento 1 rechazado → intento 2 recibido (6) → intento 3 en camino (2) ⇒ faltan 2.
+  { id: 'DEMO-E-R1', solicitudId: 'SOL-R30', tipo: 'Entrante', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Federalismo', status: 'Cancelado', intento: 1, resultado: 'cancelada',
+    motivoCancelacion: 'cubierta-otro-traspaso', motivoRechazo: 'Rechazada por la sucursal: sin existencia suficiente',
+    fechaCreacion: '2026-07-15 08:30', fechaActualizacion: '2026-07-15 09:10',
+    piezas: [{ code: 'BP-001', qtySolicitada: 10, qtySurtida: 0 }], pedidoOrigen: '1065001', parcial: false,
+    peticionSiguienteId: 'DEMO-E-R2',
+    usuarioCreador: 'JMORENO11', noPapeleta: '430001', packingList: false, cajasTotal: 1, cajasRecibidas: 0 },
+  { id: 'DEMO-E-R2', solicitudId: 'SOL-R30', tipo: 'Entrante', categoria: 'Automático', flujo: 'Semiautomatico',
+    sucursalContraparte: 'Adolf Horn', status: 'Recibido', intento: 2, resultado: 'recibida',
+    fechaCreacion: '2026-07-15 09:15', fechaActualizacion: '2026-07-16 10:00', fechaArribo: '2026-07-16 09:30',
+    piezas: [{ code: 'BP-001', qtySolicitada: 6, qtySurtida: 6 }], pedidoOrigen: '1065001', parcial: false,
+    peticionAnteriorId: 'DEMO-E-R1', peticionSiguienteId: 'DEMO-E-R3',
+    embarqueId: '88780', metodoEnvio: 'BlueGo',
+    usuarioCreador: 'JMORENO11', noPapeleta: '430002', packingList: true, cajasTotal: 1, cajasRecibidas: 1 },
+  { id: 'DEMO-E-R3', solicitudId: 'SOL-R30', tipo: 'Entrante', categoria: 'Automático', flujo: 'Semiautomatico',
+    sucursalContraparte: 'Colón', status: 'Enviado', intento: 3, resultado: 'enviada',
+    fechaCreacion: '2026-07-16 10:30', fechaActualizacion: '2026-07-16 14:00', fechaArribo: '2026-07-17 11:00',
+    piezas: [{ code: 'BP-001', qtySolicitada: 2, qtySurtida: 2 }], pedidoOrigen: '1065001', parcial: false,
+    peticionAnteriorId: 'DEMO-E-R2',
+    embarqueId: '88781', metodoEnvio: 'Transporte interno',
+    usuarioCreador: 'JMORENO11', noPapeleta: '430003', packingList: true, cajasTotal: 1, cajasRecibidas: 0 },
+
   // SOL-2401: Entrante Automático Pendiente
   {
     id: 'PET-001', solicitudId: 'SOL-9001', tipo: 'Entrante', categoria: 'Automático',
@@ -1790,3 +2047,117 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     cajasTotal: 8, cajasRecibidas: 8,
   },
 ];
+
+// Reubica los escenarios DEMO-* al MES EN CURSO para que sean visibles por
+// defecto (el filtro por defecto muestra el mes actual). Conserva día y hora.
+(() => {
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const shift = (f: string) => ym + f.slice(7); // 'YYYY-MM-DD HH:mm' → mes actual
+  TRASPASOS_DB.forEach(t => {
+    if (!t.id.startsWith('DEMO-')) return;
+    t.fechaCreacion = shift(t.fechaCreacion);
+    t.fechaActualizacion = shift(t.fechaActualizacion);
+    if (t.fechaArribo) t.fechaArribo = shift(t.fechaArribo);
+  });
+})();
+
+// ── Normalización de IDs a la convención del proyecto (7 dígitos) ──
+// P: pedidos de clientes · T: traspasos (CEDIS reabasto) · TP: peticiones de
+// traspaso (auto/semi) · TU: urgencias · TM: manuales · S: solicitudes · EM: embarques.
+(() => {
+  const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
+  const soloDig = (s: string) => Number(s.replace(/\D/g, '')) || 0;
+  const solMap = new Map<string, string>();
+  const petMap = new Map<string, string>();
+  const embMap = new Map<string, string>();
+  let solSeq = 1;
+  const petSeq: Record<'T' | 'TP' | 'TU' | 'TM', number> = { T: 1, TP: 1, TU: 1, TM: 1 };
+
+  const petPrefix = (t: TraspasoPeticion): 'T' | 'TP' | 'TU' | 'TM' => {
+    if (t.categoria === 'Manual') return 'TM';
+    if (t.categoria === 'CEDIS') return t.subtipoCedis === 'Urgencia' ? 'TU' : 'T';
+    return 'TP';
+  };
+  const prefijarPedido = (p: string) => (!p || /^P\d/.test(p)) ? p : 'P' + pad7(soloDig(p));
+  const mapEmb = (id: string) => embMap.get(id) ?? (() => { const v = 'EM' + pad7(soloDig(id)); embMap.set(id, v); return v; })();
+
+  EMBARQUES_TRASPASO_DB.forEach(e => mapEmb(e.id));
+  TRASPASOS_DB.forEach(t => {
+    if (!solMap.has(t.solicitudId)) solMap.set(t.solicitudId, 'S' + pad7(solSeq++));
+    if (!petMap.has(t.id)) { const pre = petPrefix(t); petMap.set(t.id, pre + pad7(petSeq[pre]++)); }
+    if (t.embarqueId) mapEmb(t.embarqueId);
+  });
+  TRASPASOS_DB.forEach(t => {
+    t.id = petMap.get(t.id)!;
+    t.solicitudId = solMap.get(t.solicitudId)!;
+    t.pedidoOrigen = prefijarPedido(t.pedidoOrigen);
+    if (t.embarqueId) t.embarqueId = embMap.get(t.embarqueId) ?? t.embarqueId;
+    if (t.peticionAnteriorId) t.peticionAnteriorId = petMap.get(t.peticionAnteriorId) ?? t.peticionAnteriorId;
+    if (t.peticionSiguienteId) t.peticionSiguienteId = petMap.get(t.peticionSiguienteId) ?? t.peticionSiguienteId;
+  });
+  EMBARQUES_TRASPASO_DB.forEach(e => {
+    e.id = embMap.get(e.id) ?? e.id;
+    e.traspasos = e.traspasos.map(id => petMap.get(id) ?? id);
+  });
+})();
+
+// ── Identificador de producto: 7 dígitos sin letra ──
+// Remapea los códigos SKU (BP-001, …) a códigos numéricos de 7 dígitos y
+// actualiza todas las referencias (catálogo, existencias, pedidos, traspasos).
+export const PRODUCT_CODE_MAP: Record<string, string> = {};
+export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[code] ?? code; }
+(() => {
+  let seq = 1_000_001;
+  Object.keys(PRODUCT_CATALOG).forEach(old => { PRODUCT_CODE_MAP[old] = String(seq++); });
+  const m = (c: string) => PRODUCT_CODE_MAP[c] ?? c;
+
+  // Catálogo: re-key + campo code.
+  Object.keys(PRODUCT_CATALOG).forEach(old => {
+    const nw = PRODUCT_CODE_MAP[old];
+    if (!nw) return;
+    const prod = PRODUCT_CATALOG[old];
+    prod.code = nw;
+    PRODUCT_CATALOG[nw] = prod;
+    delete PRODUCT_CATALOG[old];
+  });
+  // Existencias por sucursal.
+  Object.keys(EXISTENCIA_POR_SUCURSAL).forEach(suc => {
+    const stock = EXISTENCIA_POR_SUCURSAL[suc];
+    const nuevo: Record<string, number> = {};
+    Object.keys(stock).forEach(c => { nuevo[m(c)] = stock[c]; });
+    EXISTENCIA_POR_SUCURSAL[suc] = nuevo;
+  });
+  // Partidas de pedidos.
+  Object.values(ORDERS_DB).forEach(o => o.partidas.forEach(p => { p.code = m(p.code); }));
+  // Piezas de traspasos.
+  TRASPASOS_DB.forEach(t => t.piezas.forEach(p => { p.code = m(p.code); }));
+  // Productos de alta rotación.
+  for (let i = 0; i < PRODUCTOS_ALTA_ROTACION.length; i++) PRODUCTOS_ALTA_ROTACION[i] = m(PRODUCTOS_ALTA_ROTACION[i]);
+})();
+
+// ── Tipo de envío por pedido ──
+// Spread de los 5 tipos para la demo; "Envío a domicilio/Traspasos" se usa en
+// pedidos que efectivamente tienen peticiones de traspaso relacionadas.
+(() => {
+  const explicit: Record<string, TipoEnvioPedido> = {
+    '1064772': 'Envío a domicilio/Traspasos',
+    '1064834': 'Pickup',
+    '1064838': 'Envío a domicilio/TLC',
+    '1064844': 'Envío a domicilio/Traspasos',
+    '1064847': 'Envío a domicilio',
+    '1064848': 'Envío a domicilio/División de facturas',
+    '1064851': 'Pickup',
+    '1064855': 'Envío a domicilio/TLC',
+    '1064853': 'Envío a domicilio/Traspasos',
+  };
+  const conTraspaso = new Set(TRASPASOS_DB.map(t => t.pedidoOrigen).filter(Boolean));
+  const otros: TipoEnvioPedido[] = ['Envío a domicilio', 'Pickup', 'Envío a domicilio/TLC', 'Envío a domicilio/División de facturas'];
+  let i = 0;
+  Object.values(ORDERS_DB).forEach(o => {
+    if (o.tipoEnvio) return;
+    if (explicit[o.id]) { o.tipoEnvio = explicit[o.id]; return; }
+    const pref = `P${o.id.replace(/\D/g, '').padStart(7, '0')}`;
+    o.tipoEnvio = conTraspaso.has(pref) ? 'Envío a domicilio/Traspasos' : otros[i++ % otros.length];
+  });
+})();

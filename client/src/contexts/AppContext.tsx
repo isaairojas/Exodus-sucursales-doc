@@ -7,7 +7,7 @@ import {
   AppState, AppScreen, ScannedItem, initialAppState,
   ORDERS_DB, OrderStatus,
   TraspasoPeticion, TraspasoPiezaDetalle, TraspasoStatus, TRASPASOS_DB,
-  EmbarqueTraspaso, EMBARQUES_TRASPASO_DB,
+  EmbarqueTraspaso, EMBARQUES_TRASPASO_DB, MotivoCancelacion,
 } from '@/lib/data';
 
 export interface DiscrepancyResolution {
@@ -51,9 +51,11 @@ interface AppContextValue {
   // Traspasos
   traspasos: TraspasoPeticion[];
   surtirTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => void;
+  revisarTraspaso: (petId: string, conIncidencias: boolean) => void;
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
   crearSolicitudCedisUrgencia: (data: CrearSolicitudCedisData) => string;
+  cancelarPeticiones: (ids: string[], motivo: MotivoCancelacion) => void;
   // Embarques de traspasos
   embarquesTraspaso: EmbarqueTraspaso[];
   embarcarTraspaso: (petId: string, data: EmbarcarTraspasoData) => string;
@@ -201,6 +203,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  // Revisión de traspaso Saliente: Surtido → Revisado (parcial si hubo incidencias).
+  const revisarTraspaso = useCallback((petId: string, conIncidencias: boolean) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t => {
+      if (t.id !== petId || t.status !== 'Surtido') return t;
+      return {
+        ...t,
+        status: 'Revisado' as TraspasoStatus,
+        fechaActualizacion: now,
+        parcial: conIncidencias || t.parcial,
+        resultado: conIncidencias ? 'surtida-parcial' : 'revisada',
+      };
+    }));
+  }, []);
+
   const entregarTraspaso = useCallback((petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     setTraspasos(prev => prev.map(t => {
@@ -219,7 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const peticion = traspasos.find(t => t.id === petId);
     if (!peticion || peticion.status !== 'Surtido') return '';
 
-    const embarqueId = data.embarqueExistenteId ?? `887${String(Date.now()).slice(-2)}`;
+    const embarqueId = data.embarqueExistenteId ?? `EM${String(Date.now() % 10_000_000).padStart(7, '0')}`;
 
     setEmbarquesTraspaso(prev => {
       const existente = prev.find(e => e.id === embarqueId);
@@ -251,12 +268,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const crearSolicitudTraspaso = useCallback((data: CrearSolicitudData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
-    const solicitudId = `SOL-${String(ts).slice(-4)}`;
+    const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
+    const solicitudId = `S${pad7(ts)}`;
     const nuevas: TraspasoPeticion[] = data.sucursales.map((suc, i) => {
       const piezas = (data.piezasPorSucursal[suc] ?? []).map(p => ({ ...p, qtySurtida: 0 }));
       const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
       return {
-        id: `PET-N${ts}-${i}`,
+        id: `TM${pad7(ts + i)}`,
         solicitudId,
         tipo: 'Entrante' as const,
         categoria: 'Manual' as const,
@@ -283,11 +301,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const crearSolicitudCedisUrgencia = useCallback((data: CrearSolicitudCedisData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
-    const solicitudId = `SOL-${String(ts).slice(-4)}`;
+    const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
+    const solicitudId = `S${pad7(ts)}`;
     const piezas = data.piezas.map(p => ({ ...p, qtySurtida: 0 }));
     const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
     const nueva: TraspasoPeticion = {
-      id: `PET-N${ts}`,
+      id: `TU${pad7(ts)}`,
       solicitudId,
       tipo: 'Entrante',
       categoria: 'CEDIS',
@@ -310,6 +329,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return solicitudId;
   }, []);
 
+  // Eliminación/ajuste de peticiones auto/semi cuando una urgencia CEDIS o un
+  // movimiento manual sustituye su mercancía. NO toca las que ya están en tránsito.
+  const cancelarPeticiones = useCallback((ids: string[], motivo: MotivoCancelacion) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const noModificable: TraspasoStatus[] = ['Enviado', 'Recibido', 'Entregado'];
+    setTraspasos(prev => prev.map(t =>
+      ids.includes(t.id) && !noModificable.includes(t.status)
+        ? { ...t, status: 'Cancelado' as TraspasoStatus, fechaActualizacion: now, resultado: 'cancelada', motivoCancelacion: motivo }
+        : t
+    ));
+  }, []);
+
   const resetReview = useCallback(() => {
     setState(s => ({
       ...initialAppState,
@@ -326,7 +357,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       state, goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia,
+      traspasos, surtirTraspaso, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, cancelarPeticiones,
       embarquesTraspaso, embarcarTraspaso,
     }}>
       {children}
