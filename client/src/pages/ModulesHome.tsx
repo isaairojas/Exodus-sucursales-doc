@@ -91,7 +91,7 @@ export default function ModulesHome() {
       >
         <div className="mb-8 md:mb-10">
           <img
-            src="/apymsa-logo.png"
+            src={`${import.meta.env.BASE_URL}apymsa-logo.png`}
             alt="APYMSA"
             className="w-full max-w-[420px] md:max-w-[520px] h-auto"
             style={{ filter: "brightness(0) invert(1)" }}

@@ -314,6 +314,18 @@ export const SHIPMENTS_DB_INITIAL: Shipment[] = [
   },
 ];
 
+// Asigna un número de guía a los embarques que no lo traen (prefijo por paquetería).
+(() => {
+  const prefijo: Record<string, string> = {
+    'Uber': 'UBR', 'BlueGo': 'BLG', 'Estafeta': 'EST', 'Transporte Interno': 'TIN', 'MEXICO EXPRESS': 'MEX',
+  };
+  SHIPMENTS_DB_INITIAL.forEach((s, i) => {
+    if (s.guia) return;
+    const pf = prefijo[s.paqueteria] ?? 'GUI';
+    s.guia = `${pf}-${s.id}${String(1000 + i * 37).slice(-4)}`;
+  });
+})();
+
 // ── App state types ───────────────────────────────────────────
 export type AppScreen = 'auth' | 'orders' | 'select' | 'review' | 'summary';
 
@@ -420,6 +432,28 @@ export type TraspasoEtapa =
 export const TRASPASO_ETAPAS: TraspasoEtapa[] = [
   'Sin surtir', 'Surtido', 'Revisado', 'Embarcado', 'Enviado / En camino', 'Recibido', 'Cancelado',
 ];
+
+// Descripciones (tooltips) para explicar cada etapa operativa del traspaso.
+export const TRASPASO_ETAPA_TOOLTIP: Record<TraspasoEtapa, string> = {
+  'Sin surtir': 'Pendiente de surtir: la sucursal origen aún no prepara la mercancía.',
+  'Surtido': 'La mercancía ya fue surtida (preparada) en la sucursal origen.',
+  'Revisado': 'La mercancía surtida fue revisada/validada antes de embarcar.',
+  'Embarcado': 'Documentado y asignado a un embarque, listo para salir.',
+  'Enviado / En camino': 'La mercancía salió de la sucursal origen y va en tránsito a la destino.',
+  'Recibido': 'La sucursal destino ya dio entrada a la mercancía.',
+  'Cancelado': 'El traspaso fue cancelado o negado; la necesidad se recalcula a otra sucursal.',
+};
+
+// Descripciones (tooltips) por categoría / subtipo de traspaso.
+export const TRASPASO_CATEGORIA_TOOLTIP: Record<string, string> = {
+  'Automático': 'Automático (SMC): lo genera el sistema cuando un pedido web no tiene todo el stock en una sola sucursal. Siempre lleva pedido.',
+  'Manual': 'Manual: solicitado a mano por la sucursal. Puede o no llevar pedido de cliente; sin pedido requiere token de autorización.',
+  'CEDIS': 'Movimiento con el Centro de Distribución (CEDIS).',
+  'Urgencia': 'Urgencia CEDIS: la sucursal solicita a CEDIS con un pedido relacionado. Requiere token.',
+  'Reabasto': 'Reabasto CEDIS: CEDIS envía por su cuenta para restock (sin pedido). Recepción ciega por cajas.',
+  'Devolución': 'Devolución: la sucursal regresa mercancía a CEDIS (p. ej. exceso de inventario).',
+  'Garantía': 'Garantía: la sucursal envía piezas defectuosas a CEDIS para su gestión de garantía.',
+};
 export function etapaTraspaso(status: TraspasoStatus): TraspasoEtapa {
   switch (status) {
     case 'Pendiente':   return 'Sin surtir';
@@ -2087,87 +2121,106 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     fechaArribo: '2026-07-20 09:05',
     cajasTotal: 8, cajasRecibidas: 8,
   },
-  // ── Escenario demo de dos lados: Tesistán ↔ Federalismo ──
-  // Modelo origen/destino explícito: el mismo registro se ve como "Por enviar"
-  // en la sucursal origen y como "Por recibir" en la sucursal destino.
-  // DEMO-TF-1: Tesistán debe surtir para Federalismo (Pendiente).
+  // ============================================================
+  // ESCENARIO CURADO DEL EJERCICIO (Tesistán ↔ Federalismo)
+  // Un ejemplo de cada tipo, una solicitud compartida entre peticiones y un
+  // manual sin pedido de cliente (con token). Fechas se reubican a la última
+  // semana por la IIFE del final. El mismo registro se ve como "Por enviar" en
+  // la sucursal origen y "Por recibir" en la destino.
+  // ============================================================
+  // 1) AUTOMÁTICO con pedido — Tesistán surte para Federalismo (Pendiente).
   {
-    id: 'DEMO-TF-1', solicitudId: 'DEMO-STF1', tipo: 'Entrante', categoria: 'Manual',
+    id: 'DEMO-AUTO-1', solicitudId: 'DEMO-S-AUTO', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
     status: 'Pendiente',
     fechaCreacion: '2026-07-03 09:10', fechaActualizacion: '2026-07-03 09:10',
-    piezas: [
-      { code: 'BP-001', qtySolicitada: 6, qtySurtida: 0 },
-      { code: 'AC-201', qtySolicitada: 4, qtySurtida: 0 },
-    ],
-    pedidoOrigen: '', parcial: false,
-    observaciones: 'Traspaso manual entre sucursales (demo Tesistán↔Federalismo).',
-    usuarioCreador: 'FEDERALISMO_LOG',
+    piezas: [{ code: 'BP-001', qtySolicitada: 6, qtySurtida: 0 }],
+    pedidoOrigen: 'P1064772', parcial: false,
+    observaciones: 'Petición automática (SMC) por pedido web sin stock local.',
+    usuarioCreador: 'SISTEMA_SMC',
     noPapeleta: '470301', packingList: false, cajasTotal: 2, cajasRecibidas: 0,
-    flujo: 'Manual', intento: 1,
+    flujo: 'Automatico', intento: 1, resultado: 'vigente',
   },
-  // DEMO-TF-2: Tesistán ya surtió y envió a Federalismo (Enviado / en camino).
+  // 2) MANUAL con pedido — Tesistán ya envió a Federalismo (Enviado / en camino).
   {
-    id: 'DEMO-TF-2', solicitudId: 'DEMO-STF2', tipo: 'Entrante', categoria: 'Manual',
+    id: 'DEMO-MAN-1', solicitudId: 'DEMO-S-MAN', tipo: 'Entrante', categoria: 'Manual',
     sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
     status: 'Enviado',
     fechaCreacion: '2026-07-04 11:20', fechaActualizacion: '2026-07-05 08:30',
-    piezas: [
-      { code: 'FT-223', qtySolicitada: 8, qtySurtida: 8 },
-    ],
-    pedidoOrigen: '', parcial: false,
+    piezas: [{ code: 'AC-201', qtySolicitada: 4, qtySurtida: 4 }],
+    pedidoOrigen: 'P1064953', parcial: false,
     embarqueId: '88820', metodoEnvio: 'Transporte Interno',
-    usuarioCreador: 'TESISTAN_LOG',
+    usuarioCreador: 'FEDERALISMO_LOG',
     noPapeleta: '470302', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
     fechaArribo: '2026-07-06 10:00',
     flujo: 'Manual', intento: 1,
   },
-  // DEMO-FT-1: Federalismo ya surtió para Tesistán, pendiente de enviar (Surtido).
+  // 3) CEDIS (Urgencia) con pedido — CEDIS envía a Federalismo (Enviado). Token 0000.
   {
-    id: 'DEMO-FT-1', solicitudId: 'DEMO-SFT1', tipo: 'Entrante', categoria: 'Manual',
-    sucursalContraparte: 'Federalismo', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
-    status: 'Surtido',
-    fechaCreacion: '2026-07-05 15:40', fechaActualizacion: '2026-07-05 16:10',
-    piezas: [
-      { code: 'BC-118', qtySolicitada: 5, qtySurtida: 5 },
-      { code: 'XX-999', qtySolicitada: 3, qtySurtida: 3 },
-    ],
+    id: 'DEMO-CED-1', solicitudId: 'DEMO-S-CED', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'CEDIS', sucursalDestino: 'Federalismo',
+    status: 'Enviado',
+    fechaCreacion: '2026-07-05 08:00', fechaActualizacion: '2026-07-06 09:15',
+    piezas: [{ code: 'FT-223', qtySolicitada: 5, qtySurtida: 5 }],
+    pedidoOrigen: 'P1064888', parcial: false,
+    autorizacionToken: '0000',
+    embarqueId: '88821', metodoEnvio: 'Paquetexpress',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '470304', packingList: true, cajasTotal: 3, cajasRecibidas: 0,
+    fechaArribo: '2026-07-07 11:00',
+    flujo: 'CEDIS', intento: 1,
+  },
+  // 4) SOLICITUD COMPARTIDA entre peticiones — un mismo pedido cubierto por dos
+  //    peticiones (Tesistán + Adolf Horn) hacia Federalismo. Se ven agrupadas.
+  {
+    id: 'DEMO-SH-1', solicitudId: 'DEMO-S-SHARED', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-06 10:00', fechaActualizacion: '2026-07-06 10:00',
+    piezas: [{ code: 'BP-001', qtySolicitada: 4, qtySurtida: 0 }],
+    pedidoOrigen: 'P1064844', parcial: false,
+    observaciones: 'Petición 1 de 2 de la misma solicitud (parte cubierta por Tesistán).',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '470305', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'vigente',
+  },
+  {
+    id: 'DEMO-SH-2', solicitudId: 'DEMO-S-SHARED', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', sucursalOrigen: 'Adolf Horn', sucursalDestino: 'Federalismo',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-06 10:00', fechaActualizacion: '2026-07-06 10:00',
+    piezas: [{ code: 'RD-772', qtySolicitada: 3, qtySurtida: 0 }],
+    pedidoOrigen: 'P1064844', parcial: false,
+    observaciones: 'Petición 2 de 2 de la misma solicitud (parte cubierta por Adolf Horn).',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '470306', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'vigente',
+  },
+  // 5) MANUAL SIN pedido de cliente — requiere token de autorización (0000).
+  {
+    id: 'DEMO-MANSP-1', solicitudId: 'DEMO-S-MANSP', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-07 12:30', fechaActualizacion: '2026-07-07 12:30',
+    piezas: [{ code: 'LT-334', qtySolicitada: 2, qtySurtida: 0 }],
     pedidoOrigen: '', parcial: false,
-    observaciones: 'Traspaso manual entre sucursales (demo Federalismo↔Tesistán).',
-    usuarioCreador: 'TESISTAN_LOG',
-    noPapeleta: '470303', packingList: false, cajasTotal: 2, cajasRecibidas: 0,
+    autorizacionToken: '0000',
+    observaciones: 'Traspaso manual sin pedido de cliente (autorizado con token).',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '470307', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,
   },
-  // ── Envío de la sucursal HACIA CEDIS (devolución / garantía) ──
-  // DEMO-DC-1: Federalismo devuelve mercancía a CEDIS (Pendiente de surtir/empacar).
+  // 6) ENVÍO a CEDIS (devolución) — Federalismo envía a CEDIS (Pendiente).
   {
-    id: 'DEMO-DC-1', solicitudId: 'DEMO-DC1', tipo: 'Saliente', categoria: 'Manual',
+    id: 'DEMO-DEV-1', solicitudId: 'DEMO-S-DEV', tipo: 'Saliente', categoria: 'Manual',
     sucursalContraparte: 'CEDIS', sucursalOrigen: 'Federalismo', sucursalDestino: 'CEDIS',
     motivoEnvioCedis: 'Devolución', status: 'Pendiente',
-    fechaCreacion: '2026-07-07 10:15', fechaActualizacion: '2026-07-07 10:15',
-    piezas: [
-      { code: 'RD-772', qtySolicitada: 4, qtySurtida: 0 },
-      { code: 'AM-445', qtySolicitada: 2, qtySurtida: 0 },
-    ],
+    fechaCreacion: '2026-07-08 10:15', fechaActualizacion: '2026-07-08 10:15',
+    piezas: [{ code: 'AM-445', qtySolicitada: 2, qtySurtida: 0 }],
     pedidoOrigen: '', parcial: false,
     observaciones: 'Devolución a CEDIS por exceso de inventario.',
     usuarioCreador: 'FEDERALISMO_LOG',
     noPapeleta: '480701', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
-    flujo: 'Manual', intento: 1,
-  },
-  // DEMO-DC-2: Tesistán envía garantía a CEDIS (ya surtida, por embarcar).
-  {
-    id: 'DEMO-DC-2', solicitudId: 'DEMO-DC2', tipo: 'Saliente', categoria: 'Manual',
-    sucursalContraparte: 'CEDIS', sucursalOrigen: 'Tesistán', sucursalDestino: 'CEDIS',
-    motivoEnvioCedis: 'Garantía', status: 'Revisado',
-    fechaCreacion: '2026-07-08 12:40', fechaActualizacion: '2026-07-08 14:05',
-    piezas: [
-      { code: 'BT-055', qtySolicitada: 3, qtySurtida: 3 },
-    ],
-    pedidoOrigen: '', parcial: false,
-    observaciones: 'Garantía de piezas defectuosas enviada a CEDIS.',
-    usuarioCreador: 'TESISTAN_LOG',
-    noPapeleta: '480801', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,
   },
 ];
@@ -2294,12 +2347,36 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
 (() => {
   TRASPASOS_DB.forEach(t => {
     if (t.sucursalOrigen && t.sucursalDestino) return;
+    // La contraparte legacy que caiga en una sucursal del ejercicio se reubica a
+    // otra (Adolf Horn) para no ensuciar la vista curada de Federalismo/Tesistán.
+    let contra = t.sucursalContraparte;
+    if (contra === SUCURSALES_EJERCICIO[0] || contra === SUCURSALES_EJERCICIO[1]) contra = 'Adolf Horn';
     if (t.tipo === 'Entrante') {
       t.sucursalDestino = SUCURSAL_LOCAL;
-      t.sucursalOrigen = t.sucursalContraparte;
+      t.sucursalOrigen = contra;
     } else {
       t.sucursalOrigen = SUCURSAL_LOCAL;
-      t.sucursalDestino = t.sucursalContraparte;
+      t.sucursalDestino = contra;
+    }
+  });
+})();
+
+// ── Fechas del ejercicio: última semana a partir de hoy ──
+// Reubica las fechas de los traspasos a los últimos 7 días para que aparezcan
+// en "Por recibir" / "Por enviar" con el filtro por defecto (mes en curso).
+(() => {
+  const hoy = new Date();
+  const DAY = 86_400_000;
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  TRASPASOS_DB.forEach((t, i) => {
+    const f = new Date(hoy.getTime() - (i % 7) * DAY);
+    const dia = ymd(f);
+    const hhCreacion = (t.fechaCreacion.slice(11) || '09:00').padEnd(5, '0');
+    t.fechaCreacion = `${dia} ${hhCreacion}`;
+    t.fechaActualizacion = `${dia} ${hhCreacion}`;
+    if (t.fechaArribo) {
+      const arr = new Date(f.getTime() + DAY);
+      t.fechaArribo = `${ymd(arr)} ${(t.fechaArribo.slice(11) || '10:00').padEnd(5, '0')}`;
     }
   });
 })();

@@ -11,6 +11,12 @@
 // Petición original + hasta 2 adicionales = 3 en total. Nunca una cuarta.
 export const MAX_EVALUACIONES_PETICION = 3;
 
+// ── Token de autorización (pruebas) ──
+// Los traspasos manuales SIN pedido de cliente y las solicitudes a CEDIS
+// requieren un token/PIN de autorización. Para las pruebas siempre es "0000".
+export const TOKEN_PRUEBA = '0000';
+export const esTokenValido = (t: string) => t.trim() === TOKEN_PRUEBA;
+
 // ── PENDIENTE ERB-51528 ──
 // Aún no está definido por negocio si el recálculo por surtido parcial se
 // dispara al FINALIZAR SURTIDO o al FINALIZAR REVISIÓN. NO se oculta esta

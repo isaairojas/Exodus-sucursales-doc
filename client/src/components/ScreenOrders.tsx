@@ -896,6 +896,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
   const btnBase = "px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap";
   const detailTotalPiezas = activeOrder ? activeOrder.partidas.reduce((sum, p) => sum + p.qty, 0) : 0;
   const detailLineas = activeOrder?.partidas.length ?? 0;
+  // Embarque asociado al pedido en detalle (para mostrar paquetería y guía).
+  const embarqueDePedido = detailOrder ? localShipments.find(s => s.pedidos.includes(detailOrder.id)) ?? null : null;
 
   return (
     <div className="flex flex-col h-full" style={{ fontFamily: 'Roboto, sans-serif', background: '#f4f6fa' }}>
@@ -1086,10 +1088,10 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                   <div>
                     <button
                       onClick={() => setDetailOrderId(null)}
-                      className="inline-flex items-center gap-1 text-sm font-semibold mb-2"
-                      style={{ color: '#1a2b6b' }}
+                      className="inline-flex items-center gap-2 text-sm font-bold mb-3 rounded-lg text-white transition-all"
+                      style={{ background: '#f97316', padding: '10px 18px', boxShadow: '0 3px 10px rgba(249,115,22,0.4)' }}
                     >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M15 18l-6-6 6-6"/></svg>
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M15 18l-6-6 6-6"/></svg>
                       Regresar a pedidos
                     </button>
                     <h2 className="text-2xl font-black" style={{ color: '#1a2b6b' }}>Detalle de Pedido #{detailOrder.id}</h2>
@@ -1117,6 +1119,11 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                 ['Cliente', detailOrder.cliente],
                 ['Vendedor', `${detailOrder.vendedorId} - ${detailOrder.vendedor}`],
                 ['Plazo', detailOrder.plazo || '—'],
+                ...(embarqueDePedido ? [
+                  ['Embarque', `#${embarqueDePedido.id}`] as [string, string],
+                  ['Paquetería', embarqueDePedido.paqueteria] as [string, string],
+                  ['No. de guía', embarqueDePedido.guia || '—'] as [string, string],
+                ] : []),
               ].map(([label, value]) => (
                 <div key={label}>
                   <p className="text-xs text-gray-400">{label}</p>

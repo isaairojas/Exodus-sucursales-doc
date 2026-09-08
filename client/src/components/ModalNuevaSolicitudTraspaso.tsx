@@ -13,6 +13,7 @@ import {
   SUCURSALES, PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle,
   EXISTENCIA_POR_SUCURSAL, calcularSucursalRecomendada, PRODUCTOS_ALTA_ROTACION,
 } from '@/lib/data';
+import { esTokenValido, TOKEN_PRUEBA } from '@/lib/traspasoConfig';
 
 interface Props {
   onClose: () => void;
@@ -240,7 +241,7 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
 
   // ── Paso 4 ──
   const requiereAutorizacion = !pedidoSelected;
-  const canConfirmar = !requiereAutorizacion || autorizacionToken.trim() !== '';
+  const canConfirmar = !requiereAutorizacion || esTokenValido(autorizacionToken);
 
   const sucursalesConPiezas = sucursalesAgregadas.filter(suc =>
     Object.values(asignaciones[suc] ?? {}).some(qty => qty > 0)
@@ -606,16 +607,20 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                       Autorización requerida
                     </p>
                     <p className="text-xs" style={{ color: '#6b7280' }}>
-                      Como se omitió el pedido origen, esta solicitud requiere autorización con token/PIN.
+                      Como es un traspaso manual <strong>sin pedido de cliente</strong>, requiere autorización con token/PIN.
+                      Para las pruebas el token es <strong style={{ color: '#d97706' }}>{TOKEN_PRUEBA}</strong>.
                     </p>
                     <input
                       type="text"
                       value={autorizacionToken}
                       onChange={e => setAutorizacionToken(e.target.value)}
-                      placeholder="Ingresa el token/PIN de autorización"
+                      placeholder={`Ingresa el token/PIN (${TOKEN_PRUEBA})`}
                       className="text-xs rounded border px-3 py-2"
-                      style={{ borderColor: '#d97706', fontFamily: 'Roboto, sans-serif' }}
+                      style={{ borderColor: esTokenValido(autorizacionToken) ? '#16a34a' : '#d97706', fontFamily: 'Roboto, sans-serif' }}
                     />
+                    {autorizacionToken.trim() !== '' && !esTokenValido(autorizacionToken) && (
+                      <span className="text-[11px]" style={{ color: '#dc2626' }}>Token incorrecto (usa {TOKEN_PRUEBA}).</span>
+                    )}
                   </div>
                 )}
 

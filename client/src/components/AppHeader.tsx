@@ -66,7 +66,7 @@ export default function AppHeader({
         <div>
 
             <img
-              src="/apymsa-logo.png"
+              src={`${import.meta.env.BASE_URL}apymsa-logo.png`}
               alt="APYMSA"
               style={{ height: 22, width: 'auto', display: 'block' }}
             />

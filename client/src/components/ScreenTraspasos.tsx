@@ -11,6 +11,7 @@ import {
   SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta, CEDIS_SUBTIPO_COLORS, TRASPASO_CATEGORIA_COLORS,
   TraspasoEstadoAlto, TraspasoEtapa, estadoAltoTraspaso, etapaTraspaso,
   TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
+  TRASPASO_ETAPA_TOOLTIP, TRASPASO_CATEGORIA_TOOLTIP,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
@@ -426,6 +427,11 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                 : t.categoria === 'CEDIS' && t.subtipoCedis
                 ? CEDIS_SUBTIPO_COLORS[t.subtipoCedis]
                 : TRASPASO_CATEGORIA_COLORS[t.categoria as 'Automático' | 'Manual'];
+              const tipoTooltip = t.motivoEnvioCedis
+                ? TRASPASO_CATEGORIA_TOOLTIP[t.motivoEnvioCedis]
+                : t.categoria === 'CEDIS' && t.subtipoCedis
+                ? TRASPASO_CATEGORIA_TOOLTIP[t.subtipoCedis]
+                : TRASPASO_CATEGORIA_TOOLTIP[t.categoria] ?? '';
 
               const { num: recibidoNum, den: recibidoDen, unidad: recibidoUnidad } = calcularRecibido(t, per.tipo);
               const etapa = etapaTraspaso(t.status);
@@ -449,10 +455,12 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   <td className="px-3 py-2.5">
                     <span
                       className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                      title={tipoTooltip}
                       style={{
                         background: tipoColor.bg,
                         color: tipoColor.text,
                         border: `1px solid ${tipoColor.border}`,
+                        cursor: 'help',
                       }}
                     >
                       {tipoLabel}
@@ -526,7 +534,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   <td className="px-3 py-2.5">
                     <span
                       className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}` }}
+                      title={TRASPASO_ETAPA_TOOLTIP[etapa]}
+                      style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
                     >
                       {etapa}
                     </span>

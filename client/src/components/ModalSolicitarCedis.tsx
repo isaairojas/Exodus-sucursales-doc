@@ -10,7 +10,7 @@ import { useApp, CrearSolicitudCedisData } from '@/contexts/AppContext';
 import { PRODUCT_CATALOG, TraspasoPiezaDetalle, EXISTENCIA_POR_SUCURSAL } from '@/lib/data';
 import { PEDIDOS_URGENCIA_DEMO, getPedidoUrgenciaDemo, horasDesdeCaptura } from '@/lib/traspasoCedisDemo';
 import { validarSeleccionPedidoUrgencia, calcularImpactoPeticiones } from '@/lib/traspasoRules';
-import { PEDIDO_VIGENCIA_URGENCIA_HORAS } from '@/lib/traspasoConfig';
+import { PEDIDO_VIGENCIA_URGENCIA_HORAS, esTokenValido, TOKEN_PRUEBA } from '@/lib/traspasoConfig';
 
 interface Props {
   onClose: () => void;
@@ -105,8 +105,9 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
   // Paso 2: piezas (se precargan del pedido; editables)
   const [piezas, setPiezas] = useState<PiezaSeleccionada[]>([]);
 
-  // Paso 3: observaciones
+  // Paso 3: observaciones + token de autorización (CEDIS siempre requiere token)
   const [observaciones, setObservaciones] = useState('');
+  const [token, setToken] = useState('');
 
   const pedidoDemo = pedidoSelected ? getPedidoUrgenciaDemo(pedidoSelected) : null;
 
@@ -164,7 +165,7 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
   const canGoToStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
 
   // ── Paso 3 ──
-  const canConfirmar = !!pedidoSelected && piezas.length > 0;
+  const canConfirmar = !!pedidoSelected && piezas.length > 0 && esTokenValido(token);
 
   const handleConfirmar = () => {
     if (!canConfirmar || !pedidoSelected) return;
@@ -439,6 +440,28 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                       </div>
                     ))}
                   </div>
+                </div>
+
+                {/* Token de autorización (CEDIS siempre requiere token) */}
+                <div className="rounded-lg p-4 flex flex-col gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
+                  <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: '#d97706' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>vpn_key</span>
+                    Autorización requerida (CEDIS)
+                  </p>
+                  <p className="text-xs" style={{ color: '#6b7280' }}>
+                    Las solicitudes a CEDIS requieren token/PIN. Para las pruebas el token es <strong style={{ color: '#d97706' }}>{TOKEN_PRUEBA}</strong>.
+                  </p>
+                  <input
+                    type="text"
+                    value={token}
+                    onChange={e => setToken(e.target.value)}
+                    placeholder={`Ingresa el token/PIN (${TOKEN_PRUEBA})`}
+                    className="text-xs rounded border px-3 py-2"
+                    style={{ borderColor: esTokenValido(token) ? '#16a34a' : '#d97706', fontFamily: 'Roboto, sans-serif' }}
+                  />
+                  {token.trim() !== '' && !esTokenValido(token) && (
+                    <span className="text-[11px]" style={{ color: '#dc2626' }}>Token incorrecto (usa {TOKEN_PRUEBA}).</span>
+                  )}
                 </div>
 
                 <div>
