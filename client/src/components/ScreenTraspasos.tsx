@@ -98,7 +98,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const colPorcentaje = tipoFilter === 'Entrante' ? '% Recepción' : '% Enviado';
   const COLUMNS = [
     'Tipo', 'Solicitud', 'Almacén', 'Pedido cliente', 'No. Papeleta',
-    'Fecha traspaso', colFechaSegunda, colRecibido, colPorcentaje, 'Etapa',
+    'Fecha traspaso', colFechaSegunda, colRecibido, colPorcentaje, 'Estado',
   ];
 
   // Filtros — al entrar: mes en curso y SIN filtros de estado/etapa
@@ -234,7 +234,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         'No. papeleta': t.noPapeleta,
         'Fecha traspaso': formatFechaCorta(t.fechaCreacion),
         [colRecibido]: `${num}/${den} ${unidad}`,
-        Etapa: etapaTraspaso(t.status),
+        Estado: (() => { const e = etapaTraspaso(t.status); return t.parcial && (e === 'Surtido' || e === 'Revisado') ? `${e} parcialmente` : e; })(),
       };
     });
     const piezas = rows.flatMap(t => t.piezas.map(p => ({
@@ -500,6 +500,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const { num: recibidoNum, den: recibidoDen, unidad: recibidoUnidad } = calcularRecibido(t, per.tipo);
               const etapa = etapaTraspaso(t.status);
               const etapaColor = TRASPASO_ETAPA_COLORS[etapa];
+              // Estado mostrado: "Surtido/Revisado parcialmente" cuando la petición es parcial.
+              const estadoLabel = t.parcial && (etapa === 'Surtido' || etapa === 'Revisado') ? `${etapa} parcialmente` : etapa;
               const pct = recibidoDen > 0 ? Math.round((recibidoNum / recibidoDen) * 100) : 0;
 
               return (
@@ -598,10 +600,12 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   <td className="px-3 py-2.5">
                     <span
                       className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      title={TRASPASO_ETAPA_TOOLTIP[etapa]}
+                      title={t.parcial && (etapa === 'Surtido' || etapa === 'Revisado')
+                        ? `${TRASPASO_ETAPA_TOOLTIP[etapa]} Se surtió/revisó solo una parte; el logístico puede generar una nueva solicitud por el restante.`
+                        : TRASPASO_ETAPA_TOOLTIP[etapa]}
                       style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
                     >
-                      {etapa}
+                      {estadoLabel}
                     </span>
                   </td>
                 </tr>
