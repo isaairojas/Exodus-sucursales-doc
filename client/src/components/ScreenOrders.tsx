@@ -9,6 +9,8 @@ import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus,
 import ModalFacturacion from '@/components/ModalFacturacion';
 import ModalSurtirPedido from '@/components/ModalSurtirPedido';
 import ResumenTraspasosPedido from '@/components/ResumenTraspasosPedido';
+import { exportarExcel } from '@/lib/exportExcel';
+import { imprimirPedido } from '@/lib/printDoc';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -1094,6 +1096,41 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M15 18l-6-6 6-6"/></svg>
                       Regresar a pedidos
                     </button>
+                    <div className="flex items-center gap-2 mb-3">
+                      <button
+                        onClick={() => imprimirPedido(detailOrder, embarqueDePedido)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 transition-all"
+                        style={{ border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }}
+                        title="Simular impresión (PDF) según el estado del pedido"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>print</span>
+                        Imprimir
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportarExcel(`pedido_${detailOrder.id}`, [
+                            { nombre: 'Pedido', filas: [{
+                              PedidoID: detailOrder.id, Origen: detailOrder.origen, Status: detailOrder.status,
+                              'Fecha Captura': detailOrder.fechaCaptura, 'Tipo de envío': detailOrder.tipoEnvio ?? '—',
+                              ClienteID: detailOrder.clienteId, Cliente: detailOrder.cliente,
+                              Vendedor: `${detailOrder.vendedorId} - ${detailOrder.vendedor}`, Plazo: detailOrder.plazo ?? '—',
+                              Total: detailOrder.total,
+                              Embarque: embarqueDePedido ? `#${embarqueDePedido.id}` : '—',
+                              Paquetería: embarqueDePedido?.paqueteria ?? '—', 'No. de guía': embarqueDePedido?.guia ?? '—',
+                            }] },
+                            { nombre: 'Partidas', filas: detailOrder.partidas.map(p => ({
+                              Código: p.code, Descripción: PRODUCT_CATALOG[p.code]?.name ?? p.code, Categoría: PRODUCT_CATALOG[p.code]?.category ?? '—', Cantidad: p.qty,
+                            })) },
+                          ]);
+                        }}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 transition-all"
+                        style={{ border: '1.5px solid #16a34a', color: '#16a34a', background: 'white' }}
+                        title="Exportar el pedido y sus partidas a Excel"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>
+                        Exportar Excel
+                      </button>
+                    </div>
                     <h2 className="text-2xl font-black" style={{ color: '#1a2b6b' }}>Detalle de Pedido #{detailOrder.id}</h2>
                     <p className="text-sm text-gray-500 mt-1">{detailOrder.cliente}</p>
                   </div>

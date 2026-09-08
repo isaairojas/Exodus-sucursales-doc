@@ -11,8 +11,10 @@ import {
   SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta, CEDIS_SUBTIPO_COLORS, TRASPASO_CATEGORIA_COLORS,
   TraspasoEstadoAlto, TraspasoEtapa, estadoAltoTraspaso, etapaTraspaso,
   TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
-  TRASPASO_ETAPA_TOOLTIP, TRASPASO_CATEGORIA_TOOLTIP,
+  TRASPASO_ETAPA_TOOLTIP, TRASPASO_CATEGORIA_TOOLTIP, PRODUCT_CATALOG,
 } from '@/lib/data';
+import { exportarExcel } from '@/lib/exportExcel';
+import { imprimirTraspaso } from '@/lib/printDoc';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
 import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
@@ -217,6 +219,39 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     setFilterEtapa('ALL');
   };
 
+  // Exporta a Excel lo que se ve en la tabla (filtrada) + el desglose de piezas.
+  const handleExportExcel = () => {
+    const tabla = rows.map(t => {
+      const per = perspectivaTraspaso(t, sucursalActual);
+      const { num, den, unidad } = calcularRecibido(t, per.tipo);
+      const tipo = t.motivoEnvioCedis ?? (t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria]);
+      return {
+        Tipo: tipo,
+        Solicitud: t.solicitudId,
+        Traspaso: t.id,
+        Almacén: `${per.tipo === 'Entrante' ? 'De: ' : 'A: '}${per.contraparte}`,
+        'Pedido cliente': t.pedidoOrigen || 'Sin pedido',
+        'No. papeleta': t.noPapeleta,
+        'Fecha traspaso': formatFechaCorta(t.fechaCreacion),
+        [colRecibido]: `${num}/${den} ${unidad}`,
+        Etapa: etapaTraspaso(t.status),
+      };
+    });
+    const piezas = rows.flatMap(t => t.piezas.map(p => ({
+      Traspaso: t.id,
+      Solicitud: t.solicitudId,
+      Código: p.code,
+      Descripción: PRODUCT_CATALOG[p.code]?.name ?? p.code,
+      Solicitado: p.qtySolicitada,
+      Surtido: p.qtySurtida,
+    })));
+    exportarExcel(`traspasos_${tipoFilter === 'Entrante' ? 'por_recibir' : 'por_enviar'}_${sucursalActual}`, [
+      { nombre: 'Traspasos', filas: tabla },
+      { nombre: 'Piezas (detalle)', filas: piezas },
+    ]);
+    showToast(`Exportados ${rows.length} traspasos a Excel.`, 'success');
+  };
+
   const handleRowClick = (id: string) => setSelectedId(prev => prev === id ? null : id);
   const handleRowDoubleClick = (id: string) => setDetailPetId(id);
 
@@ -355,6 +390,15 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         </div>
 
         <div className="flex items-center gap-2 md:ml-auto">
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all"
+            style={{ border: '1.5px solid #16a34a', color: '#16a34a', background: 'white' }}
+            title="Exportar a Excel la tabla filtrada y el desglose de piezas"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>
+            Exportar Excel
+          </button>
           {onEnviarCedis && (
             <button
               onClick={onEnviarCedis}
@@ -561,6 +605,18 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         >
           <span className="material-symbols-outlined" style={{ fontSize: 15 }}>visibility</span>
           Ver detalle
+        </button>
+
+        {/* Imprimir (PDF por etapa) */}
+        <button
+          disabled={!canVerDetalle}
+          onClick={() => sel && imprimirTraspaso(sel, sucursalActual)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all"
+          style={btnOutline(canVerDetalle)}
+          title="Simular impresión (PDF) según la etapa del traspaso"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>print</span>
+          Imprimir
         </button>
 
         {/* Separador */}
