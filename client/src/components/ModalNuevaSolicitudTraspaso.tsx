@@ -10,8 +10,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, CrearSolicitudData } from '@/contexts/AppContext';
 import {
-  SUCURSALES, PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle,
+  PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle,
   EXISTENCIA_POR_SUCURSAL, calcularSucursalRecomendada, PRODUCTOS_ALTA_ROTACION,
+  SUCURSALES_EJERCICIO,
 } from '@/lib/data';
 import { esTokenValido, TOKEN_PRUEBA } from '@/lib/traspasoConfig';
 
@@ -25,6 +26,16 @@ type Step = 1 | 2 | 3 | 4;
 interface PiezaSeleccionada {
   code: string;
   qty: number;
+}
+
+// Opción calculada por el algoritmo SMC 4.0 (el usuario elige una, no elige libremente la sucursal).
+interface OpcionSMC {
+  id: string;
+  titulo: string;
+  mejor: boolean;
+  nota: string;
+  sucursales: string[];
+  asignacion: Record<string, Record<string, number>>;
 }
 
 // ── Buscador tipo sugerencias (autocomplete) ──────────────────
@@ -107,9 +118,12 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
   // Paso 2: piezas (lista global, todavía sin sucursal asignada)
   const [piezas, setPiezas] = useState<PiezaSeleccionada[]>([]);
 
-  // Paso 3: sucursales agregadas + cantidad asignada por sucursal y pieza
+  // Paso 3: opciones que calcula el algoritmo SMC 4.0 (el usuario elige una)
   const [sucursalesAgregadas, setSucursalesAgregadas] = useState<string[]>([]);
   const [asignaciones, setAsignaciones] = useState<Record<string, Record<string, number>>>({});
+  const [calculandoSMC, setCalculandoSMC] = useState(false);
+  const [opcionesSMC, setOpcionesSMC] = useState<OpcionSMC[]>([]);
+  const [opcionElegida, setOpcionElegida] = useState<string | null>(null);
 
   // Paso 4: observaciones + autorización
   const [observaciones, setObservaciones] = useState('');
@@ -196,46 +210,56 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
 
   const canGoToStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
 
-  // ── Paso 3 ──
-  const restantePorAsignar = (code: string) => {
-    const total = piezas.find(p => p.code === code)?.qty ?? 0;
-    const asignado = sucursalesAgregadas.reduce((sum, suc) => sum + (asignaciones[suc]?.[code] ?? 0), 0);
-    return Math.max(0, total - asignado);
-  };
-
-  const opcionesSucursales = SUCURSALES.filter(s => !sucursalesAgregadas.includes(s));
-
-  const recomendacion = useMemo(
-    () => calcularSucursalRecomendada(piezas, sucursalesAgregadas),
-    [piezas, sucursalesAgregadas]
-  );
-
-  const handleAddSucursal = (suc: string) => {
-    const inicial: Record<string, number> = {};
-    piezas.forEach(p => {
-      const restante = restantePorAsignar(p.code);
-      if (restante > 0) inicial[p.code] = restante;
+  // ── Paso 3: opciones SMC 4.0 ──
+  // El usuario NO elige libremente la sucursal: el algoritmo propone 3 opciones y
+  // el usuario selecciona una. La "mejor opción" es una sola sucursal: la
+  // contraparte del ejercicio (Tesistán si opero en Federalismo, y viceversa).
+  const calcularOpcionesSMC = (): OpcionSMC[] => {
+    const req = piezas.filter(p => p.qty > 0);
+    const asignUnica = (suc: string): Record<string, Record<string, number>> => ({
+      [suc]: Object.fromEntries(req.map(p => [p.code, p.qty])),
     });
-    setSucursalesAgregadas(prev => [...prev, suc]);
-    setAsignaciones(prev => ({ ...prev, [suc]: inicial }));
-  };
-
-  const handleRemoveSucursal = (suc: string) => {
-    setSucursalesAgregadas(prev => prev.filter(s => s !== suc));
-    setAsignaciones(prev => {
-      const { [suc]: _omit, ...rest } = prev;
-      return rest;
+    const mejorSuc = sucursalActual === SUCURSALES_EJERCICIO[1] ? SUCURSALES_EJERCICIO[0] : SUCURSALES_EJERCICIO[1];
+    const rec2 = calcularSucursalRecomendada(req.map(p => ({ code: p.code, qty: p.qty })), [mejorSuc, sucursalActual]);
+    const altSuc = rec2?.sucursal ?? 'Adolf Horn';
+    // Reparto entre 2 sucursales (mitad y mitad por pieza).
+    const asignSplit: Record<string, Record<string, number>> = { [mejorSuc]: {}, [altSuc]: {} };
+    req.forEach(p => {
+      const mitad = Math.ceil(p.qty / 2);
+      if (mitad > 0) asignSplit[mejorSuc][p.code] = mitad;
+      if (p.qty - mitad > 0) asignSplit[altSuc][p.code] = p.qty - mitad;
     });
+    return [
+      { id: 'mejor', titulo: 'Tu mejor opción', mejor: true, sucursales: [mejorSuc], asignacion: asignUnica(mejorSuc),
+        nota: `Una sola sucursal (${mejorSuc}) cubre todo lo solicitado con la mejor cercanía y existencia.` },
+      { id: 'alt', titulo: 'Alternativa', mejor: false, sucursales: [altSuc], asignacion: asignUnica(altSuc),
+        nota: `Otra sucursal (${altSuc}) también puede surtir el total.` },
+      { id: 'split', titulo: 'Reparto entre 2 sucursales', mejor: false, sucursales: [mejorSuc, altSuc], asignacion: asignSplit,
+        nota: `Divide el surtido entre ${mejorSuc} y ${altSuc}.` },
+    ];
   };
 
-  const handleUpdateAsignacion = (suc: string, code: string, qty: number) => {
-    setAsignaciones(prev => ({
-      ...prev,
-      [suc]: { ...prev[suc], [code]: Math.max(0, qty) },
-    }));
+  // Al entrar al paso 3: animación de cálculo SMC y luego se muestran las opciones.
+  const irAPasoSucursales = () => {
+    setStep(3);
+    setOpcionElegida(null);
+    setSucursalesAgregadas([]);
+    setAsignaciones({});
+    setOpcionesSMC([]);
+    setCalculandoSMC(true);
+    window.setTimeout(() => {
+      setOpcionesSMC(calcularOpcionesSMC());
+      setCalculandoSMC(false);
+    }, 1700);
   };
 
-  const canGoToStep4 = sucursalesAgregadas.some(suc =>
+  const elegirOpcionSMC = (op: OpcionSMC) => {
+    setOpcionElegida(op.id);
+    setSucursalesAgregadas(op.sucursales);
+    setAsignaciones(op.asignacion);
+  };
+
+  const canGoToStep4 = !!opcionElegida && sucursalesAgregadas.some(suc =>
     Object.values(asignaciones[suc] ?? {}).some(qty => qty > 0)
   );
 
@@ -492,108 +516,55 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
               </div>
             )}
 
-            {/* Paso 3: Sucursales de origen */}
+            {/* Paso 3: Selección de sucursales por SMC 4.0 (opciones, no libre) */}
             {step === 3 && (
               <div className="flex flex-col gap-4">
-                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>¿De qué sucursal solicitarás la mercancía?</p>
+                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>El algoritmo SMC 4.0 selecciona las sucursales</p>
+                <p className="text-xs" style={{ color: '#6b7280' }}>
+                  No eliges la sucursal manualmente: elige una de las opciones que calculó <strong>SMC 4.0</strong> según cercanía, existencia y cobertura.
+                </p>
 
-                <BuscadorSugerencias
-                  placeholder="Buscar sucursal…"
-                  options={opcionesSucursales}
-                  getId={s => s}
-                  getLabel={s => s}
-                  onSelect={handleAddSucursal}
-                  disabled={opcionesSucursales.length === 0}
-                />
-
-                {recomendacion && !sucursalesAgregadas.includes(recomendacion.sucursal) && (
-                  <div className="flex items-center justify-between gap-3 rounded-lg p-3" style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.25)' }}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 18, color: '#2563eb' }}>bolt</span>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold" style={{ color: '#1a2b6b' }}>
-                          Sucursal recomendada (SMC): {recomendacion.sucursal}
-                        </p>
-                        <p className="text-[11px]" style={{ color: '#6b7280' }}>
-                          {recomendacion.suficiente
-                            ? 'Es la sucursal más cercana con existencia suficiente.'
-                            : 'Es la sucursal más cercana disponible, aunque no cubre toda la existencia solicitada.'}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleAddSucursal(recomendacion.sucursal)}
-                      className="flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded transition-all"
-                      style={{ background: '#1a2b6b', color: '#fff' }}
-                    >
-                      Agregar
-                    </button>
+                {calculandoSMC ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-12">
+                    <div className="animate-spin rounded-full" style={{ width: 54, height: 54, border: '4px solid #e5e7eb', borderTopColor: '#1a2b6b' }} />
+                    <p className="text-sm font-bold" style={{ color: '#1a2b6b' }}>SMC 4.0 está calculando las sucursales…</p>
+                    <p className="text-xs" style={{ color: '#9ca3af' }}>Analizando cercanía, existencia y cobertura</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {opcionesSMC.map(op => {
+                      const elegida = opcionElegida === op.id;
+                      return (
+                        <button
+                          key={op.id}
+                          onClick={() => elegirOpcionSMC(op)}
+                          className="text-left rounded-xl p-3 transition-all"
+                          style={{
+                            border: `2px solid ${elegida ? '#1a2b6b' : op.mejor ? 'rgba(22,163,74,0.55)' : '#e5e7eb'}`,
+                            background: elegida ? 'rgba(26,43,107,0.05)' : op.mejor ? 'rgba(22,163,74,0.04)' : '#fff',
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-2 font-bold text-sm" style={{ color: '#1a2b6b' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 18, color: op.mejor ? '#16a34a' : '#6b7280' }}>{op.mejor ? 'star' : 'alt_route'}</span>
+                              {op.titulo}
+                              {op.mejor && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: 'rgba(22,163,74,0.12)', color: '#16a34a' }}>Recomendada</span>}
+                            </span>
+                            {elegida && <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#1a2b6b' }}>check_circle</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {op.sucursales.map(s => (
+                              <span key={s} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>location_on</span>{s}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[11px] mt-2" style={{ color: '#6b7280' }}>{op.nota}</p>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-
-                <div className="flex flex-col gap-3">
-                  {sucursalesAgregadas.map(suc => {
-                    const stock = EXISTENCIA_POR_SUCURSAL[suc] ?? {};
-                    const hasWarning = piezas.some(p => (stock[p.code] ?? 0) < (asignaciones[suc]?.[p.code] ?? 0));
-                    return (
-                      <div key={suc} className="rounded-lg overflow-hidden" style={{ border: `1.5px solid ${hasWarning ? '#f59e0b' : '#e5e7eb'}` }}>
-                        <div className="flex items-center justify-between px-3 py-2" style={{ background: '#f8f9fb' }}>
-                          <span className="flex items-center gap-1.5 font-semibold text-sm" style={{ color: '#1a2b6b' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>location_on</span>
-                            {suc}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {hasWarning && (
-                              <span
-                                className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
-                                style={{ background: 'rgba(217,119,6,0.12)', color: '#d97706', border: '1px solid rgba(217,119,6,0.3)' }}
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>warning</span>
-                                Falta de existencia
-                              </span>
-                            )}
-                            <button
-                              onClick={() => handleRemoveSucursal(suc)}
-                              className="w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0"
-                              style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1.5 p-3">
-                          {piezas.map(p => {
-                            const existencia = stock[p.code] ?? 0;
-                            const asignado = asignaciones[suc]?.[p.code] ?? 0;
-                            const corto = existencia < asignado;
-                            return (
-                              <div key={p.code} className="flex items-center gap-2 text-xs">
-                                <span className="flex-1 min-w-0 truncate" style={{ color: '#374151' }}>
-                                  {p.code} — {PRODUCT_CATALOG[p.code]?.name}
-                                </span>
-                                <span className="whitespace-nowrap" style={{ color: corto ? '#dc2626' : '#6b7280', fontWeight: corto ? 700 : 400 }}>
-                                  Existencia {existencia}
-                                </span>
-                                <label className="whitespace-nowrap" style={{ color: '#6b7280' }}>Solicitado</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={asignado}
-                                  onChange={e => handleUpdateAsignacion(suc, p.code, parseInt(e.target.value) || 0)}
-                                  className="rounded border px-2 py-1 text-center"
-                                  style={{ borderColor: '#d1d5db', width: 56 }}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {sucursalesAgregadas.length === 0 && (
-                    <p className="text-xs text-center py-6" style={{ color: '#9ca3af' }}>Aún no agregas sucursales.</p>
-                  )}
-                </div>
               </div>
             )}
 
@@ -732,12 +703,12 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
 
             {step < 4 ? (
               <button
-                disabled={!canAdvance}
-                onClick={() => setStep(prev => (prev + 1) as Step)}
+                disabled={!canAdvance || calculandoSMC}
+                onClick={() => { if (step === 2) irAPasoSucursales(); else setStep(prev => (prev + 1) as Step); }}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold text-white transition-all"
                 style={{
-                  background: canAdvance ? '#1a2b6b' : '#9ca3af',
-                  cursor: canAdvance ? 'pointer' : 'not-allowed',
+                  background: (canAdvance && !calculandoSMC) ? '#1a2b6b' : '#9ca3af',
+                  cursor: (canAdvance && !calculandoSMC) ? 'pointer' : 'not-allowed',
                 }}
               >
                 Siguiente
