@@ -78,7 +78,7 @@ function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
 }
 
 export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis }: Props) {
-  const { traspasos, entregarTraspaso, sucursalActual } = useApp();
+  const { traspasos, entregarTraspaso, sucursalActual, reasignarPeticion } = useApp();
 
   // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
   // según sea su origen o su destino. Solo se ven los que involucran a la sucursal.
@@ -264,6 +264,15 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const canSurtir = !!sel && sel.status === 'Pendiente';
   const canRevisar = !!sel && sel.status === 'Surtido';
   const canEmbarcar = !!sel && sel.status === 'Revisado';
+  // Petición rechazada por surtido: se puede intentar reasignar a otra sucursal (SMC).
+  const canReasignar = !!sel && sel.status === 'Cancelado' && sel.resultado === 'rechazada' && !sel.peticionSiguienteId;
+
+  const handleReasignar = () => {
+    if (!sel) return;
+    const r = reasignarPeticion(sel.id);
+    showToast(r.mensaje, r.ok ? 'success' : 'warning');
+    if (r.ok) setSelectedId(null);
+  };
 
   // Reabasto de CEDIS es de recepción ciega: sin modal de escaneo, entrada directa.
   const handleDarEntrada = () => {
@@ -662,6 +671,22 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             >
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
               Embarcar
+            </button>
+          </>
+        )}
+
+        {/* Reasignar (SMC) — solo para peticiones rechazadas por surtido */}
+        {canReasignar && (
+          <>
+            <span style={{ color: '#e5e7eb', margin: '0 4px', fontSize: 18 }}>|</span>
+            <button
+              onClick={handleReasignar}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+              style={btnEnabled(true, '#2563eb')}
+              title="El algoritmo SMC evalúa si la petición rechazada puede reasignarse a otra sucursal"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>autorenew</span>
+              Reasignar (SMC)
             </button>
           </>
         )}

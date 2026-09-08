@@ -88,13 +88,8 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   };
 
   const ejecutarNegar = () => {
-    const derivadaId = negarTraspaso(peticion.id, `Traspaso negado en ${esRevision ? 'revisión' : 'surtido'} (HH)`);
-    showToast(
-      derivadaId
-        ? `Traspaso negado. Se generó la petición automática ${derivadaId} desde otra sucursal.`
-        : 'Traspaso negado.',
-      'warning',
-    );
+    negarTraspaso(peticion.id, `Traspaso negado en ${esRevision ? 'revisión' : 'surtido'} (HH)`);
+    showToast('Traspaso rechazado. Queda disponible para reasignar a otra sucursal (botón "Reasignar SMC").', 'warning');
     onClose();
   };
 

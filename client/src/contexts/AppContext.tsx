@@ -67,6 +67,7 @@ interface AppContextValue {
   finalizarSurtidoTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => string | null;
   finalizarRevisionTraspaso: (petId: string, piezasRevisadas: TraspasoPiezaDetalle[]) => string | null;
   negarTraspaso: (petId: string, motivo: string) => string | null;
+  reasignarPeticion: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   revisarTraspaso: (petId: string, conIncidencias: boolean) => void;
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
@@ -384,29 +385,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Negar un traspaso completo (desde la HH, solo flujo de traspasos): lo marca
-  // Cancelado y genera una petición automática por la mercancía completa desde
-  // otra sucursal (la necesidad persiste). Devuelve el id derivado, si lo hubo.
+  // Cancelado/rechazado. NO reasigna automáticamente: la petición rechazada queda
+  // disponible para "Reasignar (SMC)" con el botón correspondiente.
   const negarTraspaso = useCallback((petId: string, motivo: string): string | null => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    let derivadaId: string | null = null;
+    setTraspasos(prev => prev.map(t => t.id === petId
+      ? { ...t, status: 'Cancelado' as TraspasoStatus, fechaActualizacion: now, motivoRechazo: motivo, resultado: 'rechazada' as TraspasoPeticion['resultado'] }
+      : t));
+    return null;
+  }, []);
+
+  // Reasignación por SMC de una petición RECHAZADA: el algoritmo determina si
+  // puede reasignarse a otra sucursal (respetando el máximo de intentos y sin
+  // reelegir la sucursal que rechazó ni el destino). Devuelve el resultado.
+  const reasignarPeticion = useCallback((petId: string): { ok: boolean; mensaje: string; derivadaId?: string } => {
+    const orig = traspasos.find(t => t.id === petId);
+    if (!orig) return { ok: false, mensaje: 'Petición no encontrada.' };
+    if (orig.resultado !== 'rechazada' && orig.status !== 'Cancelado') {
+      return { ok: false, mensaje: 'Solo se pueden reasignar peticiones rechazadas.' };
+    }
+    if ((orig.intento ?? 1) >= MAX_EVALUACIONES_PETICION) {
+      return { ok: false, mensaje: `Se agotó el máximo de ${MAX_EVALUACIONES_PETICION} intentos: la solicitud no puede reasignarse a otra sucursal.` };
+    }
+    const faltante = orig.piezas.map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada, qtySurtida: 0 }));
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const derivada = construirDerivada(orig, faltante, now);
+    // Si el algoritmo no encontró una sucursal elegible distinta, no reasigna.
+    if (!derivada.sucursalOrigen || derivada.sucursalOrigen === orig.sucursalOrigen) {
+      return { ok: false, mensaje: 'SMC no encontró otra sucursal elegible para reasignar la petición.' };
+    }
     setTraspasos(prev => {
-      const orig = prev.find(t => t.id === petId);
-      if (!orig) return prev;
-      const faltante = orig.piezas.map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada, qtySurtida: 0 }));
-      const puedeReintentar = (orig.intento ?? 1) < MAX_EVALUACIONES_PETICION;
-      let next = prev.map(t => t.id === petId
-        ? { ...t, status: 'Cancelado' as TraspasoStatus, fechaActualizacion: now, motivoRechazo: motivo, resultado: 'rechazada' as TraspasoPeticion['resultado'] }
-        : t);
-      if (puedeReintentar) {
-        const derivada = construirDerivada(orig, faltante, now);
-        derivadaId = derivada.id;
-        next = next.map(t => t.id === petId ? { ...t, peticionSiguienteId: derivada.id } : t);
-        next = [derivada, ...next];
-      }
+      let next = prev.map(t => t.id === petId ? { ...t, peticionSiguienteId: derivada.id } : t);
+      next = [derivada, ...next];
       return next;
     });
-    return derivadaId;
-  }, []);
+    return { ok: true, mensaje: `Reasignada por SMC a ${derivada.sucursalOrigen} (intento ${derivada.intento}).`, derivadaId: derivada.id };
+  }, [traspasos]);
 
   // Revisión de traspaso Saliente: Surtido → Revisado (parcial si hubo incidencias).
   const revisarTraspaso = useCallback((petId: string, conIncidencias: boolean) => {
@@ -608,7 +622,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
+      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>
