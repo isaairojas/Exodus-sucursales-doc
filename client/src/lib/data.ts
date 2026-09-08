@@ -2262,9 +2262,23 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     fechaCreacion: '2026-07-07 08:20', fechaActualizacion: '2026-07-07 10:40',
     piezas: [{ code: 'XX-999', qtySolicitada: 5, qtySurtida: 2 }],
     pedidoOrigen: '', parcial: true,
-    observaciones: 'Surtida/revisada parcialmente: llegaron 2 de 5; falta el restante.',
+    observaciones: 'Revisada parcialmente: llegaron 2 de 5; falta el restante.',
     usuarioCreador: 'SISTEMA_SMC',
     noPapeleta: '470310', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1,
+  },
+  // 9) SURTIDA PARCIALMENTE — la sucursal surtió solo una parte; el logístico
+  //    decide: generar solicitud por el restante o reasignar a otra sucursal.
+  {
+    id: 'DEMO-EJ-SPARC-1', solicitudId: 'DEMO-S-SPARC', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Surtido', resultado: 'surtida-parcial',
+    fechaCreacion: '2026-07-07 09:00', fechaActualizacion: '2026-07-07 09:35',
+    piezas: [{ code: 'AM-445', qtySolicitada: 6, qtySurtida: 2 }],
+    pedidoOrigen: '', parcial: true,
+    observaciones: 'Surtida parcialmente: se surtieron 2 de 6; falta el restante.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '470311', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Automatico', intento: 1,
   },
 ];

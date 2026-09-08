@@ -268,8 +268,11 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // - Rechazada en su totalidad → reasignar (nueva petición por el faltante).
   // - Surtida/revisada parcialmente → nueva solicitud por el restante.
   const faltanteDe = (t: TraspasoPeticion) => t.piezas.reduce((s, p) => s + Math.max(0, p.qtySolicitada - p.qtySurtida), 0);
-  const canReasignar = !!sel && sel.status === 'Cancelado' && sel.resultado === 'rechazada' && !sel.peticionSiguienteId;
-  const canGenerarRestante = !!sel && sel.parcial === true && sel.status !== 'Cancelado' && faltanteDe(sel) > 0 && !sel.peticionSiguienteId;
+  const esRechazadaTotal = !!sel && sel.status === 'Cancelado' && sel.resultado === 'rechazada';
+  const esParcial = !!sel && sel.parcial === true && sel.status !== 'Cancelado' && faltanteDe(sel) > 0;
+  // Rechazo total → solo reasignar. Parcial → el logístico decide: reasignar o generar solicitud por el restante.
+  const canReasignar = !!sel && !sel.peticionSiguienteId && (esRechazadaTotal || esParcial);
+  const canGenerarRestante = !!sel && !sel.peticionSiguienteId && esParcial;
 
   const handleReasignar = () => {
     if (!sel) return;
@@ -501,7 +504,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const etapa = etapaTraspaso(t.status);
               const etapaColor = TRASPASO_ETAPA_COLORS[etapa];
               // Estado mostrado: "Surtido/Revisado parcialmente" cuando la petición es parcial.
-              const estadoLabel = t.parcial && (etapa === 'Surtido' || etapa === 'Revisado') ? `${etapa} parcialmente` : etapa;
+              const esParcialSurtido = t.parcial && etapa === 'Surtido';
+              const esParcialRevisado = t.parcial && etapa === 'Revisado';
+              const estadoLabel = (esParcialSurtido || esParcialRevisado) ? `${etapa} parcialmente` : etapa;
+              const estadoTooltip = esParcialSurtido
+                ? 'Surtido parcialmente: la sucursal surtió solo una parte de lo solicitado; falta el restante. El logístico decide: generar una solicitud de traspaso por el restante o reasignar a otra sucursal.'
+                : esParcialRevisado
+                ? 'Revisado parcialmente: al revisar se confirmó solo una parte de la mercancía; falta el restante. El logístico decide: generar una solicitud de traspaso por el restante o reasignar a otra sucursal.'
+                : TRASPASO_ETAPA_TOOLTIP[etapa];
               const pct = recibidoDen > 0 ? Math.round((recibidoNum / recibidoDen) * 100) : 0;
 
               return (
@@ -600,9 +610,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   <td className="px-3 py-2.5">
                     <span
                       className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      title={t.parcial && (etapa === 'Surtido' || etapa === 'Revisado')
-                        ? `${TRASPASO_ETAPA_TOOLTIP[etapa]} Se surtió/revisó solo una parte; el logístico puede generar una nueva solicitud por el restante.`
-                        : TRASPASO_ETAPA_TOOLTIP[etapa]}
+                      title={estadoTooltip}
                       style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
                     >
                       {estadoLabel}
@@ -694,26 +702,28 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         {(canReasignar || canGenerarRestante) && (
           <>
             <span style={{ color: '#e5e7eb', margin: '0 4px', fontSize: 18 }}>|</span>
-            {canReasignar && (
-              <button
-                onClick={handleReasignar}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-                style={btnEnabled(true, '#2563eb')}
-                title="Petición rechazada en su totalidad: SMC genera una nueva petición por el faltante desde otra sucursal"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>autorenew</span>
-                Reasignar (nueva petición por el faltante)
-              </button>
-            )}
             {canGenerarRestante && (
               <button
                 onClick={handleGenerarRestante}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
                 style={btnEnabled(true, '#0d9488')}
-                title="Surtida/revisada parcialmente: genera una nueva solicitud por el restante"
+                title="Surtida/revisada parcialmente: abre una nueva solicitud de traspaso solo por la mercancía restante"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>note_add</span>
-                Nueva solicitud por el restante
+                Generar solicitud de traspaso por la mercancía restante
+              </button>
+            )}
+            {canReasignar && (
+              <button
+                onClick={handleReasignar}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#2563eb')}
+                title={esRechazadaTotal
+                  ? 'Petición rechazada en su totalidad: SMC reasigna toda la mercancía a otra sucursal.'
+                  : 'Reasigna la mercancía restante a otra sucursal (misma solicitud, siguiente intento).'}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>autorenew</span>
+                Reasignar a otra sucursal
               </button>
             )}
           </>

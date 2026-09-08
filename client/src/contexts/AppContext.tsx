@@ -405,13 +405,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const reasignarPeticion = useCallback((petId: string): { ok: boolean; mensaje: string; derivadaId?: string } => {
     const orig = traspasos.find(t => t.id === petId);
     if (!orig) return { ok: false, mensaje: 'Petición no encontrada.' };
-    if (orig.resultado !== 'rechazada' && orig.status !== 'Cancelado') {
-      return { ok: false, mensaje: 'Solo se pueden reasignar peticiones rechazadas.' };
-    }
     if ((orig.intento ?? 1) >= MAX_EVALUACIONES_PETICION) {
       return { ok: false, mensaje: `Se agotó el máximo de ${MAX_EVALUACIONES_PETICION} intentos: la solicitud no puede reasignarse a otra sucursal.` };
     }
-    const faltante = orig.piezas.map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada, qtySurtida: 0 }));
+    // Faltante: rechazo total → todo; parcial → solo el restante.
+    const faltante = orig.piezas
+      .filter(p => p.qtySurtida < p.qtySolicitada)
+      .map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada - p.qtySurtida, qtySurtida: 0 }));
+    if (faltante.length === 0) return { ok: false, mensaje: 'No hay mercancía pendiente por reasignar.' };
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const derivada = construirDerivada(orig, faltante, now);
     // Si el algoritmo no encontró una sucursal elegible distinta, no reasigna.
