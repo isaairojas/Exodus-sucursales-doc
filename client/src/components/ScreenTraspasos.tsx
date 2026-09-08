@@ -13,10 +13,9 @@ import {
   TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
-import ModalSurtirTraspaso from './ModalSurtirTraspaso';
+import ModalSurtidoHH from './ModalSurtidoHH';
 import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
 import ModalEmbarcarTraspaso from './ModalEmbarcarTraspaso';
-import ModalRevisarTraspaso from './ModalRevisarTraspaso';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -618,7 +617,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       )}
 
       {surtirPeticion && (
-        <ModalSurtirTraspaso
+        <ModalSurtidoHH
           peticion={surtirPeticion}
           onClose={() => setSurtirPetId(null)}
           showToast={showToast}
@@ -626,8 +625,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       )}
 
       {revisarPeticion && (
-        <ModalRevisarTraspaso
+        <ModalSurtidoHH
           peticion={revisarPeticion}
+          modo="revision"
           onClose={() => { setRevisarPetId(null); setSelectedId(null); }}
           showToast={showToast}
         />

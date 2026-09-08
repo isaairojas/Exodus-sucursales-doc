@@ -631,6 +631,9 @@ export const SUCURSALES = [
 // valor inicial y para retro-compatibilidad de datos que no traen origen/destino.
 export const SUCURSAL_LOCAL = 'Colón';
 
+// Sucursales seleccionables en el ejercicio (dos lados de la demo en tiempo real).
+export const SUCURSALES_EJERCICIO = ['Federalismo', 'Tesistán'] as const;
+
 // Existencia disponible por sucursal y código de producto (mock).
 export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
   "Pelícano": { "BP-001": 25, "FT-223": 18, "AM-445": 1, "BC-118": 6, "RD-772": 25, "XX-999": 22, "LT-334": 24, "AC-201": 14, "BT-055": 0 },

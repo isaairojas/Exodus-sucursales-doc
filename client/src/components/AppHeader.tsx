@@ -3,7 +3,7 @@
 // Design: Enterprise Precision — navy sticky header with nav tabs
 // ============================================================
 import { useApp } from '@/contexts/AppContext';
-import { SUCURSALES } from '@/lib/data';
+import { SUCURSALES_EJERCICIO } from '@/lib/data';
 import { useLocation } from 'wouter';
 
 type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales';
@@ -133,7 +133,7 @@ export default function AppHeader({
                 marginTop: 2,
               }}
             >
-              {SUCURSALES.map(s => (
+              {SUCURSALES_EJERCICIO.map(s => (
                 <option key={s} value={s} style={{ color: '#1a2b6b', background: '#fff' }}>{s}</option>
               ))}
             </select>
