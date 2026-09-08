@@ -2418,15 +2418,16 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
   });
 })();
 
-// ── Fechas del ejercicio: última semana a partir de hoy ──
-// Reubica las fechas de los traspasos a los últimos 7 días para que aparezcan
-// en "Por recibir" / "Por enviar" con el filtro por defecto (mes en curso).
+// ── Fechas del ejercicio ──
+// Reubica las fechas de los traspasos a los últimos ~13 días. El rango es más
+// amplio que una semana a propósito, para que existan traspasos VENCIDOS
+// (≥ N días sin enviarse), con demora y en tiempo, y así demostrar el SLA.
 (() => {
   const hoy = new Date();
   const DAY = 86_400_000;
   const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   TRASPASOS_DB.forEach((t, i) => {
-    const f = new Date(hoy.getTime() - (i % 7) * DAY);
+    const f = new Date(hoy.getTime() - (i % 13) * DAY);
     const dia = ymd(f);
     const hhCreacion = (t.fechaCreacion.slice(11) || '09:00').padEnd(5, '0');
     t.fechaCreacion = `${dia} ${hhCreacion}`;

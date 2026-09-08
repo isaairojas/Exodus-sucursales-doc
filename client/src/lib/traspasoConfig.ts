@@ -17,6 +17,12 @@ export const MAX_EVALUACIONES_PETICION = 3;
 export const TOKEN_PRUEBA = '0000';
 export const esTokenValido = (t: string) => t.trim() === TOKEN_PRUEBA;
 
+// ── SLA de traspasos (control de tiempos) ──
+// Un traspaso sin enviarse se considera "con demora" a partir de M días y
+// "vencido" a partir de N días desde su creación. Parametrizable.
+export const TRASPASO_DIAS_DEMORA = 5;   // M
+export const TRASPASO_DIAS_VENCIDO = 10; // N (configurado de momento en 10)
+
 // ── PENDIENTE ERB-51528 ──
 // Aún no está definido por negocio si el recálculo por surtido parcial se
 // dispara al FINALIZAR SURTIDO o al FINALIZAR REVISIÓN. NO se oculta esta

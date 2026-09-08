@@ -7,7 +7,7 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
-  TraspasoTipo, TraspasoPeticion, TRASPASO_CATEGORIA_LABELS,
+  TraspasoTipo, TraspasoPeticion, TraspasoStatus, TRASPASO_CATEGORIA_LABELS,
   SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta, CEDIS_SUBTIPO_COLORS, TRASPASO_CATEGORIA_COLORS,
   TraspasoEstadoAlto, TraspasoEtapa, estadoAltoTraspaso, etapaTraspaso,
   TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
@@ -15,6 +15,7 @@ import {
 } from '@/lib/data';
 import { exportarExcel } from '@/lib/exportExcel';
 import { imprimirTraspaso } from '@/lib/printDoc';
+import { TRASPASO_DIAS_DEMORA, TRASPASO_DIAS_VENCIDO } from '@/lib/traspasoConfig';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
 import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
@@ -30,9 +31,11 @@ interface Props {
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
-// Rango por defecto: todo el MES EN CURSO (sin filtros al entrar).
+// Rango por defecto: ~30 días atrás hasta fin de mes, para incluir los traspasos
+// vencidos (varios días de antigüedad) además de los recientes.
 const _now = new Date();
-const MONTH_START = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-01`;
+const _desde = new Date(_now.getTime() - 30 * 86_400_000);
+const MONTH_START = `${_desde.getFullYear()}-${String(_desde.getMonth() + 1).padStart(2, '0')}-${String(_desde.getDate()).padStart(2, '0')}`;
 const _lastDay = new Date(_now.getFullYear(), _now.getMonth() + 1, 0);
 const MONTH_END = `${_lastDay.getFullYear()}-${String(_lastDay.getMonth() + 1).padStart(2, '0')}-${String(_lastDay.getDate()).padStart(2, '0')}`;
 
@@ -43,6 +46,29 @@ const ESTADOS_ALTO: TraspasoEstadoAlto[] = ['Pendiente', 'Finalizado', 'Cancelad
 // Paleta estable para agrupar visualmente las peticiones de una misma
 // solicitud (comparten color de acento para leerse como un mismo grupo).
 const GROUP_COLORS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777', '#0891b2', '#65a30d', '#9333ea'];
+
+// ── SLA / control de tiempos ──
+// Estados en los que el traspaso aún NO se ha enviado (cuenta para demora/vencido).
+const NO_ENVIADO_STATUS: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Documentado'];
+function diasDesdeCreacion(fechaIso: string): number {
+  const t = new Date(fechaIso.replace(' ', 'T')).getTime();
+  if (isNaN(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+}
+interface SlaTag { label: string; bg: string; color: string; }
+// Etiquetas SLA de una petición (puede tener varias a la vez: p.ej. vencido +
+// con demora, o surtido parcial + revisado parcial). El "estado" queda aparte.
+function slaTags(t: TraspasoPeticion): SlaTag[] {
+  const tags: SlaTag[] = [];
+  const noEnviado = NO_ENVIADO_STATUS.includes(t.status);
+  const dias = diasDesdeCreacion(t.fechaCreacion);
+  if (noEnviado && dias >= TRASPASO_DIAS_VENCIDO) tags.push({ label: `Vencido (${dias}d)`, bg: 'rgba(220,38,38,0.12)', color: '#dc2626' });
+  if (noEnviado && dias >= TRASPASO_DIAS_DEMORA) tags.push({ label: 'Con demora', bg: 'rgba(217,119,6,0.14)', color: '#b45309' });
+  if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido parcial', bg: 'rgba(27,56,146,0.1)', color: '#1B3892' });
+  if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado parcial', bg: 'rgba(124,58,237,0.1)', color: '#7c3aed' });
+  if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', bg: 'rgba(220,38,38,0.12)', color: '#dc2626' });
+  return tags;
+}
 
 function porcentajeColor(pct: number) {
   if (pct >= 100) return '#16a34a';
@@ -90,6 +116,30 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     [traspasos, tipoFilter, sucursalActual]
   );
 
+  // Métricas de control (cards): sobre los traspasos de esta vista (tab + sucursal).
+  const metricas = useMemo(() => {
+    const m = { vencidos: 0, pendientesSurtir: 0, parciales: 0, rechazados: 0, enviados: 0, recibidos: 0 };
+    traspasosDelTipo.forEach(t => {
+      const noEnviado = NO_ENVIADO_STATUS.includes(t.status);
+      if (noEnviado && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO) m.vencidos++;
+      if (t.status === 'Pendiente') m.pendientesSurtir++;
+      if (t.parcial && (t.status === 'Surtido' || t.status === 'Revisado')) m.parciales++;
+      if (t.status === 'Cancelado' && t.resultado === 'rechazada') m.rechazados++;
+      if (t.status === 'Enviado') m.enviados++;
+      if (t.status === 'Recibido' || t.status === 'Entregado') m.recibidos++;
+    });
+    return m;
+  }, [traspasosDelTipo]);
+
+  const cards = [
+    { label: 'Vencidos', sub: `+${TRASPASO_DIAS_VENCIDO}d sin enviar`, val: metricas.vencidos, color: '#dc2626', icon: 'event_busy' },
+    { label: 'Pend. surtir', sub: 'por surtir', val: metricas.pendientesSurtir, color: '#d97706', icon: 'package_2' },
+    { label: 'Con parcialidad', sub: 'surtido/revisado', val: metricas.parciales, color: '#1B3892', icon: 'splitscreen' },
+    { label: 'Rechazados', sub: 'por reasignar', val: metricas.rechazados, color: '#dc2626', icon: 'cancel' },
+    { label: 'Enviados', sub: 'en tránsito', val: metricas.enviados, color: '#2563eb', icon: 'local_shipping' },
+    { label: 'Recibidos', sub: 'completados', val: metricas.recibidos, color: '#16a34a', icon: 'inventory' },
+  ];
+
   const sucursalPrefix = tipoFilter === 'Entrante' ? 'De: ' : 'A: ';
 
   // Etiquetas de columna: la tabla es una recepción (Entrante) o un envío (Saliente)
@@ -98,7 +148,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const colPorcentaje = tipoFilter === 'Entrante' ? '% Recepción' : '% Enviado';
   const COLUMNS = [
     'Tipo', 'Solicitud', 'Almacén', 'Pedido cliente', 'No. Papeleta',
-    'Fecha traspaso', colFechaSegunda, colRecibido, colPorcentaje, 'Estado',
+    'Fecha traspaso', colFechaSegunda, colRecibido, colPorcentaje, 'Estado', 'SLA',
   ];
 
   // Filtros — al entrar: mes en curso y SIN filtros de estado/etapa
@@ -234,7 +284,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         'No. papeleta': t.noPapeleta,
         'Fecha traspaso': formatFechaCorta(t.fechaCreacion),
         [colRecibido]: `${num}/${den} ${unidad}`,
-        Estado: (() => { const e = etapaTraspaso(t.status); return t.parcial && (e === 'Surtido' || e === 'Revisado') ? `${e} parcialmente` : e; })(),
+        Estado: etapaTraspaso(t.status),
+        SLA: slaTags(t).map(s => s.label).join(', ') || 'En tiempo',
       };
     });
     const piezas = rows.flatMap(t => t.piezas.map(p => ({
@@ -312,6 +363,24 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
+
+      {/* ── Cards de control (SLA / métricas) ── */}
+      <div className="flex gap-2 px-6 py-3 overflow-x-auto" style={{ background: '#f4f6fa', flexShrink: 0 }}>
+        {cards.map(c => (
+          <div key={c.label} className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0" style={{ background: '#fff', border: '1px solid #e5e7eb', minWidth: 138 }}>
+            <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: `${c.color}14`, flexShrink: 0 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: c.color }}>{c.icon}</span>
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-extrabold leading-none" style={{ color: c.val > 0 ? c.color : '#9ca3af' }}>{c.val}</span>
+              </div>
+              <div className="text-[11px] font-semibold leading-tight" style={{ color: '#374151' }}>{c.label}</div>
+              <div className="text-[9px] leading-tight" style={{ color: '#9ca3af' }}>{c.sub}</div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* ── Filter bar ── */}
       <div
@@ -503,15 +572,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const { num: recibidoNum, den: recibidoDen, unidad: recibidoUnidad } = calcularRecibido(t, per.tipo);
               const etapa = etapaTraspaso(t.status);
               const etapaColor = TRASPASO_ETAPA_COLORS[etapa];
-              // Estado mostrado: "Surtido/Revisado parcialmente" cuando la petición es parcial.
-              const esParcialSurtido = t.parcial && etapa === 'Surtido';
-              const esParcialRevisado = t.parcial && etapa === 'Revisado';
-              const estadoLabel = (esParcialSurtido || esParcialRevisado) ? `${etapa} parcialmente` : etapa;
-              const estadoTooltip = esParcialSurtido
-                ? 'Surtido parcialmente: la sucursal surtió solo una parte de lo solicitado; falta el restante. El logístico decide: generar una solicitud de traspaso por el restante o reasignar a otra sucursal.'
-                : esParcialRevisado
-                ? 'Revisado parcialmente: al revisar se confirmó solo una parte de la mercancía; falta el restante. El logístico decide: generar una solicitud de traspaso por el restante o reasignar a otra sucursal.'
-                : TRASPASO_ETAPA_TOOLTIP[etapa];
+              // El estado es la etapa base; las parcialidades y el SLA (vencido/
+              // demora) van en la columna SLA aparte.
+              const tagsSla = slaTags(t);
               const pct = recibidoDen > 0 ? Math.round((recibidoNum / recibidoDen) * 100) : 0;
 
               return (
@@ -610,11 +673,24 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   <td className="px-3 py-2.5">
                     <span
                       className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      title={estadoTooltip}
+                      title={TRASPASO_ETAPA_TOOLTIP[etapa]}
                       style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
                     >
-                      {estadoLabel}
+                      {etapa}
                     </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {tagsSla.length === 0 ? (
+                      <span className="text-xs" style={{ color: '#16a34a' }}>En tiempo</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {tagsSla.map(tag => (
+                          <span key={tag.label} className="px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" style={{ background: tag.bg, color: tag.color }}>
+                            {tag.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                 </tr>
               );
