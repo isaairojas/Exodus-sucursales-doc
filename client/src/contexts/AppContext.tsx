@@ -2,12 +2,14 @@
 // APYMSA — AppContext
 // Global state machine for the full order management module
 // ============================================================
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { CLIENT_ID, fetchState, pushState, resetState, subscribe } from '@/lib/realtimeSync';
 import {
   AppState, AppScreen, ScannedItem, initialAppState,
   ORDERS_DB, OrderStatus,
   TraspasoPeticion, TraspasoPiezaDetalle, TraspasoStatus, TRASPASOS_DB,
   EmbarqueTraspaso, EMBARQUES_TRASPASO_DB, MotivoCancelacion,
+  SUCURSAL_LOCAL, MotivoEnvioCedis,
 } from '@/lib/data';
 
 export interface DiscrepancyResolution {
@@ -32,6 +34,12 @@ export interface CrearSolicitudCedisData {
   observaciones?: string;
 }
 
+export interface CrearEnvioCedisData {
+  piezas: TraspasoPiezaDetalle[];
+  motivo: MotivoEnvioCedis;
+  observaciones?: string;
+}
+
 export interface EmbarcarTraspasoData {
   embarqueExistenteId?: string; // si se omite, se crea un embarque nuevo
   paqueteria: string;
@@ -40,6 +48,10 @@ export interface EmbarcarTraspasoData {
 
 interface AppContextValue {
   state: AppState;
+  // Sucursal actualmente seleccionada (selector global). Define la perspectiva
+  // Entrante/Saliente de los traspasos y la existencia "local" en toda la app.
+  sucursalActual: string;
+  setSucursalActual: (sucursal: string) => void;
   goToScreen: (screen: AppScreen) => void;
   loadOrder: (orderId: string) => void;
   processScan: (code: string) => void;
@@ -55,6 +67,9 @@ interface AppContextValue {
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
   crearSolicitudCedisUrgencia: (data: CrearSolicitudCedisData) => string;
+  crearEnvioCedis: (data: CrearEnvioCedisData) => string;
+  // Estado compartido en tiempo real
+  reiniciarEstadoCompartido: () => void;
   cancelarPeticiones: (ids: string[], motivo: MotivoCancelacion) => void;
   // Embarques de traspasos
   embarquesTraspaso: EmbarqueTraspaso[];
@@ -65,8 +80,73 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(initialAppState);
+  const [sucursalActual, setSucursalActual] = useState<string>(SUCURSAL_LOCAL);
   const [traspasos, setTraspasos] = useState<TraspasoPeticion[]>(TRASPASOS_DB);
   const [embarquesTraspaso, setEmbarquesTraspaso] = useState<EmbarqueTraspaso[]>(EMBARQUES_TRASPASO_DB);
+
+  // ── Estado compartido en tiempo real (multi-computadora) ──
+  // El snapshot compartido = traspasos + embarques + estatus de pedidos. Se
+  // hidrata del servidor al entrar, se propaga por SSE y se guarda hasta reiniciar.
+  const hydratedRef = useRef(false);
+  const lastSyncedRef = useRef<string>('');   // dedupe: evita reenviar el eco de lo recibido
+  const lastVersionRef = useRef<number>(-1);
+  const buildSnapshotJson = (
+    tr: TraspasoPeticion[], emb: EmbarqueTraspaso[], os: Record<string, OrderStatus>,
+  ) => JSON.stringify({ traspasos: tr, embarquesTraspaso: emb, orderStatuses: os });
+
+  const aplicarSnapshot = (snap: any) => {
+    if (!snap) return;
+    lastSyncedRef.current = buildSnapshotJson(snap.traspasos ?? [], snap.embarquesTraspaso ?? [], snap.orderStatuses ?? {});
+    setTraspasos(snap.traspasos ?? []);
+    setEmbarquesTraspaso(snap.embarquesTraspaso ?? []);
+    setState(s => ({ ...s, orderStatuses: snap.orderStatuses ?? {} }));
+  };
+
+  const restablecerSemilla = () => {
+    lastSyncedRef.current = buildSnapshotJson(TRASPASOS_DB, EMBARQUES_TRASPASO_DB, initialAppState.orderStatuses);
+    setTraspasos(TRASPASOS_DB);
+    setEmbarquesTraspaso(EMBARQUES_TRASPASO_DB);
+    setState(s => ({ ...s, orderStatuses: initialAppState.orderStatuses }));
+  };
+
+  // Hidratación inicial + suscripción SSE.
+  useEffect(() => {
+    let unsub = () => {};
+    (async () => {
+      const data = await fetchState();
+      if (data && data.snapshot) {
+        aplicarSnapshot(data.snapshot);
+        lastVersionRef.current = data.version;
+      } else {
+        // Nadie ha compartido estado aún: publico la semilla local.
+        lastSyncedRef.current = buildSnapshotJson(TRASPASOS_DB, EMBARQUES_TRASPASO_DB, initialAppState.orderStatuses);
+        pushState({ traspasos: TRASPASOS_DB, embarquesTraspaso: EMBARQUES_TRASPASO_DB, orderStatuses: initialAppState.orderStatuses });
+      }
+      hydratedRef.current = true;
+      unsub = subscribe(evt => {
+        if (evt.type === 'reset') { lastVersionRef.current = evt.version; restablecerSemilla(); return; }
+        if (evt.type === 'state') {
+          if (evt.version <= lastVersionRef.current) return;
+          lastVersionRef.current = evt.version;
+          if (evt.senderId === CLIENT_ID) return; // eco de mis propios cambios
+          if (evt.snapshot) aplicarSnapshot(evt.snapshot);
+        }
+      });
+    })();
+    return () => unsub();
+  }, []);
+
+  // Propaga los cambios locales al estado compartido (con dedupe y debounce).
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const json = buildSnapshotJson(traspasos, embarquesTraspaso, state.orderStatuses);
+    if (json === lastSyncedRef.current) return;
+    lastSyncedRef.current = json;
+    const id = setTimeout(() => { pushState(JSON.parse(json)); }, 150);
+    return () => clearTimeout(id);
+  }, [traspasos, embarquesTraspaso, state.orderStatuses]);
+
+  const reiniciarEstadoCompartido = useCallback(() => { resetState(); }, []);
 
   const goToScreen = useCallback((screen: AppScreen) => {
     setState(s => ({ ...s, currentScreen: screen }));
@@ -279,6 +359,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tipo: 'Entrante' as const,
         categoria: 'Manual' as const,
         sucursalContraparte: suc,
+        // Modelo de dos lados: la sucursal actual es la que recibe (destino);
+        // la sucursal donante (suc) es el origen que surtirá y enviará.
+        sucursalDestino: sucursalActual,
+        sucursalOrigen: suc,
         status: 'Pendiente' as TraspasoStatus,
         fechaCreacion: now,
         fechaActualizacion: now,
@@ -296,7 +380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     setTraspasos(prev => [...nuevas, ...prev]);
     return solicitudId;
-  }, []);
+  }, [sucursalActual]);
 
   const crearSolicitudCedisUrgencia = useCallback((data: CrearSolicitudCedisData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -312,6 +396,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       categoria: 'CEDIS',
       subtipoCedis: 'Urgencia',
       sucursalContraparte: 'CEDIS',
+      // Recepción desde CEDIS hacia la sucursal actual (destino).
+      sucursalDestino: sucursalActual,
+      sucursalOrigen: 'CEDIS',
       status: 'Pendiente',
       fechaCreacion: now,
       fechaActualizacion: now,
@@ -327,7 +414,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setTraspasos(prev => [nueva, ...prev]);
     return solicitudId;
-  }, []);
+  }, [sucursalActual]);
+
+  // Envío de mercancía de la sucursal HACIA CEDIS (devolución / garantía).
+  // Sale de la sucursal actual (origen) con destino CEDIS; sigue el pipeline
+  // normal de "Por enviar" (Pendiente → Surtido → Revisado → Enviado).
+  const crearEnvioCedis = useCallback((data: CrearEnvioCedisData): string => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const ts = Date.now();
+    const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
+    const solicitudId = `S${pad7(ts)}`;
+    const piezas = data.piezas.map(p => ({ ...p, qtySurtida: 0 }));
+    const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
+    const nueva: TraspasoPeticion = {
+      id: `TM${pad7(ts)}`,
+      solicitudId,
+      tipo: 'Saliente',
+      categoria: 'Manual',
+      sucursalContraparte: 'CEDIS',
+      sucursalOrigen: sucursalActual,
+      sucursalDestino: 'CEDIS',
+      motivoEnvioCedis: data.motivo,
+      status: 'Pendiente',
+      fechaCreacion: now,
+      fechaActualizacion: now,
+      piezas,
+      pedidoOrigen: '',
+      parcial: false,
+      observaciones: data.observaciones,
+      usuarioCreador: 'JMORENO11',
+      noPapeleta: String(480000 + Math.floor(Math.random() * 99999)),
+      packingList: false,
+      cajasTotal: Math.max(1, Math.min(12, Math.ceil((totalQty || 1) / 4))),
+      cajasRecibidas: 0,
+      flujo: 'Manual',
+      intento: 1,
+    };
+    setTraspasos(prev => [nueva, ...prev]);
+    return solicitudId;
+  }, [sucursalActual]);
 
   // Eliminación/ajuste de peticiones auto/semi cuando una urgencia CEDIS o un
   // movimiento manual sustituye su mercancía. NO toca las que ya están en tránsito.
@@ -354,10 +479,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      state, goToScreen, loadOrder, processScan,
+      state, sucursalActual, setSucursalActual,
+      goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, cancelarPeticiones,
+      traspasos, surtirTraspaso, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
+      reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>
       {children}

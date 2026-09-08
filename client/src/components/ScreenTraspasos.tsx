@@ -10,7 +10,7 @@ import {
   TraspasoTipo, TraspasoPeticion, TRASPASO_CATEGORIA_LABELS,
   SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta, CEDIS_SUBTIPO_COLORS, TRASPASO_CATEGORIA_COLORS,
   TraspasoEstadoAlto, TraspasoEtapa, estadoAltoTraspaso, etapaTraspaso,
-  TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS,
+  TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
 } from '@/lib/data';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtirTraspaso from './ModalSurtirTraspaso';
@@ -23,6 +23,7 @@ interface Props {
   tipoFilter: TraspasoTipo;
   onNuevaSolicitud?: () => void;
   onSolicitarCedis?: () => void;
+  onEnviarCedis?: () => void;
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -49,7 +50,8 @@ function porcentajeColor(pct: number) {
 }
 
 // Recibido/Enviado: CEDIS se cuenta por cajas, entre sucursales por piezas.
-function calcularRecibido(t: TraspasoPeticion) {
+// `tipoEfectivo` es la perspectiva (Entrante/Saliente) de la sucursal actual.
+function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
   const totalSolicitada = t.piezas.reduce((sum, p) => sum + p.qtySolicitada, 0);
 
   if (t.categoria === 'CEDIS') {
@@ -57,7 +59,7 @@ function calcularRecibido(t: TraspasoPeticion) {
     return { num: t.cajasRecibidas, den: t.cajasTotal, unidad: 'cajas' as const, estatus };
   }
 
-  if (t.tipo === 'Saliente') {
+  if (tipoEfectivo === 'Saliente') {
     // Aquí qtySurtida sí representa lo que esta sucursal ha surtido/enviado hasta ahora.
     const totalSurtida = t.piezas.reduce((sum, p) => sum + p.qtySurtida, 0);
     const estatus: 'En camino' | 'Recibido' = totalSolicitada > 0 && totalSurtida >= totalSolicitada ? 'Recibido' : 'En camino';
@@ -73,12 +75,17 @@ function calcularRecibido(t: TraspasoPeticion) {
   return { num: totalRecibida, den: totalSolicitada, unidad: 'piezas' as const, estatus };
 }
 
-export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis }: Props) {
-  const { traspasos, entregarTraspaso } = useApp();
+export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis }: Props) {
+  const { traspasos, entregarTraspaso, sucursalActual } = useApp();
 
+  // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
+  // según sea su origen o su destino. Solo se ven los que involucran a la sucursal.
   const traspasosDelTipo = useMemo(
-    () => traspasos.filter(t => t.tipo === tipoFilter),
-    [traspasos, tipoFilter]
+    () => traspasos.filter(t => {
+      const per = perspectivaTraspaso(t, sucursalActual);
+      return per.visible && per.tipo === tipoFilter;
+    }),
+    [traspasos, tipoFilter, sucursalActual]
   );
 
   const sucursalPrefix = tipoFilter === 'Entrante' ? 'De: ' : 'A: ';
@@ -172,14 +179,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         const q = searchText.toLowerCase();
         const matchSol = t.solicitudId.toLowerCase().includes(q);
         const matchPet = t.id.toLowerCase().includes(q);
-        const matchSuc = t.sucursalContraparte.toLowerCase().includes(q);
+        const matchSuc = perspectivaTraspaso(t, sucursalActual).contraparte.toLowerCase().includes(q);
         const matchPapeleta = t.noPapeleta.toLowerCase().includes(q);
         const matchCode = t.piezas.some(p => p.code.toLowerCase().includes(q));
         if (!matchSol && !matchPet && !matchSuc && !matchPapeleta && !matchCode) return false;
       }
       return true;
     });
-  }, [traspasosDelTipo, filterTipo, filterEstados, filterEtapa, fechaInicial, fechaFinal, searchText]);
+  }, [traspasosDelTipo, filterTipo, filterEstados, filterEtapa, fechaInicial, fechaFinal, searchText, sucursalActual]);
 
   // Agrupación por solicitud: las peticiones de una misma solicitud se ordenan
   // juntas y comparten un color de acento, para que siempre se vean como grupo.
@@ -218,7 +225,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const canVerDetalle = !!sel;
   // Debe estar realmente en tránsito (Enviado) además de no estar ya recibido —
   // si no, se puede "dar entrada" a peticiones que ni siquiera se han surtido.
-  const canDarEntrada = !!sel && sel.status === 'Enviado' && calcularRecibido(sel).estatus === 'En camino';
+  const canDarEntrada = !!sel && sel.status === 'Enviado' && calcularRecibido(sel, perspectivaTraspaso(sel, sucursalActual).tipo).estatus === 'En camino';
   const canSurtir = !!sel && sel.status === 'Pendiente';
   const canRevisar = !!sel && sel.status === 'Surtido';
   const canEmbarcar = !!sel && sel.status === 'Revisado';
@@ -348,6 +355,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         </div>
 
         <div className="flex items-center gap-2 md:ml-auto">
+          {onEnviarCedis && (
+            <button
+              onClick={onEnviarCedis}
+              className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all"
+              style={{ border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
+              Enviar a CEDIS
+            </button>
+          )}
           {onSolicitarCedis && (
             <button
               onClick={onSolicitarCedis}
@@ -401,12 +418,17 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const groupColor = solColor[t.solicitudId] ?? 'transparent';
               // Primera fila de cada grupo de solicitud: separa visualmente los bloques.
               const esInicioGrupo = idx > 0 && rows[idx - 1].solicitudId !== t.solicitudId;
-              const tipoLabel = t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
-              const tipoColor = t.categoria === 'CEDIS' && t.subtipoCedis
+              const per = perspectivaTraspaso(t, sucursalActual);
+              const tipoLabel = t.motivoEnvioCedis
+                ? t.motivoEnvioCedis
+                : t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
+              const tipoColor = t.motivoEnvioCedis
+                ? MOTIVO_ENVIO_CEDIS_COLORS[t.motivoEnvioCedis]
+                : t.categoria === 'CEDIS' && t.subtipoCedis
                 ? CEDIS_SUBTIPO_COLORS[t.subtipoCedis]
                 : TRASPASO_CATEGORIA_COLORS[t.categoria as 'Automático' | 'Manual'];
 
-              const { num: recibidoNum, den: recibidoDen, unidad: recibidoUnidad } = calcularRecibido(t);
+              const { num: recibidoNum, den: recibidoDen, unidad: recibidoUnidad } = calcularRecibido(t, per.tipo);
               const etapa = etapaTraspaso(t.status);
               const etapaColor = TRASPASO_ETAPA_COLORS[etapa];
               const pct = recibidoDen > 0 ? Math.round((recibidoNum / recibidoDen) * 100) : 0;
@@ -460,7 +482,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>
                       <span style={{ color: '#9ca3af' }}>{sucursalPrefix}</span>
-                      {t.sucursalContraparte} ({SUCURSAL_ALMACEN_CODIGOS[t.sucursalContraparte] ?? '—'})
+                      {per.contraparte} ({SUCURSAL_ALMACEN_CODIGOS[per.contraparte] ?? '—'})
                     </span>
                   </td>
                   <td className="px-3 py-2.5">

@@ -5,13 +5,10 @@
 // ============================================================
 import { useEffect, useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, TIPO_ENVIO_DESCRIPCIONES, SUCURSAL_LOCAL } from '@/lib/data';
+import { ORDERS_DB, Order, OrderStatus, STATUS_COLORS, Shipment, ShipmentStatus, SHIPMENTS_DB_INITIAL, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, TIPO_ENVIO_DESCRIPCIONES } from '@/lib/data';
 import ModalFacturacion from '@/components/ModalFacturacion';
 import ModalSurtirPedido from '@/components/ModalSurtirPedido';
 import ResumenTraspasosPedido from '@/components/ResumenTraspasosPedido';
-
-// Existencia local usada al surtir con lo disponible (sucursal de referencia).
-const SUCURSAL_LOCAL_SURTIDO = SUCURSAL_LOCAL;
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -758,7 +755,7 @@ function ModalEmbarcar({
 
 // ── Main ScreenOrders ─────────────────────────────────────────
 export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFacturaOrderId, onFacturaOrderHandled }: Props) {
-  const { state, goToScreen, loadOrder, updateOrderStatus, traspasos, cancelarPeticiones } = useApp();
+  const { state, goToScreen, loadOrder, updateOrderStatus, traspasos, cancelarPeticiones, sucursalActual } = useApp();
 
   // Peticiones de traspaso relacionadas a un pedido (por convención de IDs: P + folio).
   const peticionesDePedido = (orderId: string) =>
@@ -1322,7 +1319,7 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
         <ModalSurtirPedido
           order={ORDERS_DB[surtirWarnOrderId]}
           peticiones={peticionesDePedido(surtirWarnOrderId)}
-          existencias={EXISTENCIA_POR_SUCURSAL[SUCURSAL_LOCAL_SURTIDO] ?? {}}
+          existencias={EXISTENCIA_POR_SUCURSAL[sucursalActual] ?? {}}
           onClose={() => setSurtirWarnOrderId(null)}
           onConfirm={handleConfirmSurtirConExistencia}
         />

@@ -12,7 +12,6 @@ import { useApp, CrearSolicitudData } from '@/contexts/AppContext';
 import {
   SUCURSALES, PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle,
   EXISTENCIA_POR_SUCURSAL, calcularSucursalRecomendada, PRODUCTOS_ALTA_ROTACION,
-  SUCURSAL_LOCAL,
 } from '@/lib/data';
 
 interface Props {
@@ -98,7 +97,7 @@ function BuscadorSugerencias<T>({
 }
 
 export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Props) {
-  const { crearSolicitudTraspaso } = useApp();
+  const { crearSolicitudTraspaso, sucursalActual } = useApp();
   const [step, setStep] = useState<Step>(1);
 
   // Paso 1: pedido origen
@@ -388,7 +387,7 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                 </p>
                 <p className="text-[11px] flex items-center gap-1" style={{ color: '#9ca3af' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
-                  Se muestra tu existencia en <strong style={{ color: '#6b7280' }}>{SUCURSAL_LOCAL}</strong>. Si solicitas más de lo que tienes, la cantidad se marca en <span style={{ color: '#dc2626', fontWeight: 600 }}>rojo</span> (traes mercancía de más por traspaso).
+                  Se muestra tu existencia en <strong style={{ color: '#6b7280' }}>{sucursalActual}</strong>. Si solicitas más de lo que tienes, la cantidad se marca en <span style={{ color: '#dc2626', fontWeight: 600 }}>rojo</span> (traes mercancía de más por traspaso).
                 </p>
 
                 {!pedidoSelected && (
@@ -428,7 +427,7 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                   <div className="flex items-center gap-2 px-2.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#9ca3af' }}>
                     <div className="flex-1">Producto</div>
                     <div style={{ width: 70, textAlign: 'center' }}>Requerido</div>
-                    <div style={{ width: 78, textAlign: 'center' }} title={`Existencia disponible en tu sucursal (${SUCURSAL_LOCAL})`}>Existencia</div>
+                    <div style={{ width: 78, textAlign: 'center' }} title={`Existencia disponible en tu sucursal (${sucursalActual})`}>Existencia</div>
                     <div style={{ width: 64, textAlign: 'center' }}>A solicitar</div>
                     <div style={{ width: 28 }} />
                   </div>
@@ -438,13 +437,13 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                   {piezas.map(p => {
                     const prod = PRODUCT_CATALOG[p.code];
                     const req = requeridoDe(p.code);
-                    const existenciaLocal = EXISTENCIA_POR_SUCURSAL[SUCURSAL_LOCAL]?.[p.code] ?? 0;
+                    const existenciaLocal = EXISTENCIA_POR_SUCURSAL[sucursalActual]?.[p.code] ?? 0;
                     // Solicitar más de lo que hay en la sucursal local es lo normal
                     // (por eso se pide traspaso), pero se marca en rojo con tooltip.
                     const solicitaDeMas = p.qty > existenciaLocal;
                     const tooltip = solicitaDeMas
-                      ? `Solicitas ${p.qty} pzs y solo tienes ${existenciaLocal} en existencia (${SUCURSAL_LOCAL}). Se traerían ${p.qty - existenciaLocal} pzs de más por traspaso para completar el pedido.`
-                      : `Existencia suficiente en ${SUCURSAL_LOCAL} (${existenciaLocal} pzs).`;
+                      ? `Solicitas ${p.qty} pzs y solo tienes ${existenciaLocal} en existencia (${sucursalActual}). Se traerían ${p.qty - existenciaLocal} pzs de más por traspaso para completar el pedido.`
+                      : `Existencia suficiente en ${sucursalActual} (${existenciaLocal} pzs).`;
                     return (
                       <div key={p.code} className="flex items-center gap-2 rounded-lg p-2.5" style={{ border: '1px solid #e5e7eb' }}>
                         <div className="flex-1 min-w-0">

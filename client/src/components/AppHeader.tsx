@@ -3,6 +3,7 @@
 // Design: Enterprise Precision — navy sticky header with nav tabs
 // ============================================================
 import { useApp } from '@/contexts/AppContext';
+import { SUCURSALES } from '@/lib/data';
 import { useLocation } from 'wouter';
 
 type DesktopView = 'orders' | 'embarques' | 'traspasos-entre-sucursales';
@@ -20,8 +21,15 @@ export default function AppHeader({
   onNavigateToEmbarques,
   onNavigateToTraspasosEntreSucursales,
 }: Props) {
-  const { state } = useApp();
+  const { state, sucursalActual, setSucursalActual, reiniciarEstadoCompartido } = useApp();
   const [, navigate] = useLocation();
+
+  const handleReiniciar = () => {
+    const ok = window.confirm(
+      'Reiniciar el estado compartido a su estado inicial.\n\nSe perderán todos los cambios registrados en todas las computadoras conectadas. ¿Continuar?'
+    );
+    if (ok) reiniciarEstadoCompartido();
+  };
   const showNav = state.currentScreen === 'orders';
 
   const tabStyle = (active: boolean) => ({
@@ -107,9 +115,44 @@ export default function AppHeader({
         </div>
       )}
 
+      {/* Selector global de sucursal */}
+      {state.currentScreen !== 'auth' && (
+        <div className="flex items-center gap-2 ml-auto pr-2" title="Sucursal en la que estás operando">
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'rgba(255,255,255,0.7)' }}>store</span>
+          <div className="flex flex-col leading-none">
+            <span className="text-[9px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.45)' }}>Sucursal</span>
+            <select
+              value={sucursalActual}
+              onChange={e => setSucursalActual(e.target.value)}
+              className="text-xs font-bold rounded cursor-pointer"
+              style={{
+                background: 'rgba(255,255,255,0.12)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.3)',
+                padding: '3px 6px',
+                marginTop: 2,
+              }}
+            >
+              {SUCURSALES.map(s => (
+                <option key={s} value={s} style={{ color: '#1a2b6b', background: '#fff' }}>{s}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleReiniciar}
+            className="flex items-center gap-1 rounded text-xs font-semibold transition-colors"
+            style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', border: '1px solid rgba(255,255,255,0.25)', padding: '5px 8px', marginLeft: 6 }}
+            title="Reiniciar el estado compartido al estado inicial (afecta a todas las computadoras)"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>restart_alt</span>
+            Reiniciar
+          </button>
+        </div>
+      )}
+
       {/* User chip */}
       {state.currentScreen !== 'auth' && (
-        <div className="flex items-center gap-2 text-sm px-6 ml-auto" style={{ color: 'rgba(255,255,255,0.85)' }}>
+        <div className="flex items-center gap-2 text-sm px-6" style={{ color: 'rgba(255,255,255,0.85)' }}>
           <button
             onClick={() => navigate('/')}
             className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"

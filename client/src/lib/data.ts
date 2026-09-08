@@ -529,13 +529,32 @@ export const TRASPASO_CATEGORIA_LABELS: Record<TraspasoCategoria, string> = {
 // - Reabasto: CEDIS lo envía por su cuenta para restocking, sin pedido.
 export type TraspasoSubtipoCedis = 'Urgencia' | 'Reabasto';
 
+// Motivo de un ENVÍO de la sucursal hacia CEDIS. Rompe la unidireccionalidad
+// histórica (la sucursal ahora también envía a CEDIS): devoluciones y garantías
+// salen de la sucursal hacia el centro de distribución.
+export type MotivoEnvioCedis = 'Devolución' | 'Garantía';
+
+export const MOTIVO_ENVIO_CEDIS_COLORS: Record<MotivoEnvioCedis, { bg: string; text: string; border: string }> = {
+  'Devolución': { bg: 'rgba(217,119,6,0.1)', text: '#b45309', border: 'rgba(217,119,6,0.35)' },
+  'Garantía':   { bg: 'rgba(37,99,235,0.1)', text: '#1d4ed8', border: 'rgba(37,99,235,0.35)' },
+};
+
 export interface TraspasoPeticion {
   id: string;
   solicitudId: string;
-  tipo: TraspasoTipo;           // CEDIS siempre usa 'Entrante' (solo se maneja la recepción)
+  tipo: TraspasoTipo;           // LEGACY/derivado: perspectiva de la sucursal local histórica.
+                                // Con el selector global se calcula con perspectivaTraspaso().
   categoria: TraspasoCategoria;
   subtipoCedis?: TraspasoSubtipoCedis; // solo presente cuando categoria === 'CEDIS'
-  sucursalContraparte: string;  // para CEDIS: fijo 'CEDIS'
+  sucursalContraparte: string;  // LEGACY: contraparte vista desde la sucursal local histórica.
+  // ── Modelo de dos lados (fuente de verdad para el selector de sucursal) ──
+  // Un traspaso siempre va de una sucursal ORIGEN (donante, quien surte/envía) a
+  // una sucursal DESTINO (solicitante, quien recibe). La perspectiva Entrante/
+  // Saliente se calcula según la sucursal actualmente seleccionada.
+  // Envío a CEDIS (devolución/garantía): destino === 'CEDIS'. Recepción de CEDIS: origen === 'CEDIS'.
+  sucursalOrigen?: string;      // quien surte y envía
+  sucursalDestino?: string;     // quien recibe
+  motivoEnvioCedis?: MotivoEnvioCedis; // solo envíos sucursal → CEDIS (devolución/garantía)
   status: TraspasoStatus;
   fechaCreacion: string;       // 'YYYY-MM-DD HH:mm'
   fechaActualizacion: string;
@@ -575,8 +594,25 @@ export const SUCURSAL_ALMACEN_CODIGOS: Record<string, string> = {
   'Colón': '36',
   'Colonia Jalisco': '24',
   'Forum Tlaquepaque': '6',
+  'Tesistán': '42',
   'CEDIS': 'AL1',
 };
+
+// Perspectiva de un traspaso vista desde una sucursal concreta (selector global).
+// - Si la sucursal es el DESTINO → lo recibe → 'Entrante' (Por recibir), contraparte = origen.
+// - Si la sucursal es el ORIGEN  → lo envía  → 'Saliente' (Por enviar),  contraparte = destino.
+// - Si no participa → no visible en esa sucursal.
+// Fallback: registros sin origen/destino se atribuyen a la sucursal local histórica.
+export interface PerspectivaTraspaso { visible: boolean; tipo: TraspasoTipo; contraparte: string; }
+export function perspectivaTraspaso(t: TraspasoPeticion, sucursal: string): PerspectivaTraspaso {
+  const { sucursalOrigen: origen, sucursalDestino: destino } = t;
+  if (origen && destino) {
+    if (sucursal === destino) return { visible: true, tipo: 'Entrante', contraparte: origen };
+    if (sucursal === origen) return { visible: true, tipo: 'Saliente', contraparte: destino };
+    return { visible: false, tipo: t.tipo, contraparte: t.sucursalContraparte };
+  }
+  return { visible: sucursal === SUCURSAL_LOCAL, tipo: t.tipo, contraparte: t.sucursalContraparte };
+}
 
 // Convierte 'YYYY-MM-DD HH:mm' a 'DD/MM/YY' para la vista unificada estilo almacén.
 export function formatFechaCorta(fechaIso: string): string {
@@ -587,11 +623,12 @@ export function formatFechaCorta(fechaIso: string): string {
 export const SUCURSALES = [
   'Pelícano', 'Federalismo', 'Central Camionera', 'Adolf Horn',
   'Belisario Domínguez', 'Colón', 'Colonia Jalisco', 'Forum Tlaquepaque',
+  'Tesistán',
 ] as const;
 
-// Sucursal local (la que opera esta app). Se usa para comparar la existencia
-// propia contra lo requerido al generar solicitudes de traspaso: normalmente
-// no alcanza y por eso se pide traspaso/urgencia.
+// Sucursal local por defecto (histórica). Con el selector global de sucursal
+// la "sucursal actual" vive en AppContext; esta constante solo se usa como
+// valor inicial y para retro-compatibilidad de datos que no traen origen/destino.
 export const SUCURSAL_LOCAL = 'Colón';
 
 // Existencia disponible por sucursal y código de producto (mock).
@@ -604,12 +641,13 @@ export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
   "Colón": { "BP-001": 0, "FT-223": 7, "AM-445": 17, "BC-118": 13, "RD-772": 11, "XX-999": 3, "LT-334": 16, "AC-201": 15, "BT-055": 12 },
   "Colonia Jalisco": { "BP-001": 4, "FT-223": 16, "AM-445": 12, "BC-118": 13, "RD-772": 7, "XX-999": 0, "LT-334": 19, "AC-201": 0, "BT-055": 0 },
   "Forum Tlaquepaque": { "BP-001": 3, "FT-223": 6, "AM-445": 0, "BC-118": 2, "RD-772": 5, "XX-999": 9, "LT-334": 25, "AC-201": 7, "BT-055": 0 },
+  "Tesistán": { "BP-001": 18, "FT-223": 22, "AM-445": 9, "BC-118": 7, "RD-772": 0, "XX-999": 14, "LT-334": 3, "AC-201": 20, "BT-055": 5 },
 };
 
 // Orden de cercanía usado por el motor SMC (Sucursal Más Cercana) — mock.
 export const SUCURSAL_DISTANCIA_ORDEN: string[] = [
   'Federalismo', 'Central Camionera', 'Colón', 'Adolf Horn',
-  'Colonia Jalisco', 'Belisario Domínguez', 'Forum Tlaquepaque', 'Pelícano',
+  'Colonia Jalisco', 'Belisario Domínguez', 'Forum Tlaquepaque', 'Tesistán', 'Pelícano',
 ];
 
 // Recomienda la sucursal más cercana (según el motor SMC) que pueda surtir
@@ -2046,6 +2084,89 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     fechaArribo: '2026-07-20 09:05',
     cajasTotal: 8, cajasRecibidas: 8,
   },
+  // ── Escenario demo de dos lados: Tesistán ↔ Federalismo ──
+  // Modelo origen/destino explícito: el mismo registro se ve como "Por enviar"
+  // en la sucursal origen y como "Por recibir" en la sucursal destino.
+  // DEMO-TF-1: Tesistán debe surtir para Federalismo (Pendiente).
+  {
+    id: 'DEMO-TF-1', solicitudId: 'DEMO-STF1', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-03 09:10', fechaActualizacion: '2026-07-03 09:10',
+    piezas: [
+      { code: 'BP-001', qtySolicitada: 6, qtySurtida: 0 },
+      { code: 'AC-201', qtySolicitada: 4, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    observaciones: 'Traspaso manual entre sucursales (demo Tesistán↔Federalismo).',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '470301', packingList: false, cajasTotal: 2, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // DEMO-TF-2: Tesistán ya surtió y envió a Federalismo (Enviado / en camino).
+  {
+    id: 'DEMO-TF-2', solicitudId: 'DEMO-STF2', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Enviado',
+    fechaCreacion: '2026-07-04 11:20', fechaActualizacion: '2026-07-05 08:30',
+    piezas: [
+      { code: 'FT-223', qtySolicitada: 8, qtySurtida: 8 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88820', metodoEnvio: 'Transporte Interno',
+    usuarioCreador: 'TESISTAN_LOG',
+    noPapeleta: '470302', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
+    fechaArribo: '2026-07-06 10:00',
+    flujo: 'Manual', intento: 1,
+  },
+  // DEMO-FT-1: Federalismo ya surtió para Tesistán, pendiente de enviar (Surtido).
+  {
+    id: 'DEMO-FT-1', solicitudId: 'DEMO-SFT1', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Federalismo', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
+    status: 'Surtido',
+    fechaCreacion: '2026-07-05 15:40', fechaActualizacion: '2026-07-05 16:10',
+    piezas: [
+      { code: 'BC-118', qtySolicitada: 5, qtySurtida: 5 },
+      { code: 'XX-999', qtySolicitada: 3, qtySurtida: 3 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    observaciones: 'Traspaso manual entre sucursales (demo Federalismo↔Tesistán).',
+    usuarioCreador: 'TESISTAN_LOG',
+    noPapeleta: '470303', packingList: false, cajasTotal: 2, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // ── Envío de la sucursal HACIA CEDIS (devolución / garantía) ──
+  // DEMO-DC-1: Federalismo devuelve mercancía a CEDIS (Pendiente de surtir/empacar).
+  {
+    id: 'DEMO-DC-1', solicitudId: 'DEMO-DC1', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'Federalismo', sucursalDestino: 'CEDIS',
+    motivoEnvioCedis: 'Devolución', status: 'Pendiente',
+    fechaCreacion: '2026-07-07 10:15', fechaActualizacion: '2026-07-07 10:15',
+    piezas: [
+      { code: 'RD-772', qtySolicitada: 4, qtySurtida: 0 },
+      { code: 'AM-445', qtySolicitada: 2, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    observaciones: 'Devolución a CEDIS por exceso de inventario.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '480701', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // DEMO-DC-2: Tesistán envía garantía a CEDIS (ya surtida, por embarcar).
+  {
+    id: 'DEMO-DC-2', solicitudId: 'DEMO-DC2', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'Tesistán', sucursalDestino: 'CEDIS',
+    motivoEnvioCedis: 'Garantía', status: 'Revisado',
+    fechaCreacion: '2026-07-08 12:40', fechaActualizacion: '2026-07-08 14:05',
+    piezas: [
+      { code: 'BT-055', qtySolicitada: 3, qtySurtida: 3 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    observaciones: 'Garantía de piezas defectuosas enviada a CEDIS.',
+    usuarioCreador: 'TESISTAN_LOG',
+    noPapeleta: '480801', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
 ];
 
 // Reubica los escenarios DEMO-* al MES EN CURSO para que sean visibles por
@@ -2159,5 +2280,23 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
     if (explicit[o.id]) { o.tipoEnvio = explicit[o.id]; return; }
     const pref = `P${o.id.replace(/\D/g, '').padStart(7, '0')}`;
     o.tipoEnvio = conTraspaso.has(pref) ? 'Envío a domicilio/Traspasos' : otros[i++ % otros.length];
+  });
+})();
+
+// ── Backfill del modelo de dos lados (origen/destino) ──
+// Los registros históricos solo traían `tipo` + `sucursalContraparte` desde la
+// perspectiva de la sucursal local. Se derivan origen/destino para que también
+// sean visibles (con perspectiva opuesta) al seleccionar la sucursal contraparte.
+// Los registros que ya definen origen/destino (escenarios de dos lados) se respetan.
+(() => {
+  TRASPASOS_DB.forEach(t => {
+    if (t.sucursalOrigen && t.sucursalDestino) return;
+    if (t.tipo === 'Entrante') {
+      t.sucursalDestino = SUCURSAL_LOCAL;
+      t.sucursalOrigen = t.sucursalContraparte;
+    } else {
+      t.sucursalOrigen = SUCURSAL_LOCAL;
+      t.sucursalDestino = t.sucursalContraparte;
+    }
   });
 })();

@@ -203,7 +203,96 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
+// =============================================================================
+// Realtime shared state — Vite Plugin
+// Estado compartido en tiempo real entre varias computadoras para los ejercicios
+// de traspasos: un snapshot único vive en el servidor de desarrollo, se propaga
+// por SSE a todos los clientes conectados y se persiste en disco hasta que se
+// presiona "Reiniciar" (que lo restablece al estado inicial sembrado).
+//   GET  /api/realtime/state   -> { version, snapshot }
+//   POST /api/realtime/state   -> body { senderId, snapshot } ; propaga a los demás
+//   POST /api/realtime/reset   -> limpia el snapshot y notifica a todos
+//   GET  /api/realtime/events  -> flujo SSE (state / reset)
+// =============================================================================
+function vitePluginRealtimeState(): Plugin {
+  const STATE_FILE = path.join(PROJECT_ROOT, ".realtime-state.json");
+  let store: { version: number; snapshot: unknown | null } = { version: 0, snapshot: null };
+  try {
+    if (fs.existsSync(STATE_FILE)) store = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
+  } catch {
+    /* estado inicial vacío */
+  }
+  const clients = new Set<import("http").ServerResponse>();
+
+  const persist = () => {
+    try {
+      if (store.snapshot == null) fs.rmSync(STATE_FILE, { force: true });
+      else fs.writeFileSync(STATE_FILE, JSON.stringify(store), "utf-8");
+    } catch {
+      /* ignore */
+    }
+  };
+  const broadcast = (evt: unknown) => {
+    const data = `data: ${JSON.stringify(evt)}\n\n`;
+    for (const res of clients) {
+      try { res.write(data); } catch { /* cliente caído */ }
+    }
+  };
+  const readJson = (req: import("http").IncomingMessage) =>
+    new Promise<any>((resolve) => {
+      let body = "";
+      req.on("data", (c) => { body += c.toString(); });
+      req.on("end", () => { try { resolve(body ? JSON.parse(body) : {}); } catch { resolve({}); } });
+      req.on("error", () => resolve({}));
+    });
+
+  return {
+    name: "apymsa-realtime-state",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/realtime/events", (req, res) => {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        });
+        res.write(": connected\n\n");
+        res.write(`data: ${JSON.stringify({ type: "state", version: store.version, senderId: null, snapshot: store.snapshot })}\n\n`);
+        clients.add(res);
+        const ping = setInterval(() => { try { res.write(": ping\n\n"); } catch { /* noop */ } }, 25000);
+        req.on("close", () => { clearInterval(ping); clients.delete(res); });
+      });
+
+      server.middlewares.use("/api/realtime/state", async (req, res) => {
+        if (req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(store));
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readJson(req);
+          store = { version: store.version + 1, snapshot: body.snapshot ?? null };
+          persist();
+          broadcast({ type: "state", version: store.version, senderId: body.senderId ?? null, snapshot: store.snapshot });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ version: store.version }));
+          return;
+        }
+        res.writeHead(405); res.end();
+      });
+
+      server.middlewares.use("/api/realtime/reset", async (req, res) => {
+        if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
+        store = { version: store.version + 1, snapshot: null };
+        persist();
+        broadcast({ type: "reset", version: store.version });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, version: store.version }));
+      });
+    },
+  };
+}
+
+const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy(), vitePluginRealtimeState()];
 
 export default defineConfig({
   base: process.env.GITHUB_PAGES ? '/Exodus-sucursales-doc/' : '/',

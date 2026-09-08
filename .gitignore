@@ -113,3 +113,6 @@ client/public/__manus__/version.json
 
 # Manus debug logs
 .manus-logs/
+
+# Estado local del plugin realtime (modo sin Firebase)
+.realtime-state.json

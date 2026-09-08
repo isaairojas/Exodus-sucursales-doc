@@ -5,10 +5,11 @@
 // ============================================================
 import { useMemo, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { TraspasoTipo, TraspasoStatus, TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS } from '@/lib/data';
+import { TraspasoTipo, TraspasoStatus, TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS, perspectivaTraspaso } from '@/lib/data';
 import ScreenTraspasos from './ScreenTraspasos';
 import ModalNuevaSolicitudTraspaso from './ModalNuevaSolicitudTraspaso';
 import ModalSolicitarCedis from './ModalSolicitarCedis';
+import ModalEnviarCedis from './ModalEnviarCedis';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -17,10 +18,11 @@ interface Props {
 const TABS: TraspasoTipo[] = ['Saliente', 'Entrante'];
 
 export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
-  const { traspasos } = useApp();
+  const { traspasos, sucursalActual } = useApp();
   const [activeTab, setActiveTab] = useState<TraspasoTipo>('Entrante');
   const [showNuevaSolicitud, setShowNuevaSolicitud] = useState(false);
   const [showSolicitarCedis, setShowSolicitarCedis] = useState(false);
+  const [showEnviarCedis, setShowEnviarCedis] = useState(false);
 
   // Estatus que representa "pendiente de acción" en cada tab:
   // Por recibir (Entrante) → Enviado, esperando que demos entrada.
@@ -30,10 +32,12 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
   const contadorPorTipo = useMemo(() => {
     const counts: Record<TraspasoTipo, number> = { Entrante: 0, Saliente: 0 };
     traspasos.forEach(t => {
-      if (t.status === STATUS_ACCIONABLE[t.tipo]) counts[t.tipo]++;
+      const per = perspectivaTraspaso(t, sucursalActual);
+      if (!per.visible) return;
+      if (t.status === STATUS_ACCIONABLE[per.tipo]) counts[per.tipo]++;
     });
     return counts;
-  }, [traspasos]);
+  }, [traspasos, sucursalActual]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
@@ -97,6 +101,7 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
           tipoFilter={activeTab}
           onNuevaSolicitud={activeTab === 'Entrante' ? () => setShowNuevaSolicitud(true) : undefined}
           onSolicitarCedis={activeTab === 'Entrante' ? () => setShowSolicitarCedis(true) : undefined}
+          onEnviarCedis={activeTab === 'Saliente' ? () => setShowEnviarCedis(true) : undefined}
         />
       </div>
 
@@ -110,6 +115,13 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
       {showSolicitarCedis && (
         <ModalSolicitarCedis
           onClose={() => setShowSolicitarCedis(false)}
+          showToast={showToast}
+        />
+      )}
+
+      {showEnviarCedis && (
+        <ModalEnviarCedis
+          onClose={() => setShowEnviarCedis(false)}
           showToast={showToast}
         />
       )}
