@@ -806,6 +806,8 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
     if (filterFinalizado) { allowedStatuses.add('Enviado'); }
 
     return allOrders.filter(o => {
+      // Solo pedidos relacionados a traspasos (tipo de envío "/Traspasos").
+      if (o.tipoEnvio !== 'Envío a domicilio/Traspasos') return false;
       if (!allowedStatuses.has(o.status)) return false;
       if (filterStatus !== 'ALL' && o.status !== filterStatus) return false;
       if (searchText) {

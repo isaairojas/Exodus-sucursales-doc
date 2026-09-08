@@ -98,8 +98,9 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
   const { crearSolicitudCedisUrgencia, cancelarPeticiones, traspasos, sucursalActual } = useApp();
   const [step, setStep] = useState<Step>(1);
 
-  // Paso 1: pedido origen (obligatorio para Urgencia)
+  // Paso 1: pedido origen (o solicitud SIN pedido, validada por CEDIS con token)
   const [pedidoSelected, setPedidoSelected] = useState<string | null>(null);
+  const [sinPedido, setSinPedido] = useState(false);
   const [bloqueoMsg, setBloqueoMsg] = useState<string | null>(null);
 
   // Paso 2: piezas (se precargan del pedido; editables)
@@ -130,6 +131,7 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
       return;
     }
     setBloqueoMsg(null);
+    setSinPedido(false);
     setPedidoSelected(id);
     // Precarga de los productos del pedido.
     setPiezas(pedido.partidas.map(p => ({ code: p.code, qty: p.qty })));
@@ -157,6 +159,18 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
     setPiezas(prev => prev.filter(p => p.code !== code));
   };
 
+  // Sin pedido: se pueden agregar productos del catálogo.
+  const opcionesCatalogo = Object.values(PRODUCT_CATALOG).filter(p => !piezas.some(x => x.code === p.code));
+  const handleAddPieza = (code: string) => setPiezas(prev => [...prev, { code, qty: 1 }]);
+
+  const iniciarSinPedido = () => {
+    setSinPedido(true);
+    setPedidoSelected(null);
+    setBloqueoMsg(null);
+    setPiezas([]);
+    setStep(2);
+  };
+
   // CEDIS permite superar la cantidad del pedido (solo muestra leyenda).
   const handleUpdateQty = (code: string, qty: number) => {
     setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: Math.max(1, qty) } : p));
@@ -165,27 +179,28 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
   const canGoToStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
 
   // ── Paso 3 ──
-  const canConfirmar = !!pedidoSelected && piezas.length > 0 && esTokenValido(token);
+  const canConfirmar = (!!pedidoSelected || sinPedido) && piezas.length > 0 && esTokenValido(token);
 
   const handleConfirmar = () => {
-    if (!canConfirmar || !pedidoSelected) return;
+    if (!canConfirmar) return;
     // Eliminación de peticiones sustituidas (no toca las que están en tránsito).
     if (impacto && impacto.cancelar.length > 0) {
       cancelarPeticiones(impacto.cancelar, 'urgencia-cedis');
     }
     const data: CrearSolicitudCedisData = {
       piezas: piezas.map(p => ({ code: p.code, qtySolicitada: p.qty, qtySurtida: 0 } as TraspasoPiezaDetalle)),
-      pedidoOrigen: pedidoDemo?.pedidoRealVinculado ?? pedidoSelected,
+      pedidoOrigen: sinPedido ? '' : (pedidoDemo?.pedidoRealVinculado ?? pedidoSelected ?? ''),
       observaciones: observaciones.trim() || undefined,
     };
     const solicitudId = crearSolicitudCedisUrgencia(data);
     const extra = impacto && impacto.cancelar.length > 0 ? ` · ${impacto.cancelar.length} petición(es) cancelada(s)` : '';
-    showToast(`Solicitud de urgencia ${solicitudId} enviada a CEDIS${extra}`, 'success');
+    const nota = sinPedido ? ' (sin pedido — pendiente de validación por CEDIS)' : '';
+    showToast(`Solicitud ${solicitudId} enviada a CEDIS${nota}${extra}`, 'success');
     onClose();
   };
 
   const canAdvance =
-    step === 1 ? !!pedidoSelected :
+    step === 1 ? (!!pedidoSelected || sinPedido) :
     step === 2 ? canGoToStep3 :
     true;
 
@@ -260,7 +275,8 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                 <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#dc2626' }}>priority_high</span>
                   <p className="text-xs" style={{ color: '#374151' }}>
-                    Las solicitudes a CEDIS se marcan como <strong>Urgencia</strong> y siempre requieren un pedido relacionado.
+                    Lo habitual es relacionar un <strong>pedido</strong> (Urgencia). También puedes solicitar <strong>sin pedido</strong>,
+                    pero esa solicitud la valida CEDIS con token y puede tardar más.
                   </p>
                 </div>
 
@@ -299,16 +315,64 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                     onSelect={handleSelectPedido}
                   />
                 )}
+
+                {/* Opción: solicitar SIN pedido (validación de CEDIS + token) */}
+                {!pedidoSelected && (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <span style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+                      <span className="text-[11px]" style={{ color: '#9ca3af' }}>o</span>
+                      <span style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+                    </div>
+                    <button
+                      onClick={iniciarSinPedido}
+                      className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-semibold py-2.5 transition-all"
+                      style={{ border: '1.5px solid #d97706', color: '#b45309', background: 'rgba(217,119,6,0.06)' }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>warehouse</span>
+                      Solicitar sin pedido de cliente
+                    </button>
+                    <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>schedule</span>
+                      <p className="text-xs" style={{ color: '#6b7280' }}>
+                        La solicitud <strong>sin pedido</strong> deberá ser <strong>validada por CEDIS</strong> con token de autorización
+                        y <strong>podrá tomar más tiempo del esperado</strong>.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
-            {/* Paso 2: Piezas (solo las del pedido — sin buscador) */}
+            {/* Paso 2: Piezas (del pedido, o del catálogo si es sin pedido) */}
             {step === 2 && (
               <div className="flex flex-col gap-4">
-                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>Productos del pedido a solicitar a CEDIS</p>
-                <p className="text-xs" style={{ color: '#6b7280' }}>
-                  Solo puedes solicitar productos del pedido #{pedidoSelected}. Puedes superar la cantidad requerida; se avisará con una leyenda.
+                <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>
+                  {sinPedido ? 'Productos a solicitar a CEDIS (sin pedido)' : 'Productos del pedido a solicitar a CEDIS'}
                 </p>
+                {sinPedido ? (
+                  <>
+                    <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>schedule</span>
+                      <p className="text-xs" style={{ color: '#6b7280' }}>
+                        Solicitud <strong>sin pedido</strong>: será <strong>validada por CEDIS</strong> con token y <strong>podrá tomar más tiempo del esperado</strong>.
+                      </p>
+                    </div>
+                    <BuscadorSugerencias
+                      placeholder="Buscar pieza por código o nombre…"
+                      options={opcionesCatalogo}
+                      getId={p => p.code}
+                      getLabel={p => p.code}
+                      getSubLabel={p => p.name}
+                      onSelect={p => handleAddPieza(p.code)}
+                      disabled={opcionesCatalogo.length === 0}
+                    />
+                  </>
+                ) : (
+                  <p className="text-xs" style={{ color: '#6b7280' }}>
+                    Solo puedes solicitar productos del pedido #{pedidoSelected}. Puedes superar la cantidad requerida; se avisará con una leyenda.
+                  </p>
+                )}
                 <p className="text-[11px] flex items-center gap-1" style={{ color: '#9ca3af' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
                   Se muestra tu existencia en <strong style={{ color: '#6b7280' }}>{sucursalActual}</strong>. Si solicitas más de lo que tienes, la cantidad se marca en <span style={{ color: '#dc2626', fontWeight: 600 }}>rojo</span> (traes mercancía de más de CEDIS).
@@ -380,7 +444,9 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                     );
                   })}
                   {piezas.length === 0 && (
-                    <p className="text-xs text-center py-6" style={{ color: '#9ca3af' }}>Selecciona un pedido para cargar sus productos.</p>
+                    <p className="text-xs text-center py-6" style={{ color: '#9ca3af' }}>
+                      {sinPedido ? 'Agrega productos del catálogo con el buscador.' : 'Selecciona un pedido para cargar sus productos.'}
+                    </p>
                   )}
                 </div>
               </div>
@@ -404,6 +470,11 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                   {pedidoSelected && pedidoDemo && (
                     <div className="text-xs mt-1" style={{ color: '#6b7280' }}>
                       Pedido origen: <strong style={{ color: '#1a2b6b' }}>#{pedidoSelected}</strong> — {pedidoDemo.cliente}
+                    </div>
+                  )}
+                  {sinPedido && (
+                    <div className="text-xs mt-1" style={{ color: '#b45309' }}>
+                      Sin pedido de cliente — requiere validación de CEDIS (puede tardar más).
                     </div>
                   )}
                 </div>
