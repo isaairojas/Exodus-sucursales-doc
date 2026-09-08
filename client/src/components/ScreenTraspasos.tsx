@@ -78,7 +78,7 @@ function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
 }
 
 export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis }: Props) {
-  const { traspasos, entregarTraspaso, sucursalActual, reasignarPeticion } = useApp();
+  const { traspasos, entregarTraspaso, sucursalActual, reasignarPeticion, generarSolicitudRestante } = useApp();
 
   // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
   // según sea su origen o su destino. Solo se ven los que involucran a la sucursal.
@@ -264,12 +264,23 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const canSurtir = !!sel && sel.status === 'Pendiente';
   const canRevisar = !!sel && sel.status === 'Surtido';
   const canEmbarcar = !!sel && sel.status === 'Revisado';
-  // Petición rechazada por surtido: se puede intentar reasignar a otra sucursal (SMC).
+  // Escenarios de recálculo por la sucursal solicitante:
+  // - Rechazada en su totalidad → reasignar (nueva petición por el faltante).
+  // - Surtida/revisada parcialmente → nueva solicitud por el restante.
+  const faltanteDe = (t: TraspasoPeticion) => t.piezas.reduce((s, p) => s + Math.max(0, p.qtySolicitada - p.qtySurtida), 0);
   const canReasignar = !!sel && sel.status === 'Cancelado' && sel.resultado === 'rechazada' && !sel.peticionSiguienteId;
+  const canGenerarRestante = !!sel && sel.parcial === true && sel.status !== 'Cancelado' && faltanteDe(sel) > 0 && !sel.peticionSiguienteId;
 
   const handleReasignar = () => {
     if (!sel) return;
     const r = reasignarPeticion(sel.id);
+    showToast(r.mensaje, r.ok ? 'success' : 'warning');
+    if (r.ok) setSelectedId(null);
+  };
+
+  const handleGenerarRestante = () => {
+    if (!sel) return;
+    const r = generarSolicitudRestante(sel.id);
     showToast(r.mensaje, r.ok ? 'success' : 'warning');
     if (r.ok) setSelectedId(null);
   };
@@ -675,19 +686,32 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           </>
         )}
 
-        {/* Reasignar (SMC) — solo para peticiones rechazadas por surtido */}
-        {canReasignar && (
+        {/* Recálculo por la sucursal solicitante, según el escenario de la petición */}
+        {(canReasignar || canGenerarRestante) && (
           <>
             <span style={{ color: '#e5e7eb', margin: '0 4px', fontSize: 18 }}>|</span>
-            <button
-              onClick={handleReasignar}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(true, '#2563eb')}
-              title="El algoritmo SMC evalúa si la petición rechazada puede reasignarse a otra sucursal"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>autorenew</span>
-              Reasignar (SMC)
-            </button>
+            {canReasignar && (
+              <button
+                onClick={handleReasignar}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#2563eb')}
+                title="Petición rechazada en su totalidad: SMC genera una nueva petición por el faltante desde otra sucursal"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>autorenew</span>
+                Reasignar (nueva petición por el faltante)
+              </button>
+            )}
+            {canGenerarRestante && (
+              <button
+                onClick={handleGenerarRestante}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#0d9488')}
+                title="Surtida/revisada parcialmente: genera una nueva solicitud por el restante"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>note_add</span>
+                Nueva solicitud por el restante
+              </button>
+            )}
           </>
         )}
 

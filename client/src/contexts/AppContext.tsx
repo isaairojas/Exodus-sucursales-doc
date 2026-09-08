@@ -68,6 +68,7 @@ interface AppContextValue {
   finalizarRevisionTraspaso: (petId: string, piezasRevisadas: TraspasoPiezaDetalle[]) => string | null;
   negarTraspaso: (petId: string, motivo: string) => string | null;
   reasignarPeticion: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
+  generarSolicitudRestante: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   revisarTraspaso: (petId: string, conIncidencias: boolean) => void;
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
@@ -290,8 +291,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Construye una petición AUTOMÁTICA derivada (recálculo SMC) que cubre el
   // faltante de una petición previa, eligiendo otra sucursal donante.
-  const construirDerivada = (orig: TraspasoPeticion, faltante: TraspasoPiezaDetalle[], now: string): TraspasoPeticion => {
+  const construirDerivada = (orig: TraspasoPeticion, faltante: TraspasoPiezaDetalle[], now: string, opts?: { nuevaSolicitud?: boolean }): TraspasoPeticion => {
     const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
+    // Reasignación = misma solicitud, intento+1. Nueva solicitud (por restante) = solicitud nueva, intento 1.
+    const solicitudId = opts?.nuevaSolicitud ? `S${pad7(Date.now())}` : orig.solicitudId;
+    const intento = opts?.nuevaSolicitud ? 1 : (orig.intento ?? 1) + 1;
     // Donantes ya descartados (la sucursal que no pudo surtir + rechazos previos).
     const rechazadas = Array.from(new Set([orig.sucursalOrigen, ...(orig.sucursalesExcluidas ?? [])].filter(Boolean) as string[]));
     // Para elegir el nuevo donante también se excluye la sucursal DESTINO (no se
@@ -302,7 +306,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const id = `TP${pad7(Date.now() + Math.floor(Math.random() * 1000))}`;
     return {
       id,
-      solicitudId: orig.solicitudId,
+      solicitudId,
       tipo: 'Entrante',
       categoria: 'Automático',
       sucursalContraparte: donante,
@@ -321,7 +325,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cajasTotal: 1,
       cajasRecibidas: 0,
       flujo: 'Automatico',
-      intento: (orig.intento ?? 1) + 1,
+      intento,
       resultado: 'vigente',
       peticionAnteriorId: orig.id,
       sucursalesExcluidas: rechazadas,
@@ -420,6 +424,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
     return { ok: true, mensaje: `Reasignada por SMC a ${derivada.sucursalOrigen} (intento ${derivada.intento}).`, derivadaId: derivada.id };
+  }, [traspasos]);
+
+  // Genera una NUEVA SOLICITUD (SMC) por el RESTANTE de una petición surtida/
+  // revisada parcialmente. A diferencia de reasignar, abre una solicitud nueva
+  // (no continúa la misma cadena) para cubrir solo lo que faltó.
+  const generarSolicitudRestante = useCallback((petId: string): { ok: boolean; mensaje: string; derivadaId?: string } => {
+    const orig = traspasos.find(t => t.id === petId);
+    if (!orig) return { ok: false, mensaje: 'Petición no encontrada.' };
+    const faltante = orig.piezas
+      .filter(p => p.qtySurtida < p.qtySolicitada)
+      .map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada - p.qtySurtida, qtySurtida: 0 }));
+    if (faltante.length === 0) return { ok: false, mensaje: 'Esta petición no tiene restante pendiente.' };
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const derivada = construirDerivada(orig, faltante, now, { nuevaSolicitud: true });
+    if (!derivada.sucursalOrigen || derivada.sucursalOrigen === orig.sucursalOrigen) {
+      return { ok: false, mensaje: 'SMC no encontró otra sucursal elegible para el restante.' };
+    }
+    setTraspasos(prev => {
+      let next = prev.map(t => t.id === petId ? { ...t, peticionSiguienteId: derivada.id } : t);
+      next = [derivada, ...next];
+      return next;
+    });
+    const totalRestante = faltante.reduce((s, f) => s + f.qtySolicitada, 0);
+    return { ok: true, mensaje: `Nueva solicitud ${derivada.solicitudId} por el restante (${totalRestante} pzs) a ${derivada.sucursalOrigen}.`, derivadaId: derivada.id };
   }, [traspasos]);
 
   // Revisión de traspaso Saliente: Surtido → Revisado (parcial si hubo incidencias).
@@ -622,7 +650,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
+      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, generarSolicitudRestante, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>

@@ -2239,6 +2239,34 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     noPapeleta: '480701', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,
   },
+  // 7) RECHAZADA EN SU TOTALIDAD — Tesistán rechazó; Federalismo (solicitante)
+  //    puede REASIGNAR a otra sucursal. (Aparece con el filtro "Cancelado".)
+  {
+    id: 'DEMO-EJ-RECH-1', solicitudId: 'DEMO-S-RECH', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Cancelado', resultado: 'rechazada', motivoRechazo: 'Sin existencia en la sucursal',
+    fechaCreacion: '2026-07-06 09:30', fechaActualizacion: '2026-07-06 11:00',
+    piezas: [{ code: 'BC-118', qtySolicitada: 5, qtySurtida: 0 }],
+    pedidoOrigen: '', parcial: false,
+    observaciones: 'Petición rechazada en su totalidad por la sucursal surtidora.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '470309', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1,
+  },
+  // 8) REVISADA PARCIALMENTE — llegó una parte; Federalismo puede generar una
+  //    NUEVA SOLICITUD por el restante. (Visible por defecto: etapa Revisado.)
+  {
+    id: 'DEMO-EJ-PARC-1', solicitudId: 'DEMO-S-PARC', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Revisado', resultado: 'surtida-parcial',
+    fechaCreacion: '2026-07-07 08:20', fechaActualizacion: '2026-07-07 10:40',
+    piezas: [{ code: 'XX-999', qtySolicitada: 5, qtySurtida: 2 }],
+    pedidoOrigen: '', parcial: true,
+    observaciones: 'Surtida/revisada parcialmente: llegaron 2 de 5; falta el restante.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '470310', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1,
+  },
 ];
 
 // Reubica los escenarios DEMO-* al MES EN CURSO para que sean visibles por
