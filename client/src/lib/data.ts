@@ -568,6 +568,17 @@ export type TraspasoSubtipoCedis = 'Urgencia' | 'Reabasto';
 // salen de la sucursal hacia el centro de distribución.
 export type MotivoEnvioCedis = 'Devolución' | 'Garantía';
 
+// Entrada del historial de confirmaciones de recepción (queda registro de cada
+// confirmación o cambio: completa/parcial, cajas, quién y cuándo).
+export interface RecepcionLogEntry {
+  fecha: string;
+  tipo: 'Completa' | 'Parcial';
+  usuario: string;
+  nota?: string;
+  cajasRecibidas?: number; // solo CEDIS (escaneo de cajas)
+  cajasTotal?: number;
+}
+
 export const MOTIVO_ENVIO_CEDIS_COLORS: Record<MotivoEnvioCedis, { bg: string; text: string; border: string }> = {
   'Devolución': { bg: 'rgba(217,119,6,0.1)', text: '#b45309', border: 'rgba(217,119,6,0.35)' },
   'Garantía':   { bg: 'rgba(37,99,235,0.1)', text: '#1d4ed8', border: 'rgba(37,99,235,0.35)' },
@@ -589,6 +600,9 @@ export interface TraspasoPeticion {
   sucursalOrigen?: string;      // quien surte y envía
   sucursalDestino?: string;     // quien recibe
   motivoEnvioCedis?: MotivoEnvioCedis; // solo envíos sucursal → CEDIS (devolución/garantía)
+  // ── Confirmación de recepción (recibido físicamente, sin entrada a inventario) ──
+  tipoRecepcion?: 'Completa' | 'Parcial'; // última confirmación de recepción
+  recepcionLog?: RecepcionLogEntry[];     // historial de confirmaciones/cambios (queda registro)
   status: TraspasoStatus;
   fechaCreacion: string;       // 'YYYY-MM-DD HH:mm'
   fechaActualizacion: string;

@@ -18,7 +18,7 @@ import { imprimirTraspaso } from '@/lib/printDoc';
 import { TRASPASO_DIAS_DEMORA, TRASPASO_DIAS_VENCIDO } from '@/lib/traspasoConfig';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
-import ModalRecepcionTraspaso from './ModalRecepcionTraspaso';
+import ModalConfirmarRecepcion from './ModalConfirmarRecepcion';
 import ModalEmbarcarTraspaso from './ModalEmbarcarTraspaso';
 
 interface Props {
@@ -55,18 +55,19 @@ function diasDesdeCreacion(fechaIso: string): number {
   if (isNaN(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
-interface SlaTag { label: string; bg: string; color: string; }
+interface SlaTag { label: string; icon: string; color: string; }
 // Etiquetas SLA de una petición (puede tener varias a la vez: p.ej. vencido +
 // con demora, o surtido parcial + revisado parcial). El "estado" queda aparte.
+// Se muestran como iconos (mismos iconos que las cards) con tooltip.
 function slaTags(t: TraspasoPeticion): SlaTag[] {
   const tags: SlaTag[] = [];
   const noEnviado = NO_ENVIADO_STATUS.includes(t.status);
   const dias = diasDesdeCreacion(t.fechaCreacion);
-  if (noEnviado && dias >= TRASPASO_DIAS_VENCIDO) tags.push({ label: `Vencido (${dias}d)`, bg: 'rgba(220,38,38,0.12)', color: '#dc2626' });
-  if (noEnviado && dias >= TRASPASO_DIAS_DEMORA) tags.push({ label: 'Con demora', bg: 'rgba(217,119,6,0.14)', color: '#b45309' });
-  if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido parcial', bg: 'rgba(27,56,146,0.1)', color: '#1B3892' });
-  if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado parcial', bg: 'rgba(124,58,237,0.1)', color: '#7c3aed' });
-  if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', bg: 'rgba(220,38,38,0.12)', color: '#dc2626' });
+  if (noEnviado && dias >= TRASPASO_DIAS_VENCIDO) tags.push({ label: `Vencido (${dias} días sin enviar)`, icon: 'event_busy', color: '#dc2626' });
+  if (noEnviado && dias >= TRASPASO_DIAS_DEMORA) tags.push({ label: 'Con demora', icon: 'schedule', color: '#b45309' });
+  if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido parcial', icon: 'splitscreen', color: '#1B3892' });
+  if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado parcial', icon: 'fact_check', color: '#7c3aed' });
+  if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', icon: 'cancel', color: '#dc2626' });
   return tags;
 }
 
@@ -104,7 +105,7 @@ function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
 }
 
 export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis }: Props) {
-  const { traspasos, entregarTraspaso, sucursalActual, reasignarPeticion, generarSolicitudRestante } = useApp();
+  const { traspasos, sucursalActual, reasignarPeticion, generarSolicitudRestante } = useApp();
 
   // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
   // según sea su origen o su destino. Solo se ven los que involucran a la sucursal.
@@ -309,9 +310,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Lógica de botones de acción
   const sel = selectedPeticion;
   const canVerDetalle = !!sel;
-  // Debe estar realmente en tránsito (Enviado) además de no estar ya recibido —
-  // si no, se puede "dar entrada" a peticiones que ni siquiera se han surtido.
-  const canDarEntrada = !!sel && sel.status === 'Enviado' && calcularRecibido(sel, perspectivaTraspaso(sel, sucursalActual).tipo).estatus === 'En camino';
   const canSurtir = !!sel && sel.status === 'Pendiente';
   const canRevisar = !!sel && sel.status === 'Surtido';
   const canEmbarcar = !!sel && sel.status === 'Revisado';
@@ -340,16 +338,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   };
 
   // Reabasto de CEDIS es de recepción ciega: sin modal de escaneo, entrada directa.
-  const handleDarEntrada = () => {
-    if (!sel) return;
-    if (sel.categoria === 'CEDIS' && sel.subtipoCedis === 'Reabasto') {
-      entregarTraspaso(sel.id);
-      showToast(`Traspaso ${sel.id} marcado como recibido`, 'success');
-      setSelectedId(null);
-    } else {
-      setRecepcionPetId(sel.id);
-    }
-  };
+  // Confirmar recepción: disponible cuando ya fue Enviado (por confirmar) o ya
+  // Recibido (para cambiar completa/parcial; queda registro).
+  const canConfirmarRecepcion = !!sel && (sel.status === 'Enviado' || sel.status === 'Recibido');
 
   const btnEnabled = (active: boolean, bg: string) =>
     active
@@ -681,12 +672,12 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                   </td>
                   <td className="px-3 py-2.5">
                     {tagsSla.length === 0 ? (
-                      <span className="text-xs" style={{ color: '#16a34a' }}>En tiempo</span>
+                      <span className="material-symbols-outlined" title="En tiempo" style={{ fontSize: 19, color: '#16a34a', cursor: 'help' }}>check_circle</span>
                     ) : (
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex items-center gap-1.5">
                         {tagsSla.map(tag => (
-                          <span key={tag.label} className="px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" style={{ background: tag.bg, color: tag.color }}>
-                            {tag.label}
+                          <span key={tag.label} className="material-symbols-outlined" title={tag.label} style={{ fontSize: 19, color: tag.color, cursor: 'help' }}>
+                            {tag.icon}
                           </span>
                         ))}
                       </div>
@@ -732,13 +723,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
         {tipoFilter === 'Entrante' ? (
           <button
-            disabled={!canDarEntrada}
-            onClick={handleDarEntrada}
+            disabled={!canConfirmarRecepcion}
+            onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-            style={btnEnabled(canDarEntrada, '#16a34a')}
+            style={btnEnabled(canConfirmarRecepcion, '#16a34a')}
+            title="Confirmar que la sucursal ya recibió la mercancía (no da entrada al inventario)"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>inventory</span>
-            Dar entrada
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>how_to_reg</span>
+            Confirmar recepción
           </button>
         ) : (
           <>
@@ -838,7 +830,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       )}
 
       {recepcionPeticion && (
-        <ModalRecepcionTraspaso
+        <ModalConfirmarRecepcion
           peticion={recepcionPeticion}
           onClose={() => { setRecepcionPetId(null); setSelectedId(null); }}
           showToast={showToast}

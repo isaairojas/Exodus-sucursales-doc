@@ -9,7 +9,7 @@ import {
   ORDERS_DB, OrderStatus,
   TraspasoPeticion, TraspasoPiezaDetalle, TraspasoStatus, TRASPASOS_DB,
   EmbarqueTraspaso, EMBARQUES_TRASPASO_DB, MotivoCancelacion,
-  SUCURSALES_EJERCICIO, MotivoEnvioCedis, calcularSucursalRecomendada,
+  SUCURSALES_EJERCICIO, MotivoEnvioCedis, calcularSucursalRecomendada, RecepcionLogEntry,
 } from '@/lib/data';
 import { MAX_EVALUACIONES_PETICION } from '@/lib/traspasoConfig';
 
@@ -71,6 +71,7 @@ interface AppContextValue {
   generarSolicitudRestante: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   revisarTraspaso: (petId: string, conIncidencias: boolean) => void;
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
+  confirmarRecepcion: (petId: string, data: { tipo: 'Completa' | 'Parcial'; nota?: string; cajasRecibidas?: number }) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
   crearSolicitudCedisUrgencia: (data: CrearSolicitudCedisData) => string;
   crearEnvioCedis: (data: CrearEnvioCedisData) => string;
@@ -479,6 +480,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  // Confirmación de recepción: la sucursal avisa que YA RECIBIÓ la mercancía
+  // (recibido físicamente), sin darle entrada al inventario. Entre sucursales es
+  // solo una confirmación completa/parcial (modificable después, queda registro);
+  // CEDIS puede confirmar cajas recibidas. Marca Recibido y guarda el historial.
+  const confirmarRecepcion = useCallback((
+    petId: string,
+    data: { tipo: 'Completa' | 'Parcial'; nota?: string; cajasRecibidas?: number },
+  ) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t => {
+      if (t.id !== petId) return t;
+      const entry: RecepcionLogEntry = {
+        fecha: now, tipo: data.tipo, usuario: sucursalActual,
+        nota: data.nota?.trim() || undefined,
+        cajasRecibidas: data.cajasRecibidas, cajasTotal: t.categoria === 'CEDIS' ? t.cajasTotal : undefined,
+      };
+      return {
+        ...t,
+        status: 'Recibido' as TraspasoStatus,
+        tipoRecepcion: data.tipo,
+        parcial: data.tipo === 'Parcial' ? true : t.parcial,
+        fechaActualizacion: now,
+        cajasRecibidas: data.cajasRecibidas ?? t.cajasRecibidas,
+        recepcionLog: [...(t.recepcionLog ?? []), entry],
+      };
+    }));
+  }, [sucursalActual]);
+
   const embarcarTraspaso = useCallback((petId: string, data: EmbarcarTraspasoData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const peticion = traspasos.find(t => t.id === petId);
@@ -651,7 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, generarSolicitudRestante, revisarTraspaso, entregarTraspaso, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
+      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, generarSolicitudRestante, revisarTraspaso, entregarTraspaso, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>
