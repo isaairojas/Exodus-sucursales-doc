@@ -15,7 +15,7 @@ import {
 } from '@/lib/data';
 import { exportarExcel } from '@/lib/exportExcel';
 import { imprimirTraspaso } from '@/lib/printDoc';
-import { TRASPASO_DIAS_DEMORA, TRASPASO_DIAS_VENCIDO } from '@/lib/traspasoConfig';
+import { TRASPASO_DIAS_VENCIDO_SURTIDO } from '@/lib/traspasoConfig';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
 import ModalConfirmarRecepcion from './ModalConfirmarRecepcion';
@@ -48,25 +48,28 @@ const ESTADOS_ALTO: TraspasoEstadoAlto[] = ['Pendiente', 'Finalizado', 'Cancelad
 const GROUP_COLORS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777', '#0891b2', '#65a30d', '#9333ea'];
 
 // ── SLA / control de tiempos ──
-// Estados en los que el traspaso aún NO se ha enviado (cuenta para demora/vencido).
-const NO_ENVIADO_STATUS: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Documentado'];
+// Estatus en los que la petición sigue PENDIENTE POR SURTIR (cuenta para vencido).
+const PENDIENTE_SURTIR_STATUS: TraspasoStatus[] = ['Pendiente'];
+// Estatus "surtido/revisado pero aún sin enviar" (pendientes por envío).
+const PENDIENTE_ENVIO_STATUS: TraspasoStatus[] = ['Surtido', 'Revisado', 'Documentado'];
 function diasDesdeCreacion(fechaIso: string): number {
   const t = new Date(fechaIso.replace(' ', 'T')).getTime();
   if (isNaN(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
+// Vencido "por recibir": la petición sigue por surtir y ya pasó el parámetro (1 día).
+function esVencidoSurtir(t: TraspasoPeticion): boolean {
+  return PENDIENTE_SURTIR_STATUS.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_SURTIDO;
+}
 interface SlaTag { label: string; icon: string; color: string; }
 // Etiquetas SLA de una petición (puede tener varias a la vez: p.ej. vencido +
-// con demora, o surtido parcial + revisado parcial). El "estado" queda aparte.
+// surtido parcial + revisado parcial). El "estado" queda aparte.
 // Se muestran como iconos (mismos iconos que las cards) con tooltip.
 function slaTags(t: TraspasoPeticion): SlaTag[] {
   const tags: SlaTag[] = [];
-  const noEnviado = NO_ENVIADO_STATUS.includes(t.status);
-  const dias = diasDesdeCreacion(t.fechaCreacion);
-  if (noEnviado && dias >= TRASPASO_DIAS_VENCIDO) tags.push({ label: `Vencido (${dias} días sin enviar)`, icon: 'event_busy', color: '#dc2626' });
-  if (noEnviado && dias >= TRASPASO_DIAS_DEMORA) tags.push({ label: 'Con demora', icon: 'schedule', color: '#b45309' });
-  if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido parcial', icon: 'splitscreen', color: '#1B3892' });
-  if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado parcial', icon: 'fact_check', color: '#7c3aed' });
+  if (esVencidoSurtir(t)) tags.push({ label: `Vencido (${diasDesdeCreacion(t.fechaCreacion)} día(s) por surtir)`, icon: 'event_busy', color: '#dc2626' });
+  if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido con parcialidad', icon: 'splitscreen', color: '#1B3892' });
+  if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado con parcialidad', icon: 'fact_check', color: '#7c3aed' });
   if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', icon: 'cancel', color: '#dc2626' });
   return tags;
 }
@@ -75,19 +78,27 @@ function slaTags(t: TraspasoPeticion): SlaTag[] {
 // dentro de la respuesta ya filtrada (no del universo completo).
 interface CardDef { key: string; label: string; sub: string; color: string; icon: string; match: (t: TraspasoPeticion) => boolean; }
 const CARD_DEFS: CardDef[] = [
-  { key: 'vencidos', label: 'Vencidos', sub: `+${TRASPASO_DIAS_VENCIDO}d sin enviar`, color: '#dc2626', icon: 'event_busy',
-    match: t => NO_ENVIADO_STATUS.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO },
-  { key: 'pendientesSurtir', label: 'Pend. surtir', sub: 'por surtir', color: '#d97706', icon: 'package_2',
+  { key: 'vencidos', label: 'Vencidos', sub: `+${TRASPASO_DIAS_VENCIDO_SURTIDO}d por surtir`, color: '#dc2626', icon: 'event_busy',
+    match: esVencidoSurtir },
+  { key: 'pendientesSurtir', label: 'Pendientes por surtir', sub: 'aún sin surtir', color: '#d97706', icon: 'package_2',
     match: t => t.status === 'Pendiente' },
-  { key: 'parciales', label: 'Con parcialidad', sub: 'surtido/revisado', color: '#1B3892', icon: 'splitscreen',
+  { key: 'parciales', label: 'Surtido con parcialidad', sub: 'surtido/revisado parcial', color: '#1B3892', icon: 'splitscreen',
     match: t => !!t.parcial && (t.status === 'Surtido' || t.status === 'Revisado') },
-  { key: 'rechazados', label: 'Rechazados', sub: 'por reasignar', color: '#dc2626', icon: 'cancel',
-    match: t => t.status === 'Cancelado' && t.resultado === 'rechazada' },
+  { key: 'pendientesEnvio', label: 'Pendientes por envío', sub: 'surtido, sin enviar', color: '#0d9488', icon: 'outbox',
+    match: t => PENDIENTE_ENVIO_STATUS.includes(t.status) },
   { key: 'enviados', label: 'Enviados', sub: 'en tránsito', color: '#2563eb', icon: 'local_shipping',
     match: t => t.status === 'Enviado' },
-  { key: 'recibidos', label: 'Recibidos', sub: 'completados', color: '#16a34a', icon: 'inventory',
+  { key: 'finalizados', label: 'Finalizado', sub: 'con entrada a mercancía', color: '#16a34a', icon: 'inventory',
     match: t => t.status === 'Recibido' || t.status === 'Entregado' },
 ];
+
+// Filtros que NO se muestran como card (pero sí se pueden aplicar como chip).
+// Rechazados: la sucursal que rechazó NO los reasigna, pero puede querer verlos.
+const FILTER_ONLY_DEFS: CardDef[] = [
+  { key: 'rechazados', label: 'Rechazados', sub: 'solo consulta', color: '#dc2626', icon: 'cancel',
+    match: t => t.status === 'Cancelado' && t.resultado === 'rechazada' },
+];
+const ALL_FILTER_DEFS: CardDef[] = [...CARD_DEFS, ...FILTER_ONLY_DEFS];
 
 function porcentajeColor(pct: number) {
   if (pct >= 100) return '#16a34a';
@@ -239,14 +250,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Conteo por card sobre la RESPUESTA ya filtrada (no el universo).
   const cardCounts = useMemo(() => {
     const c: Record<string, number> = {};
-    CARD_DEFS.forEach(def => { c[def.key] = filteredTraspasos.filter(def.match).length; });
+    ALL_FILTER_DEFS.forEach(def => { c[def.key] = filteredTraspasos.filter(def.match).length; });
     return c;
   }, [filteredTraspasos]);
 
-  // Al activar una card, se filtra dentro de la respuesta ya filtrada.
+  // Al activar una card/filtro, se filtra dentro de la respuesta ya filtrada.
   const filteredConCard = useMemo(() => {
     if (!cardFilter) return filteredTraspasos;
-    const def = CARD_DEFS.find(d => d.key === cardFilter);
+    const def = ALL_FILTER_DEFS.find(d => d.key === cardFilter);
     return def ? filteredTraspasos.filter(def.match) : filteredTraspasos;
   }, [filteredTraspasos, cardFilter]);
 
@@ -269,6 +280,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     });
     return { rows: arr, solCount: count, solColor: color };
   }, [filteredConCard]);
+
+  // Rechazados: no es card, es un filtro de consulta. Como los rechazados están
+  // en estado alto "Cancelado" (excluido por defecto), al activarlo forzamos ese
+  // estado; al quitarlo restauramos el estado por defecto de la vista.
+  const toggleRechazados = () => {
+    if (cardFilter === 'rechazados') {
+      setCardFilter(null);
+      setFilterEstados(tipoFilter === 'Entrante' ? new Set<TraspasoEstadoAlto>(['Pendiente']) : new Set<TraspasoEstadoAlto>());
+    } else {
+      setCardFilter('rechazados');
+      setFilterEstados(new Set<TraspasoEstadoAlto>(['Cancelado']));
+    }
+  };
 
   const handleClearFilters = () => {
     setFechaInicial(MONTH_START);
@@ -376,20 +400,37 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               onClick={() => setCardFilter(activa ? null : c.key)}
               className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left"
               title={activa ? 'Quitar filtro' : `Filtrar: ${c.label}`}
-              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, minWidth: 138, cursor: 'pointer' }}
+              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, minWidth: 152, cursor: 'pointer' }}
             >
               <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: `${c.color}14`, flexShrink: 0 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, color: c.color }}>{c.icon}</span>
               </div>
-              <div className="min-w-0">
+              <div>
                 <span className="text-lg font-extrabold leading-none" style={{ color: val > 0 ? c.color : '#9ca3af' }}>{val}</span>
-                <div className="text-[11px] font-semibold leading-tight" style={{ color: '#374151' }}>{c.label}</div>
-                <div className="text-[9px] leading-tight" style={{ color: '#9ca3af' }}>{c.sub}</div>
+                <div className="text-[11px] font-semibold leading-tight whitespace-normal" style={{ color: '#374151' }}>{c.label}</div>
+                <div className="text-[9px] leading-tight whitespace-normal" style={{ color: '#9ca3af' }}>{c.sub}</div>
               </div>
             </button>
           );
         })}
-        {cardFilter && (
+
+        {/* Rechazados: filtro de consulta (no card). No se reasignan. */}
+        {(() => {
+          const activa = cardFilter === 'rechazados';
+          return (
+            <button
+              onClick={toggleRechazados}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 flex-shrink-0 transition-all"
+              title={activa ? 'Quitar filtro de rechazados' : 'Ver traspasos rechazados (solo consulta)'}
+              style={{ background: activa ? 'rgba(220,38,38,0.10)' : '#fff', border: `1.5px dashed ${activa ? '#dc2626' : '#e5e7eb'}`, cursor: 'pointer' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#dc2626' }}>cancel</span>
+              <span className="text-[11px] font-semibold" style={{ color: activa ? '#dc2626' : '#374151' }}>Ver rechazados</span>
+            </button>
+          );
+        })()}
+
+        {cardFilter && cardFilter !== 'rechazados' && (
           <button onClick={() => setCardFilter(null)} className="flex items-center gap-1 text-xs font-semibold flex-shrink-0 px-2 py-1 rounded" style={{ color: '#6b7280' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
             Quitar filtro

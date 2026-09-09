@@ -23,6 +23,11 @@ export const esTokenValido = (t: string) => t.trim() === TOKEN_PRUEBA;
 export const TRASPASO_DIAS_DEMORA = 5;   // M
 export const TRASPASO_DIAS_VENCIDO = 10; // N (configurado de momento en 10)
 
+// En "Traspasos por recibir" el vencido usa un parámetro más estricto: una
+// petición que sigue PENDIENTE POR SURTIR se considera vencida a partir de este
+// número de días desde su creación (básicamente 1 día).
+export const TRASPASO_DIAS_VENCIDO_SURTIDO = 1;
+
 // ── PENDIENTE ERB-51528 ──
 // Aún no está definido por negocio si el recálculo por surtido parcial se
 // dispara al FINALIZAR SURTIDO o al FINALIZAR REVISIÓN. NO se oculta esta
