@@ -576,14 +576,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const ts = Date.now();
     const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
     const solicitudId = `S${pad7(ts)}`;
+    // Regla: Automático SMC SIEMPRE lleva pedido; sin pedido es Manual (con token).
+    const conPedido = !!data.pedidoOrigen;
+    const categoria: TraspasoPeticion['categoria'] = conPedido ? 'Automático' : 'Manual';
+    const flujo: TraspasoPeticion['flujo'] = conPedido ? 'Automatico' : 'Manual';
     const nuevas: TraspasoPeticion[] = data.sucursales.map((suc, i) => {
       const piezas = (data.piezasPorSucursal[suc] ?? []).map(p => ({ ...p, qtySurtida: 0 }));
       const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
       return {
-        id: `TM${pad7(ts + i)}`,
+        id: `T${conPedido ? 'A' : 'M'}${pad7(ts + i)}`,
         solicitudId,
         tipo: 'Entrante' as const,
-        categoria: 'Manual' as const,
+        categoria,
+        flujo,
         sucursalContraparte: suc,
         // Modelo de dos lados: la sucursal actual es la que recibe (destino);
         // la sucursal donante (suc) es el origen que surtirá y enviará.

@@ -34,6 +34,11 @@ export const TRASPASO_DIAS_VENCIDO = 10; // N (configurado de momento en 10)
 // número de días desde su creación (básicamente 1 día).
 export const TRASPASO_DIAS_VENCIDO_SURTIDO = 1;
 
+// Los traspasos de CEDIS son de recepción CIEGA (no se ve la cantidad enviada);
+// solo se mide si están vencidos con su propio parámetro (días desde creación
+// sin que la sucursal les dé entrada).
+export const TRASPASO_DIAS_VENCIDO_CEDIS = 3;
+
 // ── PENDIENTE ERB-51528 ──
 // Aún no está definido por negocio si el recálculo por surtido parcial se
 // dispara al FINALIZAR SURTIDO o al FINALIZAR REVISIÓN. NO se oculta esta

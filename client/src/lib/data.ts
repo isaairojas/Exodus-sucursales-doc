@@ -531,7 +531,8 @@ export type PeticionResultado =
   | 'revisada'
   | 'documentada'
   | 'enviada'
-  | 'recibida';
+  | 'recibida'
+  | 'unificada';   // urgencia CEDIS unificada dentro de un traspaso de reabasto (la genera CEDIS)
 
 // Causa registrada cuando una petición se cancela o ajusta.
 export type MotivoCancelacion =
@@ -631,6 +632,12 @@ export interface TraspasoPeticion {
   peticionSiguienteId?: string;      // eslabón siguiente (petición derivada)
   sucursalesExcluidas?: string[];    // sucursales que ya rechazaron esta necesidad (no reelegibles)
   solicitudEstado?: SolicitudEstado; // estado de la solicitud origen
+  // ── Unificación de urgencia CEDIS con un traspaso de reabasto (lo decide CEDIS) ──
+  // En la urgencia unificada: id del traspaso de reabasto que la absorbió.
+  unificadaEnTraspaso?: string;
+  // En el traspaso de REABASTO: pedidos/urgencias cuya mercancía viaja unificada
+  // (para que el usuario sepa que el reabasto trae mercancía de un pedido).
+  reabastoUnifica?: { pedido: string; peticionId: string }[];
 }
 
 // Código interno de almacén por sucursal (vista unificada estilo almacén).
@@ -2273,19 +2280,47 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     noPapeleta: '480701', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,
   },
-  // 7) RECHAZADA EN SU TOTALIDAD — Tesistán rechazó; Federalismo (solicitante)
-  //    puede REASIGNAR a otra sucursal. (Aparece con el filtro "Cancelado".)
+  // 7) RECHAZADAS EN SU TOTALIDAD — 3 escenarios (Automático SMC siempre con
+  //    pedido; Manual con o sin pedido). Federalismo (solicitante) puede REASIGNAR.
+  //    (Aparecen con el filtro "Cancelado" / chip "Ver rechazados".)
+  // 7a) Automático SMC (siempre con pedido).
   {
     id: 'DEMO-EJ-RECH-1', solicitudId: 'DEMO-S-RECH', tipo: 'Entrante', categoria: 'Automático',
     sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
     status: 'Cancelado', resultado: 'rechazada', motivoRechazo: 'Sin existencia en la sucursal',
     fechaCreacion: '2026-07-06 09:30', fechaActualizacion: '2026-07-06 11:00',
     piezas: [{ code: 'BC-118', qtySolicitada: 5, qtySurtida: 0 }],
-    pedidoOrigen: '', parcial: false,
-    observaciones: 'Petición rechazada en su totalidad por la sucursal surtidora.',
+    pedidoOrigen: 'P1064772', parcial: false,
+    observaciones: 'Automático SMC rechazado en su totalidad (siempre lleva pedido).',
     usuarioCreador: 'SISTEMA_SMC',
     noPapeleta: '470309', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Automatico', intento: 1,
+  },
+  // 7b) Manual CON pedido.
+  {
+    id: 'DEMO-EJ-RECH-2', solicitudId: 'DEMO-S-RECH2', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Cancelado', resultado: 'rechazada', motivoRechazo: 'Mercancía dañada en sucursal',
+    fechaCreacion: '2026-07-06 10:10', fechaActualizacion: '2026-07-06 12:00',
+    piezas: [{ code: 'LT-334', qtySolicitada: 3, qtySurtida: 0 }],
+    pedidoOrigen: 'P1064851', parcial: false,
+    observaciones: 'Traspaso manual con pedido, rechazado en su totalidad.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '470312', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // 7c) Manual SIN pedido (fue autorizado con token 0000).
+  {
+    id: 'DEMO-EJ-RECH-3', solicitudId: 'DEMO-S-RECH3', tipo: 'Entrante', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Tesistán', sucursalDestino: 'Federalismo',
+    status: 'Cancelado', resultado: 'rechazada', motivoRechazo: 'No autorizado por el donante',
+    fechaCreacion: '2026-07-06 11:25', fechaActualizacion: '2026-07-06 13:00',
+    piezas: [{ code: 'AM-445', qtySolicitada: 2, qtySurtida: 0 }],
+    pedidoOrigen: '', parcial: false, autorizacionToken: '0000',
+    observaciones: 'Traspaso manual sin pedido (token 0000), rechazado en su totalidad.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '470313', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
   },
   // 8) REVISADA PARCIALMENTE — llegó una parte; Federalismo puede generar una
   //    NUEVA SOLICITUD por el restante. (Visible por defecto: etapa Revisado.)
@@ -2295,7 +2330,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     status: 'Revisado', resultado: 'surtida-parcial',
     fechaCreacion: '2026-07-07 08:20', fechaActualizacion: '2026-07-07 10:40',
     piezas: [{ code: 'XX-999', qtySolicitada: 5, qtySurtida: 2 }],
-    pedidoOrigen: '', parcial: true,
+    pedidoOrigen: 'P1064848', parcial: true,
     observaciones: 'Revisada parcialmente: llegaron 2 de 5; falta el restante.',
     usuarioCreador: 'SISTEMA_SMC',
     noPapeleta: '470310', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
@@ -2309,11 +2344,45 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     status: 'Surtido', resultado: 'surtida-parcial',
     fechaCreacion: '2026-07-07 09:00', fechaActualizacion: '2026-07-07 09:35',
     piezas: [{ code: 'AM-445', qtySolicitada: 6, qtySurtida: 2 }],
-    pedidoOrigen: '', parcial: true,
+    pedidoOrigen: 'P1064847', parcial: true,
     observaciones: 'Surtida parcialmente: se surtieron 2 de 6; falta el restante.',
     usuarioCreador: 'SISTEMA_SMC',
     noPapeleta: '470311', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Automatico', intento: 1,
+  },
+  // 10) CEDIS URGENCIA UNIFICADA — CEDIS decidió unificar esta urgencia dentro de
+  //     un traspaso de REABASTO. Pasa a Finalizadas con estado "Unificada".
+  {
+    id: 'DEMO-EJ-UNI-1', solicitudId: 'DEMO-S-UNI', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'CEDIS', sucursalDestino: 'Federalismo',
+    status: 'Entregado', resultado: 'unificada', unificadaEnTraspaso: 'DEMO-EJ-REAB-1',
+    fechaCreacion: '2026-07-05 09:00', fechaActualizacion: '2026-07-06 09:00',
+    piezas: [{ code: 'BT-055', qtySolicitada: 2, qtySurtida: 2 }],
+    pedidoOrigen: 'P1064855', parcial: false, autorizacionToken: '0000',
+    observaciones: 'Urgencia unificada por CEDIS dentro de un traspaso de reabasto.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '470314', packingList: false, cajasTotal: 2, cajasRecibidas: 0,
+    flujo: 'CEDIS', intento: 1,
+  },
+  // 11) TRASPASO DE REABASTO (lo genera CEDIS solo; la sucursal no hace nada).
+  //     Recepción CIEGA. Trae mercancía unificada de una urgencia con pedido:
+  //     por eso el tipo se muestra como "Reabasto/unificado".
+  {
+    id: 'DEMO-EJ-REAB-1', solicitudId: 'DEMO-S-REAB', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Reabasto',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'CEDIS', sucursalDestino: 'Federalismo',
+    status: 'Enviado',
+    fechaCreacion: '2026-07-06 07:30', fechaActualizacion: '2026-07-06 08:00',
+    piezas: [
+      { code: 'BT-055', qtySolicitada: 2, qtySurtida: 2 },
+      { code: 'AC-201', qtySolicitada: 8, qtySurtida: 8 },
+    ],
+    pedidoOrigen: '', parcial: false,
+    reabastoUnifica: [{ pedido: 'P1064855', peticionId: 'DEMO-EJ-UNI-1' }],
+    observaciones: 'Reabasto generado por CEDIS. Incluye mercancía unificada de una urgencia con pedido.',
+    usuarioCreador: 'SISTEMA_CEDIS',
+    noPapeleta: '470315', packingList: true, cajasTotal: 4, cajasRecibidas: 0,
+    fechaArribo: '2026-07-07 12:00',
+    flujo: 'CEDIS', intento: 1,
   },
 ];
 
@@ -2374,6 +2443,12 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     if (t.embarqueId) t.embarqueId = embMap.get(t.embarqueId) ?? t.embarqueId;
     if (t.peticionAnteriorId) t.peticionAnteriorId = petMap.get(t.peticionAnteriorId) ?? t.peticionAnteriorId;
     if (t.peticionSiguienteId) t.peticionSiguienteId = petMap.get(t.peticionSiguienteId) ?? t.peticionSiguienteId;
+    // Unificación de reabasto: remapea los ids cruzados a la convención normalizada.
+    if (t.unificadaEnTraspaso) t.unificadaEnTraspaso = petMap.get(t.unificadaEnTraspaso) ?? t.unificadaEnTraspaso;
+    if (t.reabastoUnifica) t.reabastoUnifica = t.reabastoUnifica.map(u => ({
+      pedido: prefijarPedido(u.pedido),
+      peticionId: petMap.get(u.peticionId) ?? u.peticionId,
+    }));
   });
   EMBARQUES_TRASPASO_DB.forEach(e => {
     e.id = embMap.get(e.id) ?? e.id;

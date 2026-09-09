@@ -15,7 +15,7 @@ import {
 } from '@/lib/data';
 import { exportarExcel } from '@/lib/exportExcel';
 import { imprimirTraspaso } from '@/lib/printDoc';
-import { TRASPASO_DIAS_VENCIDO_SURTIDO } from '@/lib/traspasoConfig';
+import { TRASPASO_DIAS_VENCIDO_SURTIDO, TRASPASO_DIAS_VENCIDO_CEDIS } from '@/lib/traspasoConfig';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
 import ModalConfirmarRecepcion from './ModalConfirmarRecepcion';
@@ -58,17 +58,26 @@ function diasDesdeCreacion(fechaIso: string): number {
   if (isNaN(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
-// Vencido "por recibir": la petición sigue por surtir y ya pasó el parámetro (1 día).
+// Vencido: en traspasos entre sucursales, la petición sigue por surtir y pasó el
+// parámetro (1 día). En CEDIS (recepción ciega) se mide con su propio parámetro:
+// sigue sin recibirse y ya pasaron los días del SLA de CEDIS.
+const CEDIS_NO_RECIBIDO: TraspasoStatus[] = ['Pendiente', 'Documentado', 'Enviado'];
 function esVencidoSurtir(t: TraspasoPeticion): boolean {
+  if (t.categoria === 'CEDIS') {
+    return CEDIS_NO_RECIBIDO.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_CEDIS;
+  }
   return PENDIENTE_SURTIR_STATUS.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_SURTIDO;
 }
 interface SlaTag { label: string; icon: string; color: string; }
 // Etiquetas SLA de una petición (puede tener varias a la vez: p.ej. vencido +
 // surtido parcial + revisado parcial). El "estado" queda aparte.
 // Se muestran como iconos (mismos iconos que las cards) con tooltip.
+// CEDIS es recepción ciega: solo se indica si está vencido (no parcialidades).
 function slaTags(t: TraspasoPeticion): SlaTag[] {
   const tags: SlaTag[] = [];
-  if (esVencidoSurtir(t)) tags.push({ label: `Vencido (${diasDesdeCreacion(t.fechaCreacion)} día(s) por surtir)`, icon: 'event_busy', color: '#dc2626' });
+  const dias = diasDesdeCreacion(t.fechaCreacion);
+  if (esVencidoSurtir(t)) tags.push({ label: t.categoria === 'CEDIS' ? `Vencido (${dias} días · SLA CEDIS)` : `Vencido (${dias} día(s) por surtir)`, icon: 'event_busy', color: '#dc2626' });
+  if (t.categoria === 'CEDIS') return tags;
   if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido con parcialidad', icon: 'splitscreen', color: '#1B3892' });
   if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado con parcialidad', icon: 'fact_check', color: '#7c3aed' });
   if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', icon: 'cancel', color: '#dc2626' });
@@ -615,9 +624,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               // Primera fila de cada grupo de solicitud: separa visualmente los bloques.
               const esInicioGrupo = idx > 0 && rows[idx - 1].solicitudId !== t.solicitudId;
               const per = perspectivaTraspaso(t, sucursalActual);
+              const esCedis = t.categoria === 'CEDIS';
+              const esUnificada = t.resultado === 'unificada';
+              const esReabastoUnificado = esCedis && t.subtipoCedis === 'Reabasto' && !!t.reabastoUnifica?.length;
               const tipoLabel = t.motivoEnvioCedis
                 ? t.motivoEnvioCedis
-                : t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
+                : esReabastoUnificado
+                  ? 'Reabasto/unificado'
+                  : esCedis && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
               const tipoColor = t.motivoEnvioCedis
                 ? MOTIVO_ENVIO_CEDIS_COLORS[t.motivoEnvioCedis]
                 : t.categoria === 'CEDIS' && t.subtipoCedis
@@ -625,6 +639,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                 : TRASPASO_CATEGORIA_COLORS[t.categoria as 'Automático' | 'Manual'];
               const tipoTooltip = t.motivoEnvioCedis
                 ? TRASPASO_CATEGORIA_TOOLTIP[t.motivoEnvioCedis]
+                : esReabastoUnificado
+                ? 'Reabasto generado por CEDIS que además trae mercancía unificada de una urgencia con pedido de cliente.'
                 : t.categoria === 'CEDIS' && t.subtipoCedis
                 ? TRASPASO_CATEGORIA_TOOLTIP[t.subtipoCedis]
                 : TRASPASO_CATEGORIA_TOOLTIP[t.categoria] ?? '';
@@ -723,21 +739,44 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-xs font-medium whitespace-nowrap" style={{ color: '#374151' }}>
-                      {recibidoNum}/{recibidoDen} {recibidoUnidad}
-                    </span>
+                    {esCedis ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap" style={{ color: '#9ca3af' }}
+                        title="Traspaso de CEDIS: recepción ciega. No se muestra la cantidad enviada/surtida.">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>visibility_off</span>
+                        Ciego
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium whitespace-nowrap" style={{ color: '#374151' }}>
+                        {recibidoNum}/{recibidoDen} {recibidoUnidad}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-xs font-semibold" style={{ color: porcentajeColor(pct) }}>{pct}%</span>
+                    {esCedis ? (
+                      <span className="text-xs" style={{ color: '#9ca3af' }}>—</span>
+                    ) : (
+                      <span className="text-xs font-semibold" style={{ color: porcentajeColor(pct) }}>{pct}%</span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span
-                      className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      title={TRASPASO_ETAPA_TOOLTIP[etapa]}
-                      style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
-                    >
-                      {etapa}
-                    </span>
+                    {esUnificada ? (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                        title={`Urgencia unificada por CEDIS dentro del traspaso de reabasto ${t.unificadaEnTraspaso ?? ''}. Consulta el detalle de la petición.`}
+                        style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed', border: '1px solid rgba(124,58,237,0.3)', cursor: 'help' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>merge</span>
+                        Unificada
+                      </span>
+                    ) : (
+                      <span
+                        className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                        title={TRASPASO_ETAPA_TOOLTIP[etapa]}
+                        style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
+                      >
+                        {etapa}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     {tagsSla.length === 0 ? (
