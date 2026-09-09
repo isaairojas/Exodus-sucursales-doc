@@ -71,6 +71,24 @@ function slaTags(t: TraspasoPeticion): SlaTag[] {
   return tags;
 }
 
+// Cards de control = filtros. Cada una define su predicado; al hacer click filtra
+// dentro de la respuesta ya filtrada (no del universo completo).
+interface CardDef { key: string; label: string; sub: string; color: string; icon: string; match: (t: TraspasoPeticion) => boolean; }
+const CARD_DEFS: CardDef[] = [
+  { key: 'vencidos', label: 'Vencidos', sub: `+${TRASPASO_DIAS_VENCIDO}d sin enviar`, color: '#dc2626', icon: 'event_busy',
+    match: t => NO_ENVIADO_STATUS.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO },
+  { key: 'pendientesSurtir', label: 'Pend. surtir', sub: 'por surtir', color: '#d97706', icon: 'package_2',
+    match: t => t.status === 'Pendiente' },
+  { key: 'parciales', label: 'Con parcialidad', sub: 'surtido/revisado', color: '#1B3892', icon: 'splitscreen',
+    match: t => !!t.parcial && (t.status === 'Surtido' || t.status === 'Revisado') },
+  { key: 'rechazados', label: 'Rechazados', sub: 'por reasignar', color: '#dc2626', icon: 'cancel',
+    match: t => t.status === 'Cancelado' && t.resultado === 'rechazada' },
+  { key: 'enviados', label: 'Enviados', sub: 'en tránsito', color: '#2563eb', icon: 'local_shipping',
+    match: t => t.status === 'Enviado' },
+  { key: 'recibidos', label: 'Recibidos', sub: 'completados', color: '#16a34a', icon: 'inventory',
+    match: t => t.status === 'Recibido' || t.status === 'Entregado' },
+];
+
 function porcentajeColor(pct: number) {
   if (pct >= 100) return '#16a34a';
   if (pct >= 50) return '#d97706';
@@ -117,30 +135,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     [traspasos, tipoFilter, sucursalActual]
   );
 
-  // Métricas de control (cards): sobre los traspasos de esta vista (tab + sucursal).
-  const metricas = useMemo(() => {
-    const m = { vencidos: 0, pendientesSurtir: 0, parciales: 0, rechazados: 0, enviados: 0, recibidos: 0 };
-    traspasosDelTipo.forEach(t => {
-      const noEnviado = NO_ENVIADO_STATUS.includes(t.status);
-      if (noEnviado && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO) m.vencidos++;
-      if (t.status === 'Pendiente') m.pendientesSurtir++;
-      if (t.parcial && (t.status === 'Surtido' || t.status === 'Revisado')) m.parciales++;
-      if (t.status === 'Cancelado' && t.resultado === 'rechazada') m.rechazados++;
-      if (t.status === 'Enviado') m.enviados++;
-      if (t.status === 'Recibido' || t.status === 'Entregado') m.recibidos++;
-    });
-    return m;
-  }, [traspasosDelTipo]);
-
-  const cards = [
-    { label: 'Vencidos', sub: `+${TRASPASO_DIAS_VENCIDO}d sin enviar`, val: metricas.vencidos, color: '#dc2626', icon: 'event_busy' },
-    { label: 'Pend. surtir', sub: 'por surtir', val: metricas.pendientesSurtir, color: '#d97706', icon: 'package_2' },
-    { label: 'Con parcialidad', sub: 'surtido/revisado', val: metricas.parciales, color: '#1B3892', icon: 'splitscreen' },
-    { label: 'Rechazados', sub: 'por reasignar', val: metricas.rechazados, color: '#dc2626', icon: 'cancel' },
-    { label: 'Enviados', sub: 'en tránsito', val: metricas.enviados, color: '#2563eb', icon: 'local_shipping' },
-    { label: 'Recibidos', sub: 'completados', val: metricas.recibidos, color: '#16a34a', icon: 'inventory' },
-  ];
-
   const sucursalPrefix = tipoFilter === 'Entrante' ? 'De: ' : 'A: ';
 
   // Etiquetas de columna: la tabla es una recepción (Entrante) o un envío (Saliente)
@@ -163,6 +157,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     () => tipoFilter === 'Entrante' ? new Set<TraspasoEstadoAlto>(['Pendiente']) : new Set<TraspasoEstadoAlto>()
   );
   const [filterEtapa, setFilterEtapa] = useState<'ALL' | TraspasoEtapa>('ALL');
+  const [cardFilter, setCardFilter] = useState<string | null>(null); // card de control activa (filtra la respuesta)
 
   const toggleEstado = (e: TraspasoEstadoAlto) =>
     setFilterEstados(prev => {
@@ -241,10 +236,24 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     });
   }, [traspasosDelTipo, filterTipo, filterEstados, filterEtapa, fechaInicial, fechaFinal, searchText, sucursalActual]);
 
+  // Conteo por card sobre la RESPUESTA ya filtrada (no el universo).
+  const cardCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    CARD_DEFS.forEach(def => { c[def.key] = filteredTraspasos.filter(def.match).length; });
+    return c;
+  }, [filteredTraspasos]);
+
+  // Al activar una card, se filtra dentro de la respuesta ya filtrada.
+  const filteredConCard = useMemo(() => {
+    if (!cardFilter) return filteredTraspasos;
+    const def = CARD_DEFS.find(d => d.key === cardFilter);
+    return def ? filteredTraspasos.filter(def.match) : filteredTraspasos;
+  }, [filteredTraspasos, cardFilter]);
+
   // Agrupación por solicitud: las peticiones de una misma solicitud se ordenan
   // juntas y comparten un color de acento, para que siempre se vean como grupo.
   const { rows, solCount, solColor } = useMemo(() => {
-    const arr = [...filteredTraspasos].sort((a, b) =>
+    const arr = [...filteredConCard].sort((a, b) =>
       a.solicitudId === b.solicitudId
         ? (a.intento ?? 0) - (b.intento ?? 0)
         : a.solicitudId.localeCompare(b.solicitudId)
@@ -259,7 +268,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       ci++;
     });
     return { rows: arr, solCount: count, solColor: color };
-  }, [filteredTraspasos]);
+  }, [filteredConCard]);
 
   const handleClearFilters = () => {
     setFechaInicial(MONTH_START);
@@ -268,6 +277,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     setSearchText('');
     setFilterEstados(tipoFilter === 'Entrante' ? new Set<TraspasoEstadoAlto>(['Pendiente']) : new Set<TraspasoEstadoAlto>());
     setFilterEtapa('ALL');
+    setCardFilter(null);
   };
 
   // Exporta a Excel lo que se ve en la tabla (filtrada) + el desglose de piezas.
@@ -355,22 +365,36 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
 
-      {/* ── Cards de control (SLA / métricas) ── */}
-      <div className="flex gap-2 px-6 py-3 overflow-x-auto" style={{ background: '#f4f6fa', flexShrink: 0 }}>
-        {cards.map(c => (
-          <div key={c.label} className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0" style={{ background: '#fff', border: '1px solid #e5e7eb', minWidth: 138 }}>
-            <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: `${c.color}14`, flexShrink: 0 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: c.color }}>{c.icon}</span>
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-extrabold leading-none" style={{ color: c.val > 0 ? c.color : '#9ca3af' }}>{c.val}</span>
+      {/* ── Cards de control (filtros sobre la respuesta) ── */}
+      <div className="flex gap-2 px-6 py-3 overflow-x-auto items-center" style={{ background: '#f4f6fa', flexShrink: 0 }}>
+        {CARD_DEFS.map(c => {
+          const val = cardCounts[c.key] ?? 0;
+          const activa = cardFilter === c.key;
+          return (
+            <button
+              key={c.key}
+              onClick={() => setCardFilter(activa ? null : c.key)}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left"
+              title={activa ? 'Quitar filtro' : `Filtrar: ${c.label}`}
+              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, minWidth: 138, cursor: 'pointer' }}
+            >
+              <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: `${c.color}14`, flexShrink: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: c.color }}>{c.icon}</span>
               </div>
-              <div className="text-[11px] font-semibold leading-tight" style={{ color: '#374151' }}>{c.label}</div>
-              <div className="text-[9px] leading-tight" style={{ color: '#9ca3af' }}>{c.sub}</div>
-            </div>
-          </div>
-        ))}
+              <div className="min-w-0">
+                <span className="text-lg font-extrabold leading-none" style={{ color: val > 0 ? c.color : '#9ca3af' }}>{val}</span>
+                <div className="text-[11px] font-semibold leading-tight" style={{ color: '#374151' }}>{c.label}</div>
+                <div className="text-[9px] leading-tight" style={{ color: '#9ca3af' }}>{c.sub}</div>
+              </div>
+            </button>
+          );
+        })}
+        {cardFilter && (
+          <button onClick={() => setCardFilter(null)} className="flex items-center gap-1 text-xs font-semibold flex-shrink-0 px-2 py-1 rounded" style={{ color: '#6b7280' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
+            Quitar filtro
+          </button>
+        )}
       </div>
 
       {/* ── Filter bar ── */}

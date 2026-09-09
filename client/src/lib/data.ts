@@ -426,11 +426,11 @@ export type TraspasoEtapa =
   | 'Surtido'
   | 'Revisado'
   | 'Embarcado'
-  | 'Enviado / En camino'
+  | 'Enviado'
   | 'Recibido'
   | 'Cancelado';
 export const TRASPASO_ETAPAS: TraspasoEtapa[] = [
-  'Sin surtir', 'Surtido', 'Revisado', 'Embarcado', 'Enviado / En camino', 'Recibido', 'Cancelado',
+  'Sin surtir', 'Surtido', 'Revisado', 'Embarcado', 'Enviado', 'Recibido', 'Cancelado',
 ];
 
 // Descripciones (tooltips) para explicar cada etapa operativa del traspaso.
@@ -439,7 +439,7 @@ export const TRASPASO_ETAPA_TOOLTIP: Record<TraspasoEtapa, string> = {
   'Surtido': 'La mercancía ya fue surtida (preparada) en la sucursal origen.',
   'Revisado': 'La mercancía surtida fue revisada/validada antes de embarcar.',
   'Embarcado': 'Documentado y asignado a un embarque, listo para salir.',
-  'Enviado / En camino': 'La mercancía salió de la sucursal origen y va en tránsito a la destino.',
+  'Enviado': 'La mercancía salió de la sucursal origen y va en tránsito a la destino.',
   'Recibido': 'La sucursal destino ya dio entrada a la mercancía.',
   'Cancelado': 'El traspaso fue cancelado o negado; la necesidad se recalcula a otra sucursal.',
 };
@@ -460,7 +460,7 @@ export function etapaTraspaso(status: TraspasoStatus): TraspasoEtapa {
     case 'Surtido':     return 'Surtido';
     case 'Revisado':    return 'Revisado';
     case 'Documentado': return 'Embarcado';
-    case 'Enviado':     return 'Enviado / En camino';
+    case 'Enviado':     return 'Enviado';
     case 'Recibido':
     case 'Entregado':   return 'Recibido';
     case 'Cancelado':   return 'Cancelado';
@@ -471,7 +471,7 @@ export const TRASPASO_ETAPA_COLORS: Record<TraspasoEtapa, { bg: string; text: st
   'Surtido':             { bg: 'rgba(124,58,237,0.10)', text: '#7c3aed', border: 'rgba(124,58,237,0.3)' },
   'Revisado':            { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
   'Embarcado':           { bg: 'rgba(13,148,136,0.10)', text: '#0d9488', border: 'rgba(13,148,136,0.3)' },
-  'Enviado / En camino': { bg: 'rgba(22,163,74,0.10)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  'Enviado': { bg: 'rgba(22,163,74,0.10)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
   'Recibido':            { bg: 'rgba(26,43,107,0.10)',  text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'  },
   'Cancelado':           { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
 };
