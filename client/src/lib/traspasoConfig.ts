@@ -17,6 +17,12 @@ export const MAX_EVALUACIONES_PETICION = 3;
 export const TOKEN_PRUEBA = '0000';
 export const esTokenValido = (t: string) => t.trim() === TOKEN_PRUEBA;
 
+// ── Umbral para agregar piezas recomendadas automáticamente ──
+// Cuando el total del pedido NO supera este monto, las piezas recomendadas
+// (alta rotación) se agregan al traspaso automáticamente, sin que el usuario
+// las tenga que elegir. Si el pedido supera el monto, el usuario decide.
+export const UMBRAL_AUTO_RECOMENDADOS = 2000;
+
 // ── SLA de traspasos (control de tiempos) ──
 // Un traspaso sin enviarse se considera "con demora" a partir de M días y
 // "vencido" a partir de N días desde su creación. Parametrizable.

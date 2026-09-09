@@ -8,6 +8,7 @@ export interface Product {
   name: string;
   category: string;
   img: string | null;
+  price: number;
 }
 
 export interface OrderPartida {
@@ -114,15 +115,15 @@ export interface Shipment {
 
 // ── Product catalog ──────────────────────────────────────────
 export const PRODUCT_CATALOG: Record<string, Product> = {
-  'BP-001': { code: 'BP-001', name: 'Balata Delantera Toyota Corolla 2018-2022', category: 'Frenos',       img: null },
-  'FT-223': { code: 'FT-223', name: 'Filtro de Aceite Honda Civic 1.5T',          category: 'Filtros',      img: null },
-  'AM-445': { code: 'AM-445', name: 'Amortiguador Trasero Nissan Sentra 2020',     category: 'Suspensión',   img: null },
-  'BC-118': { code: 'BC-118', name: 'Bobina de Encendido VW Jetta 2.5',            category: 'Encendido',    img: null },
-  'RD-772': { code: 'RD-772', name: 'Radiador Completo Chevrolet Aveo 1.6',        category: 'Enfriamiento', img: null },
-  'XX-999': { code: 'XX-999', name: 'Cinta Aislante Negra 3M',                     category: 'Accesorios',   img: null },
-  'LT-334': { code: 'LT-334', name: 'Llanta Michelin 185/65 R15',                  category: 'Llantas',      img: null },
-  'AC-201': { code: 'AC-201', name: 'Aceite Motor 5W-30 Castrol 4L',               category: 'Lubricantes',  img: null },
-  'BT-055': { code: 'BT-055', name: 'Batería Bosch 12V 60Ah',                      category: 'Eléctrico',    img: null },
+  'BP-001': { code: 'BP-001', name: 'Balata Delantera Toyota Corolla 2018-2022', category: 'Frenos',       img: null, price: 320 },
+  'FT-223': { code: 'FT-223', name: 'Filtro de Aceite Honda Civic 1.5T',          category: 'Filtros',      img: null, price: 145 },
+  'AM-445': { code: 'AM-445', name: 'Amortiguador Trasero Nissan Sentra 2020',     category: 'Suspensión',   img: null, price: 680 },
+  'BC-118': { code: 'BC-118', name: 'Bobina de Encendido VW Jetta 2.5',            category: 'Encendido',    img: null, price: 540 },
+  'RD-772': { code: 'RD-772', name: 'Radiador Completo Chevrolet Aveo 1.6',        category: 'Enfriamiento', img: null, price: 1850 },
+  'XX-999': { code: 'XX-999', name: 'Cinta Aislante Negra 3M',                     category: 'Accesorios',   img: null, price: 45 },
+  'LT-334': { code: 'LT-334', name: 'Llanta Michelin 185/65 R15',                  category: 'Llantas',      img: null, price: 1290 },
+  'AC-201': { code: 'AC-201', name: 'Aceite Motor 5W-30 Castrol 4L',               category: 'Lubricantes',  img: null, price: 410 },
+  'BT-055': { code: 'BT-055', name: 'Batería Bosch 12V 60Ah',                      category: 'Eléctrico',    img: null, price: 2150 },
 };
 
 // ── Orders database (8 real orders from system) ──────────────
@@ -694,6 +695,25 @@ export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
   "Forum Tlaquepaque": { "BP-001": 3, "FT-223": 6, "AM-445": 0, "BC-118": 2, "RD-772": 5, "XX-999": 9, "LT-334": 25, "AC-201": 7, "BT-055": 0 },
   "Tesistán": { "BP-001": 18, "FT-223": 22, "AM-445": 9, "BC-118": 7, "RD-772": 0, "XX-999": 14, "LT-334": 3, "AC-201": 20, "BT-055": 5 },
 };
+
+// Existencia disponible en CEDIS por código de producto (mock). Regla de negocio:
+// nunca se puede solicitar a CEDIS más de lo que CEDIS tiene en existencia.
+export const EXISTENCIA_CEDIS: Record<string, number> = {
+  "BP-001": 40, "FT-223": 6, "AM-445": 30, "BC-118": 25, "RD-772": 15,
+  "XX-999": 100, "LT-334": 12, "AC-201": 50, "BT-055": 8,
+};
+
+// Convierte un total con formato "$1,837.12" a número (1837.12).
+export function parseMoney(total: string): number {
+  const n = parseFloat(String(total).replace(/[^0-9.-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+// Total monetario de un conjunto de partidas (precio × cantidad). Se usa para el
+// umbral de auto-agregado de piezas recomendadas.
+export function totalPartidas(partidas: { code: string; qty: number }[]): number {
+  return partidas.reduce((s, p) => s + (PRODUCT_CATALOG[p.code]?.price ?? 0) * p.qty, 0);
+}
 
 // Orden de cercanía usado por el motor SMC (Sucursal Más Cercana) — mock.
 export const SUCURSAL_DISTANCIA_ORDEN: string[] = [
@@ -2387,6 +2407,13 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
     Object.keys(stock).forEach(c => { nuevo[m(c)] = stock[c]; });
     EXISTENCIA_POR_SUCURSAL[suc] = nuevo;
   });
+  // Existencia CEDIS.
+  {
+    const nuevo: Record<string, number> = {};
+    Object.keys(EXISTENCIA_CEDIS).forEach(c => { nuevo[m(c)] = EXISTENCIA_CEDIS[c]; });
+    Object.keys(EXISTENCIA_CEDIS).forEach(c => delete EXISTENCIA_CEDIS[c]);
+    Object.assign(EXISTENCIA_CEDIS, nuevo);
+  }
   // Partidas de pedidos.
   Object.values(ORDERS_DB).forEach(o => o.partidas.forEach(p => { p.code = m(p.code); }));
   // Piezas de traspasos.

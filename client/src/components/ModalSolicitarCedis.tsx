@@ -7,7 +7,7 @@
 // ============================================================
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, CrearSolicitudCedisData } from '@/contexts/AppContext';
-import { PRODUCT_CATALOG, TraspasoPiezaDetalle, EXISTENCIA_POR_SUCURSAL } from '@/lib/data';
+import { PRODUCT_CATALOG, TraspasoPiezaDetalle, EXISTENCIA_POR_SUCURSAL, EXISTENCIA_CEDIS } from '@/lib/data';
 import { PEDIDOS_URGENCIA_DEMO, getPedidoUrgenciaDemo, horasDesdeCaptura } from '@/lib/traspasoCedisDemo';
 import { validarSeleccionPedidoUrgencia, calcularImpactoPeticiones } from '@/lib/traspasoRules';
 import { PEDIDO_VIGENCIA_URGENCIA_HORAS, esTokenValido, TOKEN_PRUEBA } from '@/lib/traspasoConfig';
@@ -133,8 +133,11 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
     setBloqueoMsg(null);
     setSinPedido(false);
     setPedidoSelected(id);
-    // Precarga de los productos del pedido.
-    setPiezas(pedido.partidas.map(p => ({ code: p.code, qty: p.qty })));
+    // Precarga de los productos del pedido (topando a la existencia de CEDIS).
+    setPiezas(pedido.partidas.map(p => {
+      const capCedis = EXISTENCIA_CEDIS[p.code] ?? p.qty;
+      return { code: p.code, qty: capCedis > 0 ? Math.min(p.qty, capCedis) : p.qty };
+    }));
   };
 
   // Impacto sobre peticiones auto/semi existentes (eliminación/ajuste).
@@ -171,9 +174,16 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
     setStep(2);
   };
 
-  // CEDIS permite superar la cantidad del pedido (solo muestra leyenda).
+  // CEDIS permite superar la cantidad del pedido (solo muestra leyenda), pero
+  // NUNCA se puede superar la existencia de CEDIS (tope duro).
   const handleUpdateQty = (code: string, qty: number) => {
-    setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: Math.max(1, qty) } : p));
+    const capCedis = EXISTENCIA_CEDIS[code] ?? 0;
+    let next = Math.max(1, qty);
+    if (capCedis > 0 && next > capCedis) {
+      next = capCedis;
+      showToast(`No puedes superar la existencia de CEDIS (${capCedis}) para ${code}.`, 'warning');
+    }
+    setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: next } : p));
   };
 
   const canGoToStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
@@ -350,7 +360,7 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                 <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>
                   {sinPedido ? 'Productos a solicitar a CEDIS (sin pedido)' : 'Productos del pedido a solicitar a CEDIS'}
                 </p>
-                {sinPedido ? (
+                {sinPedido && (
                   <>
                     <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>schedule</span>
@@ -368,22 +378,15 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                       disabled={opcionesCatalogo.length === 0}
                     />
                   </>
-                ) : (
-                  <p className="text-xs" style={{ color: '#6b7280' }}>
-                    Solo puedes solicitar productos del pedido #{pedidoSelected}. Puedes superar la cantidad requerida; se avisará con una leyenda.
-                  </p>
                 )}
-                <p className="text-[11px] flex items-center gap-1" style={{ color: '#9ca3af' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
-                  Se muestra tu existencia en <strong style={{ color: '#6b7280' }}>{sucursalActual}</strong>. Si solicitas más de lo que tienes, la cantidad se marca en <span style={{ color: '#dc2626', fontWeight: 600 }}>rojo</span> (traes mercancía de más de CEDIS).
-                </p>
 
-                {/* Encabezado de columnas */}
+                {/* Encabezado de columnas: existencia de la sucursal y existencia CEDIS */}
                 {piezas.length > 0 && (
                   <div className="flex items-center gap-2 px-2.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#9ca3af' }}>
                     <div className="flex-1">Producto</div>
-                    <div style={{ width: 70, textAlign: 'center' }}>Requerido</div>
-                    <div style={{ width: 78, textAlign: 'center' }} title={`Existencia disponible en tu sucursal (${sucursalActual})`}>Existencia</div>
+                    <div style={{ width: 64, textAlign: 'center' }}>Requerido</div>
+                    <div style={{ width: 74, textAlign: 'center' }} title={`Existencia en tu sucursal (${sucursalActual})`}>Exist. suc.</div>
+                    <div style={{ width: 74, textAlign: 'center' }} title="Existencia disponible en CEDIS (tope máximo)">Exist. CEDIS</div>
                     <div style={{ width: 64, textAlign: 'center' }}>A solicitar</div>
                     <div style={{ width: 28 }} />
                   </div>
@@ -395,10 +398,13 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                     const req = requeridoDe(p.code);
                     const excede = req != null && p.qty > req;
                     const existenciaLocal = EXISTENCIA_POR_SUCURSAL[sucursalActual]?.[p.code] ?? 0;
-                    const solicitaDeMas = p.qty > existenciaLocal;
-                    const tooltip = solicitaDeMas
-                      ? `Solicitas ${p.qty} pzs y solo tienes ${existenciaLocal} en existencia (${sucursalActual}). Se traerían ${p.qty - existenciaLocal} pzs de más de CEDIS para completar el pedido.`
+                    const existenciaCedis = EXISTENCIA_CEDIS[p.code] ?? 0;
+                    const solicitaDeMas = p.qty > existenciaLocal;   // se trae de CEDIS
+                    const enTopeCedis = p.qty >= existenciaCedis;    // llegó al máximo de CEDIS
+                    const tooltipSuc = solicitaDeMas
+                      ? `Solicitas ${p.qty} pzs y solo tienes ${existenciaLocal} en tu sucursal (${sucursalActual}). Se traerían ${p.qty - existenciaLocal} pzs de CEDIS.`
                       : `Existencia suficiente en ${sucursalActual} (${existenciaLocal} pzs).`;
+                    const tooltipCedis = `CEDIS tiene ${existenciaCedis} pzs. No puedes solicitar más que eso.`;
                     return (
                       <div key={p.code} className="rounded-lg p-2.5" style={{ border: `1px solid ${excede ? 'rgba(217,119,6,0.4)' : '#e5e7eb'}` }}>
                         <div className="flex items-center gap-2">
@@ -406,17 +412,21 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                             <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>{p.code}</span>
                             <span className="ml-1.5 text-xs" style={{ color: '#6b7280' }}>{prod?.name}</span>
                           </div>
-                          <div style={{ width: 70, textAlign: 'center' }}>
+                          <div style={{ width: 64, textAlign: 'center' }}>
                             <span className="text-xs font-semibold" style={{ color: '#1a2b6b' }}>{req ?? '—'}</span>
                           </div>
-                          <div style={{ width: 78, textAlign: 'center' }} title={tooltip}>
+                          <div style={{ width: 74, textAlign: 'center' }} title={tooltipSuc}>
                             <span className="text-xs font-semibold" style={{ color: solicitaDeMas ? '#dc2626' : '#16a34a', cursor: 'help' }}>{existenciaLocal}</span>
+                          </div>
+                          <div style={{ width: 74, textAlign: 'center' }} title={tooltipCedis}>
+                            <span className="text-xs font-semibold" style={{ color: enTopeCedis ? '#d97706' : '#0d9488', cursor: 'help' }}>{existenciaCedis}</span>
                           </div>
                           <input
                             type="number"
                             min={1}
+                            max={existenciaCedis || undefined}
                             value={p.qty}
-                            title={tooltip}
+                            title={tooltipSuc}
                             onChange={e => handleUpdateQty(p.code, parseInt(e.target.value) || 1)}
                             className="text-xs rounded border px-2 py-1.5 text-center font-semibold"
                             style={{
@@ -434,10 +444,12 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
                           </button>
                         </div>
-                        {excede && (
+                        {(excede || enTopeCedis) && (
                           <div className="flex items-center gap-1 mt-1.5">
                             <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#d97706' }}>info</span>
-                            <span className="text-[11px] font-medium" style={{ color: '#b45309' }}>Se superó la cantidad del pedido (requerido: {req}).</span>
+                            <span className="text-[11px] font-medium" style={{ color: '#b45309' }}>
+                              {enTopeCedis ? `Alcanzaste el máximo disponible en CEDIS (${existenciaCedis}).` : `Se superó la cantidad del pedido (requerido: ${req}).`}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -448,6 +460,23 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                       {sinPedido ? 'Agrega productos del catálogo con el buscador.' : 'Selecciona un pedido para cargar sus productos.'}
                     </p>
                   )}
+                </div>
+
+                {/* Reglas (parte inferior) + sucursal solicitante */}
+                <div className="rounded-lg p-3 mt-1" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: '#1a2b6b' }}>
+                    Sucursal solicitante: <span style={{ color: '#374151' }}>{sucursalActual}</span>
+                  </p>
+                  <ol className="text-[11px] flex flex-col gap-1" style={{ color: '#6b7280', listStyle: 'none', margin: 0, padding: 0 }}>
+                    <li className="flex items-start gap-1.5">
+                      <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
+                      <span>1. Solo puedes solicitar productos del pedido {sinPedido ? '(solicitud sin pedido)' : `#${pedidoSelected}`}.</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
+                      <span>2. No puedes superar la existencia de CEDIS.</span>
+                    </li>
+                  </ol>
                 </div>
               </div>
             )}

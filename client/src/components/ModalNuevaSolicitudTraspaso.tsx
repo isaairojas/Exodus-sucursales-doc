@@ -12,9 +12,9 @@ import { useApp, CrearSolicitudData } from '@/contexts/AppContext';
 import {
   PRODUCT_CATALOG, ORDERS_DB, TraspasoPiezaDetalle,
   EXISTENCIA_POR_SUCURSAL, calcularSucursalRecomendada, PRODUCTOS_ALTA_ROTACION,
-  SUCURSALES_EJERCICIO,
+  SUCURSALES_EJERCICIO, totalPartidas,
 } from '@/lib/data';
-import { esTokenValido, TOKEN_PRUEBA } from '@/lib/traspasoConfig';
+import { esTokenValido, TOKEN_PRUEBA, UMBRAL_AUTO_RECOMENDADOS } from '@/lib/traspasoConfig';
 
 interface Props {
   onClose: () => void;
@@ -141,8 +141,17 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
   // ── Paso 1 ──
   const handleSelectPedido = (id: string) => {
     setPedidoSelected(id);
+    const partidas = ORDERS_DB[id].partidas;
     // Precarga los productos del pedido con su cantidad requerida.
-    setPiezas(ORDERS_DB[id].partidas.map(p => ({ code: p.code, qty: p.qty })));
+    let nuevas = partidas.map(p => ({ code: p.code, qty: p.qty }));
+    // Piezas recomendadas (alta rotación): si el total del pedido NO supera el
+    // umbral, se agregan automáticamente, sin que el usuario las elija.
+    if (totalPartidas(partidas) <= UMBRAL_AUTO_RECOMENDADOS) {
+      const recomendados = PRODUCTOS_ALTA_ROTACION
+        .filter(code => !nuevas.some(x => x.code === code) && PRODUCT_CATALOG[code]);
+      nuevas = [...nuevas, ...recomendados.map(code => ({ code, qty: 1 }))];
+    }
+    setPiezas(nuevas);
     setSucursalesAgregadas([]);
     setAsignaciones({});
   };
@@ -199,6 +208,10 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
     }
     setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: next } : p));
   };
+
+  // Total del pedido (precio × cantidad) y bandera de auto-agregado de recomendados.
+  const pedidoTotal = pedidoSelected ? totalPartidas(ORDERS_DB[pedidoSelected].partidas) : 0;
+  const autoRecomendados = !!pedidoSelected && pedidoTotal <= UMBRAL_AUTO_RECOMENDADOS;
 
   // Recomendados de alta rotación que aún no están en la lista.
   const recomendadosAltaRotacion = PRODUCTOS_ALTA_ROTACION
@@ -427,12 +440,21 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                   />
                 )}
 
-                {/* Recomendación: productos más vendidos / alta rotación */}
-                {recomendadosAltaRotacion.length > 0 && (
+                {/* Recomendados: auto-agregados si el pedido ≤ umbral; manuales si lo supera. */}
+                {autoRecomendados ? (
+                  <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(13,148,136,0.06)', border: '1px solid rgba(13,148,136,0.25)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#0d9488' }}>auto_awesome</span>
+                    <p className="text-xs" style={{ color: '#0f766e' }}>
+                      Las <strong>piezas recomendadas</strong> (alta rotación) se agregaron <strong>automáticamente</strong> porque
+                      el pedido no supera <strong>${UMBRAL_AUTO_RECOMENDADOS.toLocaleString('es-MX')}</strong> (total ${pedidoTotal.toLocaleString('es-MX')}).
+                    </p>
+                  </div>
+                ) : recomendadosAltaRotacion.length > 0 && (
                   <div className="rounded-lg p-3" style={{ background: 'rgba(13,148,136,0.06)', border: '1px solid rgba(13,148,136,0.25)' }}>
                     <div className="flex items-center gap-1.5 mb-2">
                       <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#0d9488' }}>trending_up</span>
                       <span className="text-xs font-bold" style={{ color: '#0f766e' }}>Recomendados (más vendidos / alta rotación)</span>
+                      {pedidoSelected && <span className="text-[10px]" style={{ color: '#9ca3af' }}>· pedido supera ${UMBRAL_AUTO_RECOMENDADOS.toLocaleString('es-MX')}: agrégalos manualmente</span>}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {recomendadosAltaRotacion.map(code => (

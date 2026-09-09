@@ -10,6 +10,7 @@ import ScreenTraspasos from './ScreenTraspasos';
 import ModalNuevaSolicitudTraspaso from './ModalNuevaSolicitudTraspaso';
 import ModalSolicitarCedis from './ModalSolicitarCedis';
 import ModalEnviarCedis from './ModalEnviarCedis';
+import ModalReasignarTraspaso from './ModalReasignarTraspaso';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
@@ -23,6 +24,8 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
   const [showNuevaSolicitud, setShowNuevaSolicitud] = useState(false);
   const [showSolicitarCedis, setShowSolicitarCedis] = useState(false);
   const [showEnviarCedis, setShowEnviarCedis] = useState(false);
+  const [reasignarPetId, setReasignarPetId] = useState<string | null>(null);
+  const peticionAReasignar = reasignarPetId ? traspasos.find(t => t.id === reasignarPetId) ?? null : null;
 
   // Estatus que representa "pendiente de acción" en cada tab:
   // Por recibir (Entrante) → Enviado, esperando que demos entrada.
@@ -102,6 +105,7 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
           onNuevaSolicitud={activeTab === 'Entrante' ? () => setShowNuevaSolicitud(true) : undefined}
           onSolicitarCedis={activeTab === 'Entrante' ? () => setShowSolicitarCedis(true) : undefined}
           onEnviarCedis={activeTab === 'Saliente' ? () => setShowEnviarCedis(true) : undefined}
+          onReasignar={petId => setReasignarPetId(petId)}
         />
       </div>
 
@@ -122,6 +126,14 @@ export default function ScreenTraspasosEntreSucursales({ showToast }: Props) {
       {showEnviarCedis && (
         <ModalEnviarCedis
           onClose={() => setShowEnviarCedis(false)}
+          showToast={showToast}
+        />
+      )}
+
+      {peticionAReasignar && (
+        <ModalReasignarTraspaso
+          peticion={peticionAReasignar}
+          onClose={() => setReasignarPetId(null)}
           showToast={showToast}
         />
       )}

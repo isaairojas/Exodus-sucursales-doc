@@ -27,6 +27,7 @@ interface Props {
   onNuevaSolicitud?: () => void;
   onSolicitarCedis?: () => void;
   onEnviarCedis?: () => void;
+  onReasignar?: (petId: string) => void;
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -133,7 +134,7 @@ function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
   return { num: totalRecibida, den: totalSolicitada, unidad: 'piezas' as const, estatus };
 }
 
-export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis }: Props) {
+export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis, onReasignar }: Props) {
   const { traspasos, sucursalActual, reasignarPeticion, generarSolicitudRestante } = useApp();
 
   // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
@@ -359,6 +360,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
   const handleReasignar = () => {
     if (!sel) return;
+    // Abre el modal de reasignación (opciones SMC 4.0). Si el contenedor no lo
+    // provee, cae al comportamiento directo (reasignación automática por SMC).
+    if (onReasignar) { onReasignar(sel.id); return; }
     const r = reasignarPeticion(sel.id);
     showToast(r.mensaje, r.ok ? 'success' : 'warning');
     if (r.ok) setSelectedId(null);
