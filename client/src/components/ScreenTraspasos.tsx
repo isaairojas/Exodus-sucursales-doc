@@ -640,7 +640,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const tipoTooltip = t.motivoEnvioCedis
                 ? TRASPASO_CATEGORIA_TOOLTIP[t.motivoEnvioCedis]
                 : esReabastoUnificado
-                ? 'Reabasto generado por CEDIS que además trae mercancía unificada de una urgencia con pedido de cliente.'
+                ? 'Reabasto generado por CEDIS que además trae mercancía unificada de una solicitud a CEDIS con pedido de cliente.'
                 : t.categoria === 'CEDIS' && t.subtipoCedis
                 ? TRASPASO_CATEGORIA_TOOLTIP[t.subtipoCedis]
                 : TRASPASO_CATEGORIA_TOOLTIP[t.categoria] ?? '';
@@ -762,7 +762,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     {esUnificada ? (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                        title={`Urgencia unificada por CEDIS dentro del traspaso de reabasto ${t.unificadaEnTraspaso ?? ''}. Consulta el detalle de la petición.`}
+                        title={`Solicitud a CEDIS unificada dentro del traspaso de reabasto ${t.unificadaEnTraspaso ?? ''}. Consulta el detalle de la petición.`}
                         style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed', border: '1px solid rgba(124,58,237,0.3)', cursor: 'help' }}
                       >
                         <span className="material-symbols-outlined" style={{ fontSize: 13 }}>merge</span>

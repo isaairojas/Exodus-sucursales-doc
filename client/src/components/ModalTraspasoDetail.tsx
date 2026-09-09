@@ -138,10 +138,10 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
             <section className="rounded-lg p-4" style={{ background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.3)' }}>
               <p className="text-sm font-bold flex items-center gap-1.5" style={{ color: '#7c3aed' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>merge</span>
-                Urgencia unificada con un traspaso de reabasto
+                Solicitud a CEDIS unificada con un traspaso de reabasto
               </p>
               <p className="text-xs mt-1" style={{ color: '#374151' }}>
-                CEDIS unificó esta urgencia dentro del traspaso de reabasto <strong>#{peticion.unificadaEnTraspaso}</strong>.
+                CEDIS unificó esta solicitud dentro del traspaso de reabasto <strong>#{peticion.unificadaEnTraspaso}</strong>.
                 La mercancía viaja en ese reabasto; por eso esta petición pasó a <strong>Finalizadas</strong> con estado <strong>Unificada</strong>.
               </p>
             </section>
@@ -153,7 +153,7 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
                 Reabasto con mercancía unificada
               </p>
               <p className="text-xs mt-1 mb-2" style={{ color: '#374151' }}>
-                Este reabasto lo generó CEDIS e incluye mercancía relacionada con pedido(s) de cliente (unificados desde una urgencia):
+                Este reabasto lo generó CEDIS e incluye mercancía relacionada con pedido(s) de cliente (unificados desde una solicitud a CEDIS):
               </p>
               <ul className="flex flex-col gap-1">
                 {peticion.reabastoUnifica.map(u => (

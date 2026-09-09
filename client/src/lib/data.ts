@@ -450,7 +450,8 @@ export const TRASPASO_CATEGORIA_TOOLTIP: Record<string, string> = {
   'Automático': 'Automático (SMC): lo genera el sistema cuando un pedido web no tiene todo el stock en una sola sucursal. Siempre lleva pedido.',
   'Manual': 'Manual: solicitado a mano por la sucursal. Puede o no llevar pedido de cliente; sin pedido requiere token de autorización.',
   'CEDIS': 'Movimiento con el Centro de Distribución (CEDIS).',
-  'Urgencia': 'Urgencia CEDIS: la sucursal solicita a CEDIS con un pedido relacionado. Requiere token.',
+  'Especial': 'Especial CEDIS: solicitud manual a CEDIS CON pedido de cliente relacionado. Requiere token. Recepción ciega.',
+  'Urgencia': 'Urgencia CEDIS: solicitud manual a CEDIS SIN pedido de cliente. La valida CEDIS con token y puede tardar más. Recepción ciega.',
   'Reabasto': 'Reabasto CEDIS: CEDIS envía por su cuenta para restock (sin pedido). Recepción ciega por cajas.',
   'Devolución': 'Devolución: la sucursal regresa mercancía a CEDIS (p. ej. exceso de inventario).',
   'Garantía': 'Garantía: la sucursal envía piezas defectuosas a CEDIS para su gestión de garantía.',
@@ -561,9 +562,10 @@ export const TRASPASO_CATEGORIA_LABELS: Record<TraspasoCategoria, string> = {
 };
 
 // Subtipo exclusivo de categoria === 'CEDIS':
-// - Urgencia: la sucursal lo solicitó, tiene pedido relacionado.
+// - Especial: solicitud manual a CEDIS CON pedido de cliente relacionado.
+// - Urgencia: solicitud manual a CEDIS SIN pedido (la valida CEDIS con token).
 // - Reabasto: CEDIS lo envía por su cuenta para restocking, sin pedido.
-export type TraspasoSubtipoCedis = 'Urgencia' | 'Reabasto';
+export type TraspasoSubtipoCedis = 'Especial' | 'Urgencia' | 'Reabasto';
 
 // Motivo de un ENVÍO de la sucursal hacia CEDIS. Rompe la unidireccionalidad
 // histórica (la sucursal ahora también envía a CEDIS): devoluciones y garantías
@@ -759,6 +761,7 @@ export const TRASPASO_STATUS_COLORS: Record<TraspasoStatus, { bg: string; text: 
 };
 
 export const CEDIS_SUBTIPO_COLORS: Record<TraspasoSubtipoCedis, { bg: string; text: string; border: string }> = {
+  'Especial': { bg: 'rgba(217,119,6,0.10)',  text: '#d97706', border: 'rgba(217,119,6,0.3)'  },
   'Urgencia': { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
   'Reabasto': { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
 };
@@ -2212,9 +2215,9 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     fechaArribo: '2026-07-06 10:00',
     flujo: 'Manual', intento: 1,
   },
-  // 3) CEDIS (Urgencia) con pedido — CEDIS envía a Federalismo (Enviado). Token 0000.
+  // 3) CEDIS ESPECIAL (manual CON pedido) — CEDIS envía a Federalismo (Enviado). Token 0000.
   {
-    id: 'DEMO-EJ-CED-1', solicitudId: 'DEMO-S-CED', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    id: 'DEMO-EJ-CED-1', solicitudId: 'DEMO-S-CED', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Especial',
     sucursalContraparte: 'CEDIS', sucursalOrigen: 'CEDIS', sucursalDestino: 'Federalismo',
     status: 'Enviado',
     fechaCreacion: '2026-07-05 08:00', fechaActualizacion: '2026-07-06 09:15',
@@ -2353,7 +2356,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   // 10) CEDIS URGENCIA UNIFICADA — CEDIS decidió unificar esta urgencia dentro de
   //     un traspaso de REABASTO. Pasa a Finalizadas con estado "Unificada".
   {
-    id: 'DEMO-EJ-UNI-1', solicitudId: 'DEMO-S-UNI', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Urgencia',
+    id: 'DEMO-EJ-UNI-1', solicitudId: 'DEMO-S-UNI', tipo: 'Entrante', categoria: 'CEDIS', subtipoCedis: 'Especial',
     sucursalContraparte: 'CEDIS', sucursalOrigen: 'CEDIS', sucursalDestino: 'Federalismo',
     status: 'Entregado', resultado: 'unificada', unificadaEnTraspaso: 'DEMO-EJ-REAB-1',
     fechaCreacion: '2026-07-05 09:00', fechaActualizacion: '2026-07-06 09:00',

@@ -232,7 +232,10 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
           style={{ background: '#1a2b6b', borderRadius: '12px 12px 0 0', flexShrink: 0 }}
         >
           <span className="material-symbols-outlined text-white" style={{ fontSize: 20 }}>warehouse</span>
-          <span className="font-bold text-sm text-white">Solicitar traspaso urgente a CEDIS</span>
+          <span className="font-bold text-sm text-white">Solicitar traspaso a CEDIS</span>
+          <span className="ml-1 px-2 py-0.5 rounded text-[11px] font-bold" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff' }}>
+            {sinPedido ? 'Urgencia (sin pedido)' : pedidoSelected ? 'Especial (con pedido)' : 'CEDIS'}
+          </span>
           <button
             onClick={onClose}
             className="ml-auto w-7 h-7 rounded-full flex items-center justify-center"

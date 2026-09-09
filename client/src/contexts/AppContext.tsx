@@ -625,7 +625,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       solicitudId,
       tipo: 'Entrante',
       categoria: 'CEDIS',
-      subtipoCedis: 'Urgencia',
+      // Manual a CEDIS: CON pedido → Especial; SIN pedido → Urgencia (la valida CEDIS).
+      subtipoCedis: data.pedidoOrigen ? 'Especial' : 'Urgencia',
       sucursalContraparte: 'CEDIS',
       // Recepción desde CEDIS hacia la sucursal actual (destino).
       sucursalDestino: sucursalActual,
