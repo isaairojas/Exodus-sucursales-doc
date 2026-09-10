@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import {
-  TraspasoPeticion, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, SUCURSAL_DISTANCIA_ORDEN,
+  TraspasoPeticion, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, SUCURSAL_DISTANCIA_ORDEN, SUCURSALES_EJERCICIO,
 } from '@/lib/data';
 import { MAX_EVALUACIONES_PETICION } from '@/lib/traspasoConfig';
 
@@ -53,7 +53,9 @@ export default function ModalReasignarTraspaso({ peticion, onClose, showToast }:
 
   // Opciones que "propone SMC 4.0": sucursales elegibles ordenadas por cercanía.
   const opciones = useMemo<OpcionReasignacion[]>(() => {
-    const candidatos = SUCURSAL_DISTANCIA_ORDEN.filter(s => !excluir.includes(s));
+    const candidatos = SUCURSAL_DISTANCIA_ORDEN.filter(
+      s => (SUCURSALES_EJERCICIO as readonly string[]).includes(s) && !excluir.includes(s)
+    );
     let mejorMarcada = false;
     return candidatos.slice(0, 3).map(suc => {
       const stock = EXISTENCIA_POR_SUCURSAL[suc] ?? {};

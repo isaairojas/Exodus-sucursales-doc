@@ -232,9 +232,13 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
     const asignUnica = (suc: string): Record<string, Record<string, number>> => ({
       [suc]: Object.fromEntries(req.map(p => [p.code, p.qty])),
     });
-    const mejorSuc = sucursalActual === SUCURSALES_EJERCICIO[1] ? SUCURSALES_EJERCICIO[0] : SUCURSALES_EJERCICIO[1];
+    // Con 4 sucursales en el ejercicio: la "mejor" es la que recomienda SMC (excluye
+    // la sucursal actual); la alternativa es la siguiente mejor.
+    const otras = SUCURSALES_EJERCICIO.filter(s => s !== sucursalActual);
+    const rec1 = calcularSucursalRecomendada(req.map(p => ({ code: p.code, qty: p.qty })), [sucursalActual]);
+    const mejorSuc = rec1?.sucursal ?? otras[0];
     const rec2 = calcularSucursalRecomendada(req.map(p => ({ code: p.code, qty: p.qty })), [mejorSuc, sucursalActual]);
-    const altSuc = rec2?.sucursal ?? 'Adolf Horn';
+    const altSuc = rec2?.sucursal ?? otras.find(s => s !== mejorSuc) ?? otras[0];
     // Reparto entre 2 sucursales (mitad y mitad por pieza).
     const asignSplit: Record<string, Record<string, number>> = { [mejorSuc]: {}, [altSuc]: {} };
     req.forEach(p => {

@@ -687,10 +687,20 @@ export const SUCURSALES = [
 // Sucursal local por defecto (histórica). Con el selector global de sucursal
 // la "sucursal actual" vive en AppContext; esta constante solo se usa como
 // valor inicial y para retro-compatibilidad de datos que no traen origen/destino.
-export const SUCURSAL_LOCAL = 'Colón';
+// Sucursal local histórica usada solo como atribución de la data LEGACY (sin
+// origen/destino). Se fija en una sucursal FUERA del ejercicio para que el filtro
+// de las 4 sucursales elimine por completo esos registros legacy (incluidos los
+// legacy de CEDIS) y solo quede la demo curada.
+export const SUCURSAL_LOCAL = 'Pelícano';
 
 // Sucursales seleccionables en el ejercicio (dos lados de la demo en tiempo real).
-export const SUCURSALES_EJERCICIO = ['Federalismo', 'Tesistán'] as const;
+// TODA la data (traspasos, existencias, recomendaciones SMC) queda restringida a
+// estas 4 sucursales (+ CEDIS como nodo especial). Ver el filtro de TRASPASOS_DB
+// y la restricción de calcularSucursalRecomendada.
+export const SUCURSALES_EJERCICIO = ['Federalismo', 'Tesistán', 'Adolf Horn', 'Colón'] as const;
+
+// Conjunto permitido para cualquier traspaso: las 4 del ejercicio + CEDIS.
+export const SUCURSALES_PERMITIDAS = new Set<string>([...SUCURSALES_EJERCICIO, 'CEDIS']);
 
 // Existencia disponible por sucursal y código de producto (mock).
 export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
@@ -737,7 +747,10 @@ export function calcularSucursalRecomendada(
   piezas: { code: string; qty: number }[],
   excluir: string[] = []
 ): { sucursal: string; suficiente: boolean } | null {
-  const candidatos = SUCURSAL_DISTANCIA_ORDEN.filter(s => !excluir.includes(s));
+  // Solo se recomiendan sucursales del ejercicio (las 4 permitidas).
+  const candidatos = SUCURSAL_DISTANCIA_ORDEN.filter(
+    s => (SUCURSALES_EJERCICIO as readonly string[]).includes(s) && !excluir.includes(s)
+  );
   if (candidatos.length === 0) return null;
   if (piezas.length === 0) return { sucursal: candidatos[0], suficiente: true };
 
@@ -2437,7 +2450,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   // S4) Automático SMC (con pedido) — Surtido PARCIAL (Federalismo solo pudo surtir una parte).
   {
     id: 'DEMO-EJ-SAL-A4', solicitudId: 'DEMO-S-SALA4', tipo: 'Saliente', categoria: 'Automático',
-    sucursalContraparte: 'Colonia Jalisco', sucursalOrigen: 'Federalismo', sucursalDestino: 'Colonia Jalisco',
+    sucursalContraparte: 'Colón', sucursalOrigen: 'Federalismo', sucursalDestino: 'Colón',
     status: 'Surtido', resultado: 'surtida-parcial',
     fechaCreacion: '2026-07-05 12:00', fechaActualizacion: '2026-07-05 12:40',
     piezas: [{ code: 'FT-223', qtySolicitada: 4, qtySurtida: 2 }],
@@ -2450,7 +2463,7 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
   // S5) Automático SMC (con pedido) — Entregado (Finalizado).
   {
     id: 'DEMO-EJ-SAL-A5', solicitudId: 'DEMO-S-SALA5', tipo: 'Saliente', categoria: 'Automático',
-    sucursalContraparte: 'Belisario Domínguez', sucursalOrigen: 'Federalismo', sucursalDestino: 'Belisario Domínguez',
+    sucursalContraparte: 'Adolf Horn', sucursalOrigen: 'Federalismo', sucursalDestino: 'Adolf Horn',
     status: 'Entregado',
     fechaCreacion: '2026-07-02 09:00', fechaActualizacion: '2026-07-03 15:00',
     piezas: [{ code: 'AM-445', qtySolicitada: 3, qtySurtida: 3 }],
@@ -2677,9 +2690,10 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
   TRASPASOS_DB.forEach(t => {
     if (t.sucursalOrigen && t.sucursalDestino) return;
     // La contraparte legacy que caiga en una sucursal del ejercicio se reubica a
-    // otra (Adolf Horn) para no ensuciar la vista curada de Federalismo/Tesistán.
+    // una NO-ejercicio (Pelícano) para que el filtro posterior la elimine y no
+    // ensucie la vista curada de las 4 sucursales del ejercicio.
     let contra = t.sucursalContraparte;
-    if (contra === SUCURSALES_EJERCICIO[0] || contra === SUCURSALES_EJERCICIO[1]) contra = 'Adolf Horn';
+    if ((SUCURSALES_EJERCICIO as readonly string[]).includes(contra)) contra = 'Pelícano';
     if (t.tipo === 'Entrante') {
       t.sucursalDestino = SUCURSAL_LOCAL;
       t.sucursalOrigen = contra;
@@ -2688,6 +2702,28 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
       t.sucursalDestino = contra;
     }
   });
+})();
+
+// ── Restricción del ejercicio: SOLO las 4 sucursales (+ CEDIS) ──
+// Elimina cualquier traspaso cuyo origen o destino no sea una de las 4 sucursales
+// del ejercicio (o CEDIS). Así toda la data visible en cualquier vista pertenece
+// exclusivamente a esas 4 sucursales. Los registros legacy (atribuidos a la
+// sucursal local histórica / contrapartes ajenas) quedan fuera.
+(() => {
+  for (let i = TRASPASOS_DB.length - 1; i >= 0; i--) {
+    const t = TRASPASOS_DB[i];
+    const ok = !!t.sucursalOrigen && !!t.sucursalDestino
+      && SUCURSALES_PERMITIDAS.has(t.sucursalOrigen)
+      && SUCURSALES_PERMITIDAS.has(t.sucursalDestino);
+    if (!ok) TRASPASOS_DB.splice(i, 1);
+  }
+  // Limpia referencias colgantes en embarques de traspaso (ids ya eliminados).
+  const idsVivos = new Set(TRASPASOS_DB.map(t => t.id));
+  for (let i = EMBARQUES_TRASPASO_DB.length - 1; i >= 0; i--) {
+    const e = EMBARQUES_TRASPASO_DB[i];
+    e.traspasos = e.traspasos.filter(id => idsVivos.has(id));
+    if (e.traspasos.length === 0) EMBARQUES_TRASPASO_DB.splice(i, 1);
+  }
 })();
 
 // ── Fechas del ejercicio ──
