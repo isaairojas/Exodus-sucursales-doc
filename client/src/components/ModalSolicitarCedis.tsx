@@ -10,7 +10,7 @@ import { useApp, CrearSolicitudCedisData } from '@/contexts/AppContext';
 import { PRODUCT_CATALOG, TraspasoPiezaDetalle, EXISTENCIA_POR_SUCURSAL, EXISTENCIA_CEDIS } from '@/lib/data';
 import { PEDIDOS_URGENCIA_DEMO, getPedidoUrgenciaDemo, horasDesdeCaptura } from '@/lib/traspasoCedisDemo';
 import { validarSeleccionPedidoUrgencia, calcularImpactoPeticiones } from '@/lib/traspasoRules';
-import { PEDIDO_VIGENCIA_URGENCIA_HORAS, esTokenValido, TOKEN_PRUEBA } from '@/lib/traspasoConfig';
+import { PEDIDO_VIGENCIA_URGENCIA_HORAS, TIEMPO_APROBACION_TOKEN_MS } from '@/lib/traspasoConfig';
 
 interface Props {
   onClose: () => void;
@@ -106,9 +106,18 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
   // Paso 2: piezas (se precargan del pedido; editables)
   const [piezas, setPiezas] = useState<PiezaSeleccionada[]>([]);
 
-  // Paso 3: observaciones + token de autorización (CEDIS siempre requiere token)
+  // Paso 3: observaciones (el token ya no se ingresa; lo aprueba alguien más).
   const [observaciones, setObservaciones] = useState('');
-  const [token, setToken] = useState('');
+
+  // Estado del flujo de aprobación de token (paso 3):
+  //   'idle'       = no se ha solicitado aprobación
+  //   'aprobando'  = solicitud enviada, esperando aprobación (modal embebido con spinner)
+  //   'aprobado'   = token aprobado, la solicitud ya salió como Pendiente
+  const [aprobEstado, setAprobEstado] = useState<'idle' | 'aprobando' | 'aprobado'>('idle');
+  // Id de la petición Draft creada al pedir aprobación (para observarla).
+  const [draftPetId, setDraftPetId] = useState<string | null>(null);
+  // Confirmación al regresar de Confirmación → Piezas cuando hay draft en curso.
+  const [confirmVolver, setConfirmVolver] = useState(false);
 
   const pedidoDemo = pedidoSelected ? getPedidoUrgenciaDemo(pedidoSelected) : null;
 
@@ -189,11 +198,16 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
   const canGoToStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
 
   // ── Paso 3 ──
-  const canConfirmar = (!!pedidoSelected || sinPedido) && piezas.length > 0 && esTokenValido(token);
+  const puedeSolicitarAprobacion = (!!pedidoSelected || sinPedido) && piezas.length > 0 && aprobEstado === 'idle';
 
-  const handleConfirmar = () => {
-    if (!canConfirmar) return;
-    // Eliminación de peticiones sustituidas (no toca las que están en tránsito).
+  // Totales para el encabezado del paso 3.
+  const totalPiezas = piezas.reduce((s, p) => s + p.qty, 0);
+  const totalProductos = piezas.length;
+
+  // Solicita la aprobación del token: crea la solicitud en Draft (esDraft=true) y
+  // deja que alguien más la apruebe (simulado en AppContext con un setTimeout).
+  const handleSolicitarAprobacion = () => {
+    if (!puedeSolicitarAprobacion) return;
     if (impacto && impacto.cancelar.length > 0) {
       cancelarPeticiones(impacto.cancelar, 'urgencia-cedis');
     }
@@ -202,11 +216,37 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
       pedidoOrigen: sinPedido ? '' : (pedidoDemo?.pedidoRealVinculado ?? pedidoSelected ?? ''),
       observaciones: observaciones.trim() || undefined,
     };
-    const solicitudId = crearSolicitudCedisUrgencia(data);
-    const extra = impacto && impacto.cancelar.length > 0 ? ` · ${impacto.cancelar.length} petición(es) cancelada(s)` : '';
-    const nota = sinPedido ? ' (sin pedido — pendiente de validación por CEDIS)' : '';
-    showToast(`Solicitud ${solicitudId} enviada a CEDIS${nota}${extra}`, 'success');
-    onClose();
+    const petId = crearSolicitudCedisUrgencia(data);
+    setDraftPetId(petId);
+    setAprobEstado('aprobando');
+    showToast('Aprobación de token solicitada. Puedes cerrar esta ventana; la solicitud queda en Draft hasta ser aprobada.', 'info');
+  };
+
+  // Observa el draft: cuando esDraft pasa a false, marca "aprobado".
+  useEffect(() => {
+    if (aprobEstado !== 'aprobando' || !draftPetId) return;
+    const pet = traspasos.find(t => t.id === draftPetId);
+    if (pet && !pet.esDraft) {
+      setAprobEstado('aprobado');
+      showToast(`Token aprobado. Solicitud ${draftPetId} entró como Pendiente.`, 'success');
+    }
+  }, [traspasos, draftPetId, aprobEstado, showToast]);
+
+  // Regresar de Confirmación a Piezas: si ya hay draft, avisar (necesitará re-aprobación).
+  const handleAtras = () => {
+    if (step === 3 && aprobEstado !== 'idle') {
+      setConfirmVolver(true);
+      return;
+    }
+    setStep(prev => (prev - 1) as Step);
+  };
+  const confirmarVolverAPiezas = () => {
+    // Se conserva el draft en curso (podrá cancelarse desde el detalle si aún no
+    // fue aprobado). Al regresar, el usuario deberá volver a solicitar aprobación.
+    setAprobEstado('idle');
+    setDraftPetId(null);
+    setConfirmVolver(false);
+    setStep(2);
   };
 
   const canAdvance =
@@ -285,13 +325,6 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
             {step === 1 && (
               <div className="flex flex-col gap-4">
                 <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>¿Qué pedido origina esta urgencia?</p>
-                <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#dc2626' }}>priority_high</span>
-                  <p className="text-xs" style={{ color: '#374151' }}>
-                    Lo habitual es relacionar un <strong>pedido</strong> (Urgencia). También puedes solicitar <strong>sin pedido</strong>,
-                    pero esa solicitud la valida CEDIS con token y puede tardar más.
-                  </p>
-                </div>
 
                 {bloqueoMsg && (
                   <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.35)' }}>
@@ -329,30 +362,19 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                   />
                 )}
 
-                {/* Opción: solicitar SIN pedido (validación de CEDIS + token) */}
+                {/* Opción discreta: solicitar SIN pedido (validación de CEDIS + token) */}
                 {!pedidoSelected && (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <span style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-                      <span className="text-[11px]" style={{ color: '#9ca3af' }}>o</span>
-                      <span style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-                    </div>
+                  <div className="flex justify-end mt-1">
                     <button
                       onClick={iniciarSinPedido}
-                      className="w-full flex items-center justify-center gap-2 rounded-lg text-sm font-semibold py-2.5 transition-all"
-                      style={{ border: '1.5px solid #d97706', color: '#b45309', background: 'rgba(217,119,6,0.06)' }}
+                      title="Puedes solicitar sin pedido de cliente. Este flujo también requiere aprobación de token por parte de CEDIS."
+                      className="flex items-center gap-1.5 text-xs font-semibold hover:underline"
+                      style={{ color: '#6b7280', background: 'transparent', padding: '4px 6px' }}
                     >
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>warehouse</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>help_outline</span>
                       Solicitar sin pedido de cliente
                     </button>
-                    <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>schedule</span>
-                      <p className="text-xs" style={{ color: '#6b7280' }}>
-                        La solicitud <strong>sin pedido</strong> deberá ser <strong>validada por CEDIS</strong> con token de autorización
-                        y <strong>podrá tomar más tiempo del esperado</strong>.
-                      </p>
-                    </div>
-                  </>
+                  </div>
                 )}
               </div>
             )}
@@ -364,34 +386,29 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                   {sinPedido ? 'Productos a solicitar a CEDIS (sin pedido)' : 'Productos del pedido a solicitar a CEDIS'}
                 </p>
                 {sinPedido && (
-                  <>
-                    <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>schedule</span>
-                      <p className="text-xs" style={{ color: '#6b7280' }}>
-                        Solicitud <strong>sin pedido</strong>: será <strong>validada por CEDIS</strong> con token y <strong>podrá tomar más tiempo del esperado</strong>.
-                      </p>
-                    </div>
-                    <BuscadorSugerencias
-                      placeholder="Buscar pieza por código o nombre…"
-                      options={opcionesCatalogo}
-                      getId={p => p.code}
-                      getLabel={p => p.code}
-                      getSubLabel={p => p.name}
-                      onSelect={p => handleAddPieza(p.code)}
-                      disabled={opcionesCatalogo.length === 0}
-                    />
-                  </>
+                  <BuscadorSugerencias
+                    placeholder="Buscar pieza por código o nombre…"
+                    options={opcionesCatalogo}
+                    getId={p => p.code}
+                    getLabel={p => p.code}
+                    getSubLabel={p => p.name}
+                    onSelect={p => handleAddPieza(p.code)}
+                    disabled={opcionesCatalogo.length === 0}
+                  />
                 )}
 
-                {/* Encabezado de columnas: existencia de la sucursal y existencia CEDIS */}
+                {/* Encabezado de columnas (grid uniforme para que no queden fuera). */}
                 {piezas.length > 0 && (
-                  <div className="flex items-center gap-2 px-2.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#9ca3af' }}>
-                    <div className="flex-1">Producto</div>
-                    <div style={{ width: 64, textAlign: 'center' }}>Requerido</div>
-                    <div style={{ width: 74, textAlign: 'center' }} title={`Existencia en tu sucursal (${sucursalActual})`}>Exist. suc.</div>
-                    <div style={{ width: 74, textAlign: 'center' }} title="Existencia disponible en CEDIS (tope máximo)">Exist. CEDIS</div>
-                    <div style={{ width: 64, textAlign: 'center' }}>A solicitar</div>
-                    <div style={{ width: 28 }} />
+                  <div className="grid gap-2 px-2.5 text-[11px] font-semibold uppercase tracking-wide"
+                    style={{ color: '#9ca3af', gridTemplateColumns: sinPedido
+                      ? 'minmax(0,1fr) 74px 74px 68px 28px'
+                      : 'minmax(0,1fr) 88px 74px 74px 68px 28px' }}>
+                    <div className="min-w-0">Producto</div>
+                    {!sinPedido && <div style={{ textAlign: 'center' }} title="Cantidad requerida por el pedido de cliente">Requerido pedido</div>}
+                    <div style={{ textAlign: 'center' }} title={`Existencia en tu sucursal (${sucursalActual})`}>Exist. suc.</div>
+                    <div style={{ textAlign: 'center' }} title="Existencia disponible en CEDIS (tope máximo)">Exist. CEDIS</div>
+                    <div style={{ textAlign: 'center' }}>A solicitar</div>
+                    <div />
                   </div>
                 )}
 
@@ -410,18 +427,23 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                     const tooltipCedis = `CEDIS tiene ${existenciaCedis} pzs. No puedes solicitar más que eso.`;
                     return (
                       <div key={p.code} className="rounded-lg p-2.5" style={{ border: `1px solid ${excede ? 'rgba(217,119,6,0.4)' : '#e5e7eb'}` }}>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 min-w-0">
-                            <span className="font-semibold text-xs" style={{ color: '#1a2b6b' }}>{p.code}</span>
-                            <span className="ml-1.5 text-xs" style={{ color: '#6b7280' }}>{prod?.name}</span>
+                        <div className="grid items-center gap-2"
+                          style={{ gridTemplateColumns: sinPedido
+                            ? 'minmax(0,1fr) 74px 74px 68px 28px'
+                            : 'minmax(0,1fr) 88px 74px 74px 68px 28px' }}>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-xs truncate" style={{ color: '#1a2b6b' }}>{p.code}</div>
+                            <div className="text-[11px] truncate" style={{ color: '#6b7280' }}>{prod?.name}</div>
                           </div>
-                          <div style={{ width: 64, textAlign: 'center' }}>
-                            <span className="text-xs font-semibold" style={{ color: '#1a2b6b' }}>{req ?? '—'}</span>
-                          </div>
-                          <div style={{ width: 74, textAlign: 'center' }} title={tooltipSuc}>
+                          {!sinPedido && (
+                            <div style={{ textAlign: 'center' }}>
+                              <span className="text-xs font-semibold" style={{ color: '#1a2b6b' }}>{req ?? '—'}</span>
+                            </div>
+                          )}
+                          <div style={{ textAlign: 'center' }} title={tooltipSuc}>
                             <span className="text-xs font-semibold" style={{ color: solicitaDeMas ? '#dc2626' : '#16a34a', cursor: 'help' }}>{existenciaLocal}</span>
                           </div>
-                          <div style={{ width: 74, textAlign: 'center' }} title={tooltipCedis}>
+                          <div style={{ textAlign: 'center' }} title={tooltipCedis}>
                             <span className="text-xs font-semibold" style={{ color: enTopeCedis ? '#d97706' : '#0d9488', cursor: 'help' }}>{existenciaCedis}</span>
                           </div>
                           <input
@@ -431,17 +453,16 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                             value={p.qty}
                             title={tooltipSuc}
                             onChange={e => handleUpdateQty(p.code, parseInt(e.target.value) || 1)}
-                            className="text-xs rounded border px-2 py-1.5 text-center font-semibold"
+                            className="text-xs rounded border px-2 py-1.5 text-center font-semibold w-full"
                             style={{
                               borderColor: solicitaDeMas ? '#dc2626' : (excede ? '#d97706' : '#d1d5db'),
                               color: solicitaDeMas ? '#dc2626' : '#111827',
                               background: solicitaDeMas ? 'rgba(220,38,38,0.05)' : '#fff',
-                              width: 64,
                             }}
                           />
                           <button
                             onClick={() => handleRemovePieza(p.code)}
-                            className="w-7 h-7 flex items-center justify-center rounded transition-all"
+                            className="w-7 h-7 flex items-center justify-center rounded transition-all justify-self-center"
                             style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
@@ -465,19 +486,22 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                   )}
                 </div>
 
-                {/* Reglas (parte inferior) + sucursal solicitante */}
+                {/* Reglas (parte inferior) + sucursal solicitante. La regla del pedido
+                    solo aplica cuando la solicitud viene de un pedido de cliente. */}
                 <div className="rounded-lg p-3 mt-1" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
                   <p className="text-xs font-semibold mb-1.5" style={{ color: '#1a2b6b' }}>
                     Sucursal solicitante: <span style={{ color: '#374151' }}>{sucursalActual}</span>
                   </p>
                   <ol className="text-[11px] flex flex-col gap-1" style={{ color: '#6b7280', listStyle: 'none', margin: 0, padding: 0 }}>
+                    {!sinPedido && (
+                      <li className="flex items-start gap-1.5">
+                        <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
+                        <span>Solo puedes solicitar productos del pedido <strong>#{pedidoSelected}</strong>.</span>
+                      </li>
+                    )}
                     <li className="flex items-start gap-1.5">
                       <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
-                      <span>1. Solo puedes solicitar productos del pedido {sinPedido ? '(solicitud sin pedido)' : `#${pedidoSelected}`}.</span>
-                    </li>
-                    <li className="flex items-start gap-1.5">
-                      <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>info</span>
-                      <span>2. No puedes superar la existencia de CEDIS.</span>
+                      <span>No puedes superar la existencia de CEDIS.</span>
                     </li>
                   </ol>
                 </div>
@@ -487,12 +511,17 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
             {/* Paso 3: Confirmación */}
             {step === 3 && (
               <div className="flex flex-col gap-5">
+                {/* Resumen (con cantidad de PIEZAS y PRODUCTOS) */}
                 <div className="rounded-lg p-4 flex flex-col gap-2" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
                   <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: '#1a2b6b' }}>Resumen</p>
-                  <div className="flex gap-6 text-sm">
+                  <div className="flex gap-6 text-sm flex-wrap">
                     <div>
-                      <span className="text-2xl font-bold" style={{ color: '#1a2b6b' }}>{piezas.length}</span>
-                      <span className="text-xs ml-1" style={{ color: '#6b7280' }}>pieza{piezas.length !== 1 ? 's' : ''} distinta{piezas.length !== 1 ? 's' : ''}</span>
+                      <span className="text-2xl font-bold" style={{ color: '#1a2b6b' }}>{totalProductos}</span>
+                      <span className="text-xs ml-1" style={{ color: '#6b7280' }}>producto{totalProductos !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div>
+                      <span className="text-2xl font-bold" style={{ color: '#1a2b6b' }}>{totalPiezas}</span>
+                      <span className="text-xs ml-1" style={{ color: '#6b7280' }}>pieza{totalPiezas !== 1 ? 's' : ''} en total</span>
                     </div>
                     <div>
                       <span className="text-2xl font-bold" style={{ color: '#1a2b6b' }}>CEDIS</span>
@@ -545,25 +574,59 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
                   </div>
                 </div>
 
-                {/* Token de autorización (CEDIS siempre requiere token) */}
-                <div className="rounded-lg p-4 flex flex-col gap-2" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
+                {/* Aprobación de token (CEDIS siempre requiere token).
+                    Lo aprueba MANUALMENTE alguien más — la solicitud queda en Draft
+                    hasta la aprobación (sin SLA). El usuario puede cerrar y seguir. */}
+                <div className="rounded-lg p-4 flex flex-col gap-3" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
                   <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: '#d97706' }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>vpn_key</span>
                     Autorización requerida (CEDIS)
                   </p>
-                  <p className="text-xs" style={{ color: '#6b7280' }}>
-                    Las solicitudes a CEDIS requieren token/PIN. Para las pruebas el token es <strong style={{ color: '#d97706' }}>{TOKEN_PRUEBA}</strong>.
-                  </p>
-                  <input
-                    type="text"
-                    value={token}
-                    onChange={e => setToken(e.target.value)}
-                    placeholder={`Ingresa el token/PIN (${TOKEN_PRUEBA})`}
-                    className="text-xs rounded border px-3 py-2"
-                    style={{ borderColor: esTokenValido(token) ? '#16a34a' : '#d97706', fontFamily: 'Roboto, sans-serif' }}
-                  />
-                  {token.trim() !== '' && !esTokenValido(token) && (
-                    <span className="text-[11px]" style={{ color: '#dc2626' }}>Token incorrecto (usa {TOKEN_PRUEBA}).</span>
+
+                  {aprobEstado === 'idle' && (
+                    <>
+                      <p className="text-xs" style={{ color: '#6b7280' }}>
+                        Toda solicitud a CEDIS requiere <strong>aprobación de token</strong>. Al presionar el botón la solicitud
+                        queda en <strong>Draft</strong> (sin SLA) hasta que alguien la apruebe manualmente. Puedes cerrar la ventana
+                        y seguir trabajando; la cancelación se puede hacer desde el detalle de la petición.
+                      </p>
+                      <button
+                        onClick={handleSolicitarAprobacion}
+                        disabled={!puedeSolicitarAprobacion}
+                        className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold text-white"
+                        style={{ background: puedeSolicitarAprobacion ? '#d97706' : '#9ca3af', cursor: puedeSolicitarAprobacion ? 'pointer' : 'not-allowed' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>key</span>
+                        Solicitar aprobación de token
+                      </button>
+                    </>
+                  )}
+
+                  {aprobEstado === 'aprobando' && (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <div className="animate-spin rounded-full" style={{ width: 36, height: 36, border: '3px solid #fde68a', borderTopColor: '#d97706' }} />
+                      <p className="text-xs font-semibold text-center" style={{ color: '#b45309' }}>
+                        Esperando aprobación de token…
+                      </p>
+                      <p className="text-[11px] text-center" style={{ color: '#6b7280' }}>
+                        Solicitud <strong style={{ color: '#1a2b6b' }}>{draftPetId}</strong> creada en <strong>Draft</strong>.
+                        Puedes cerrar esta ventana; la solicitud queda pendiente de aprobación (los drafts sin aprobar más de 24 h se cancelan solos).
+                      </p>
+                    </div>
+                  )}
+
+                  {aprobEstado === 'aprobado' && (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <div className="flex items-center justify-center rounded-full" style={{ width: 40, height: 40, background: 'rgba(22,163,74,0.14)' }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#16a34a' }}>check</span>
+                      </div>
+                      <p className="text-xs font-semibold text-center" style={{ color: '#166534' }}>
+                        Token aprobado
+                      </p>
+                      <p className="text-[11px] text-center" style={{ color: '#6b7280' }}>
+                        La solicitud <strong style={{ color: '#1a2b6b' }}>{draftPetId}</strong> pasó a <strong>Pendiente</strong> y ya cuenta para SLA.
+                      </p>
+                    </div>
                   )}
                 </div>
 
@@ -589,7 +652,7 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
           style={{ borderTop: '1px solid #e5e7eb', flexShrink: 0 }}
         >
           <button
-            onClick={step === 1 ? onClose : () => setStep(prev => (prev - 1) as Step)}
+            onClick={step === 1 ? onClose : handleAtras}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all"
             style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white' }}
           >
@@ -614,22 +677,49 @@ export default function ModalSolicitarCedis({ onClose, showToast }: Props) {
               Siguiente
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_forward</span>
             </button>
-          ) : (
+          ) : aprobEstado === 'aprobado' ? (
             <button
-              onClick={handleConfirmar}
-              disabled={!canConfirmar}
+              onClick={onClose}
               className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold text-white transition-all"
-              style={{
-                background: canConfirmar ? '#16a34a' : '#9ca3af',
-                cursor: canConfirmar ? 'pointer' : 'not-allowed',
-                boxShadow: canConfirmar ? '0 2px 8px rgba(22,163,74,0.3)' : 'none',
-              }}
+              style={{ background: '#16a34a', boxShadow: '0 2px 8px rgba(22,163,74,0.3)' }}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check</span>
-              Enviar solicitud
+              Listo, cerrar
             </button>
+          ) : aprobEstado === 'aprobando' ? (
+            <button
+              onClick={onClose}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium border transition-all"
+              style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white' }}
+            >
+              Cerrar y seguir trabajando
+            </button>
+          ) : (
+            <span className="text-[11px]" style={{ color: '#9ca3af' }}>Presiona "Solicitar aprobación de token" para continuar</span>
           )}
         </div>
+
+        {/* Confirmación al regresar de Confirmación → Piezas si hay draft en curso */}
+        {confirmVolver && (
+          <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+            <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div className="flex flex-col items-center gap-3 pt-6 px-6">
+                <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(217,119,6,0.14)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#d97706' }}>warning</span>
+                </div>
+                <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>¿Regresar a Piezas?</div>
+              </div>
+              <p className="text-xs mt-3 px-6 text-center leading-relaxed" style={{ color: '#555' }}>
+                Si modificas la solicitud tendrás que <strong>volver a solicitar la aprobación del token</strong>.
+                El draft <strong>#{draftPetId}</strong> queda en curso y podrás cancelarlo desde el detalle de la petición.
+              </p>
+              <div className="flex gap-2 px-6 py-5 mt-2">
+                <button onClick={() => setConfirmVolver(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
+                <button onClick={confirmarVolverAPiezas} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#d97706' }}>Sí, regresar</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

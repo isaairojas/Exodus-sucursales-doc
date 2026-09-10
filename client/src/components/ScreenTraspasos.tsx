@@ -64,6 +64,8 @@ function diasDesdeCreacion(fechaIso: string): number {
 // sigue sin recibirse y ya pasaron los días del SLA de CEDIS.
 const CEDIS_NO_RECIBIDO: TraspasoStatus[] = ['Pendiente', 'Documentado', 'Enviado'];
 function esVencidoSurtir(t: TraspasoPeticion): boolean {
+  // Los drafts (pendientes de aprobación de token) no cuentan para SLA.
+  if (t.esDraft) return false;
   if (t.categoria === 'CEDIS') {
     return CEDIS_NO_RECIBIDO.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_CEDIS;
   }
@@ -729,9 +731,6 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                         {t.solicitudId}
                       </span>
                     )}
-                    {t.intento != null && t.intento > 1 && (
-                      <span className="ml-1 text-[10px]" style={{ color: '#9ca3af' }}>int. {t.intento}</span>
-                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>
@@ -785,7 +784,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     )}
                   </td>
                   <td className="px-3 py-2.5">
-                    {esUnificada ? (
+                    {t.esDraft ? (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                        title="Solicitud a CEDIS en Draft: pendiente de aprobación de token. No cuenta para SLA."
+                        style={{ background: 'rgba(107,114,128,0.14)', color: '#4b5563', border: '1px dashed rgba(107,114,128,0.5)', cursor: 'help' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>hourglass_empty</span>
+                        Draft
+                      </span>
+                    ) : esUnificada ? (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
                         title={`Solicitud a CEDIS unificada dentro del traspaso de reabasto ${t.unificadaEnTraspaso ?? ''}. Consulta el detalle de la petición.`}

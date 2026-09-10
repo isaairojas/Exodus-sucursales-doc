@@ -11,7 +11,7 @@
 // ============================================================
 import { useMemo, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { TraspasoPeticion, TraspasoPiezaDetalle, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL } from '@/lib/data';
+import { TraspasoPeticion, TraspasoPiezaDetalle, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, MotivoRechazoTipo, MOTIVOS_RECHAZO } from '@/lib/data';
 
 type Modo = 'surtido' | 'revision';
 
@@ -35,7 +35,7 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   // "Rechazar/Cancelar traspaso" en vez de "Negar" (para esta perspectiva no es la
   // sucursal donante rechazando una necesidad, es cancelar un envío propio).
   const esEnvioACedis = peticion.sucursalDestino === 'CEDIS' || !!peticion.motivoEnvioCedis;
-  const menuLabel = esEnvioACedis ? 'Cancelar traspaso' : 'Negar traspaso';
+  const menuLabel = esEnvioACedis ? 'Rechazar traspaso' : 'Negar traspaso';
   const confirmTitulo = esEnvioACedis ? 'Rechazar traspaso' : 'Negar traspaso';
 
   // En revisión se parte de lo ya surtido; en surtido se parte de 0.
@@ -47,6 +47,11 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmFaltante, setConfirmFaltante] = useState(false);
   const [confirmNegar, setConfirmNegar] = useState(false);
+  // Nota que escribe el donante al finalizar surtido/revisión parcial.
+  const [notaSurtido, setNotaSurtido] = useState('');
+  // Motivo tipificado + comentario libre (solo si es "Otro") para el rechazo.
+  const [motivoRechazo, setMotivoRechazo] = useState<MotivoRechazoTipo>('Producto dañado');
+  const [motivoOtro, setMotivoOtro] = useState('');
 
   const solicitadaDe = (code: string) => peticion.piezas.find(p => p.code === code)?.qtySolicitada ?? 0;
   const existenciaDe = (code: string) => stock[code] ?? 0;
@@ -81,8 +86,9 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
 
   const ejecutarFinalizar = () => {
     const piezas = construirPiezas();
-    if (esRevision) finalizarRevisionTraspaso(peticion.id, piezas);
-    else finalizarSurtidoTraspaso(peticion.id, piezas);
+    const nota = notaSurtido.trim() || undefined;
+    if (esRevision) finalizarRevisionTraspaso(peticion.id, piezas, nota);
+    else finalizarSurtidoTraspaso(peticion.id, piezas, nota);
     if (hayFaltante) {
       showToast(`${esRevision ? 'Revisión' : 'Surtido'} parcial registrado. La sucursal solicitante decidirá si reasigna o genera una nueva solicitud por el restante.`, 'warning');
     } else {
@@ -100,8 +106,19 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
     ejecutarFinalizar();
   };
 
+  // Motivo definitivo que se guarda en el traspaso: "Otro" concatena el comentario libre.
+  const motivoFinal = () => {
+    if (motivoRechazo === 'Otro') {
+      const c = motivoOtro.trim();
+      return c ? `Otro — ${c}` : 'Otro';
+    }
+    return motivoRechazo as string;
+  };
+  const puedeConfirmarRechazo = motivoRechazo !== 'Otro' || motivoOtro.trim().length > 0;
+
   const ejecutarNegar = () => {
-    negarTraspaso(peticion.id, `Traspaso ${esEnvioACedis ? 'cancelado' : 'negado'} en ${esRevision ? 'revisión' : 'surtido'} (HH)`);
+    if (!puedeConfirmarRechazo) return;
+    negarTraspaso(peticion.id, motivoFinal());
     showToast(
       esEnvioACedis
         ? `Traspaso ${peticion.id} cancelado. Ya no será enviado a CEDIS.`
@@ -137,7 +154,7 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
             {menuOpen && (
               <div className="absolute right-0 mt-1 rounded-lg overflow-hidden" style={{ background: '#fff', border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', zIndex: 20, minWidth: 220 }}>
                 <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider" style={{ color: '#9ca3af' }}>
-                  {esEnvioACedis ? 'Cancela el envío completo a CEDIS' : 'Negar es para todo (no surtir nada)'}
+                  {esEnvioACedis ? 'Rechaza el envío completo a CEDIS' : 'Negar es para todo (no surtir nada)'}
                 </div>
                 <button
                   onClick={() => { setMenuOpen(false); setConfirmNegar(true); }}
@@ -227,27 +244,73 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
           )}
         </div>
 
-        {/* Confirmar finalizar con faltante */}
-        {confirmFaltante && (
-          <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
-            <div className="w-full bg-white p-5 rounded-2xl">
-              <div className="text-sm font-extrabold mb-2" style={{ color: '#1a1a2e' }}>{accionFinal}</div>
-              <p className="text-xs mb-4" style={{ color: '#555' }}>
-                Hay un <strong>faltante</strong> ({esRevision ? 'revisado' : 'surtido'} parcial). Se registrará solo lo que {esRevision ? 'revisaste' : 'surtiste'};
-                la <strong>sucursal solicitante</strong> decidirá manualmente si reasigna o genera una nueva solicitud por el restante. ¿Continuar?
-              </p>
-              <div className="flex gap-2">
-                <button onClick={() => setConfirmFaltante(false)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
-                <button onClick={() => { setConfirmFaltante(false); ejecutarFinalizar(); }} className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white" style={{ background: NAVY }}>Continuar</button>
+        {/* Confirmar finalizar con faltante (surtido/revisión parcial) */}
+        {confirmFaltante && (() => {
+          const parciales = peticion.piezas
+            .filter(p => qtyByCode[p.code] < solicitadaDe(p.code))
+            .map(p => ({ code: p.code, name: PRODUCT_CATALOG[p.code]?.name ?? p.code, sol: p.qtySolicitada, sur: qtyByCode[p.code] }));
+          return (
+            <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+              <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 360, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                {/* Icono + título */}
+                <div className="flex flex-col items-center gap-3 pt-6 px-5">
+                  <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(27,56,146,0.12)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 28, color: NAVY }}>splitscreen</span>
+                  </div>
+                  <div className="text-sm font-extrabold text-center leading-snug" style={{ color: '#1a1a2e' }}>
+                    Surtido parcial, para los siguientes artículos se realizó un surtido parcial:
+                  </div>
+                </div>
+                {/* Tabla de artículos parciales */}
+                <div className="px-5 mt-3">
+                  <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #eef0f4' }}>
+                    <div className="grid grid-cols-[1fr_54px_54px] px-3 py-2 text-[10px] font-bold uppercase tracking-wider" style={{ background: '#f6f7fb', color: '#6b7280' }}>
+                      <span>Artículo</span>
+                      <span className="text-center">Sol.</span>
+                      <span className="text-center">Surt.</span>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto">
+                      {parciales.map(p => (
+                        <div key={p.code} className="grid grid-cols-[1fr_54px_54px] px-3 py-2 text-xs" style={{ borderTop: '1px solid #f0f0f0' }}>
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate" style={{ color: NAVY }}>{p.code}</div>
+                            <div className="text-[10px] truncate" style={{ color: '#6b7280' }}>{p.name}</div>
+                          </div>
+                          <span className="text-center font-semibold self-center" style={{ color: '#1a1a2e' }}>{p.sol}</span>
+                          <span className="text-center font-bold self-center" style={{ color: NAVY }}>{p.sur}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {/* Nota del donante para el surtido/revisión parcial (opcional) */}
+                <div className="px-5 mt-3">
+                  <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#6b7280' }}>Nota (opcional)</label>
+                  <textarea
+                    value={notaSurtido}
+                    onChange={e => setNotaSurtido(e.target.value)}
+                    placeholder={`Nota para la sucursal solicitante (por qué no se ${esRevision ? 'revisó' : 'surtió'} completo)…`}
+                    rows={2}
+                    className="w-full text-xs rounded-lg px-3 py-2 mt-1 resize-none"
+                    style={{ border: '1px solid #d7dbe6', background: '#fafbfc', fontFamily: 'Roboto, sans-serif' }}
+                  />
+                </div>
+                <p className="text-[11px] mt-2 px-5 text-center" style={{ color: '#6b7280' }}>
+                  Solo se registrarán los artículos surtidos. ¿Deseas continuar?
+                </p>
+                <div className="flex gap-2 px-5 py-5 mt-2">
+                  <button onClick={() => setConfirmFaltante(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
+                  <button onClick={() => { setConfirmFaltante(false); ejecutarFinalizar(); }} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: NAVY }}>Continuar</button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Confirmar rechazar/negar traspaso (todo) */}
         {confirmNegar && (
           <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
-            <div className="w-full bg-white overflow-hidden" style={{ borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 360, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
               {/* Icono + título */}
               <div className="flex flex-col items-center gap-3 pt-6 px-6">
                 <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(229,57,53,0.12)' }}>
@@ -259,14 +322,47 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
                 ¿Estás seguro de rechazar el traspaso <strong style={{ color: '#1a1a2e' }}>{peticion.id}</strong>?<br />
                 Esta acción <strong>no puede ser cancelada</strong>. ¿Desea continuar?
               </p>
+              {/* Motivo de rechazo (obligatorio): Producto dañado / Diferencia de inventarios / Otro */}
+              <div className="px-5 mt-3">
+                <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#6b7280' }}>Motivo del rechazo</label>
+                <div className="flex flex-col gap-1.5 mt-1.5">
+                  {MOTIVOS_RECHAZO.map(m => (
+                    <label key={m} className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer" style={{
+                      border: `1px solid ${motivoRechazo === m ? '#e53935' : '#e5e7eb'}`,
+                      background: motivoRechazo === m ? 'rgba(229,57,53,0.06)' : '#fff',
+                    }}>
+                      <input type="radio" name="motivoRechazo" value={m} checked={motivoRechazo === m} onChange={() => setMotivoRechazo(m)} style={{ accentColor: '#e53935' }} />
+                      <span className="text-xs font-semibold" style={{ color: motivoRechazo === m ? '#e53935' : '#374151' }}>{m}</span>
+                    </label>
+                  ))}
+                </div>
+                {motivoRechazo === 'Otro' && (
+                  <textarea
+                    value={motivoOtro}
+                    onChange={e => setMotivoOtro(e.target.value)}
+                    placeholder="Escribe el motivo o razón…"
+                    rows={2}
+                    className="w-full text-xs rounded-lg px-3 py-2 mt-2 resize-none"
+                    style={{ border: '1px solid #d7dbe6', background: '#fafbfc', fontFamily: 'Roboto, sans-serif' }}
+                  />
+                )}
+              </div>
               {!esEnvioACedis && (
-                <p className="text-[11px] mt-2 px-6 text-center" style={{ color: '#9ca3af' }}>
+                <p className="text-[11px] mt-3 px-6 text-center" style={{ color: '#9ca3af' }}>
                   La sucursal solicitante podrá reasignarlo a otra sucursal desde "Por recibir".
                 </p>
               )}
               <div className="flex gap-2 px-6 py-5 mt-2">
-                <button onClick={() => setConfirmNegar(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Negar</button>
-                <button onClick={ejecutarNegar} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#e53935' }}>Rechazar traspaso</button>
+                <button onClick={() => setConfirmNegar(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
+                <button
+                  onClick={ejecutarNegar}
+                  disabled={!puedeConfirmarRechazo}
+                  title={!puedeConfirmarRechazo ? 'Describe el motivo en "Otro" para continuar.' : undefined}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
+                  style={{ background: puedeConfirmarRechazo ? '#e53935' : '#9ca3af', cursor: puedeConfirmarRechazo ? 'pointer' : 'not-allowed' }}
+                >
+                  Rechazar traspaso
+                </button>
               </div>
             </div>
           </div>

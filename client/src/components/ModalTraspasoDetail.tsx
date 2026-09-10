@@ -9,6 +9,7 @@ import {
   TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS, TRASPASO_CATEGORIA_LABELS, CEDIS_SUBTIPO_COLORS,
   PRODUCT_CATALOG, tiempoTranscurrido,
 } from '@/lib/data';
+import { TRASPASO_DIAS_VENCIDO_SURTIDO, TRASPASO_DIAS_VENCIDO_CEDIS } from '@/lib/traspasoConfig';
 import { useApp } from '@/contexts/AppContext';
 import ResumenTraspasosPedido from './ResumenTraspasosPedido';
 
@@ -16,6 +17,28 @@ interface Props {
   peticion: TraspasoPeticion;
   onClose: () => void;
   showToast?: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
+}
+
+// SLAs de la petición (los mismos iconos que las cards de la tabla) para mostrar
+// en la barra azul del header, junto al id.
+interface SlaTag { label: string; icon: string; color: string; }
+function slaTagsPeticion(t: TraspasoPeticion): SlaTag[] {
+  const tags: SlaTag[] = [];
+  // Los drafts (pendientes de aprobación de token) no cuentan para SLA.
+  if (t.esDraft) return tags;
+  const dias = Math.max(0, Math.floor((Date.now() - new Date(t.fechaCreacion.replace(' ', 'T')).getTime()) / 86_400_000));
+  const noRecibidoCedis = ['Pendiente', 'Documentado', 'Enviado'].includes(t.status);
+  const pendienteSurtir = t.status === 'Pendiente';
+  const vencido = t.categoria === 'CEDIS'
+    ? noRecibidoCedis && dias >= TRASPASO_DIAS_VENCIDO_CEDIS
+    : pendienteSurtir && dias >= TRASPASO_DIAS_VENCIDO_SURTIDO;
+  if (vencido) tags.push({ label: t.categoria === 'CEDIS' ? `Vencido (${dias} días · SLA CEDIS)` : `Vencido (${dias} día(s) por surtir)`, icon: 'event_busy', color: '#f87171' });
+  if (t.categoria !== 'CEDIS') {
+    if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido con parcialidad', icon: 'splitscreen', color: '#93c5fd' });
+    if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado con parcialidad', icon: 'fact_check', color: '#c4b5fd' });
+    if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', icon: 'cancel', color: '#f87171' });
+  }
+  return tags;
 }
 
 function TraspasoStatusBadge({ status }: { status: TraspasoStatus }) {
@@ -75,24 +98,41 @@ export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Pr
         className="flex flex-col bg-white rounded-xl overflow-hidden"
         style={{ width: 720, maxWidth: '96vw', maxHeight: '92vh', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', animation: 'modalIn 0.22s ease' }}
       >
-        {/* Header */}
-        <div
-          className="flex items-center gap-2 px-5 py-4"
-          style={{ background: '#1a2b6b', borderRadius: '12px 12px 0 0', flexShrink: 0 }}
-        >
-          <span className="material-symbols-outlined text-white" style={{ fontSize: 20 }}>swap_horiz</span>
-          <span className="font-bold text-sm text-white">Detalle de Traspaso</span>
-          <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff' }}>
-            #{peticion.id}
-          </span>
-          <button
-            onClick={onClose}
-            className="ml-auto w-7 h-7 rounded-full flex items-center justify-center transition-all"
-            style={{ background: 'rgba(255,255,255,0.15)', color: '#fff' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
-          </button>
-        </div>
+        {/* Header con SLAs del pedido/petición */}
+        {(() => {
+          const slas = slaTagsPeticion(peticion);
+          return (
+            <div
+              className="flex items-center gap-2 px-5 py-4"
+              style={{ background: '#1a2b6b', borderRadius: '12px 12px 0 0', flexShrink: 0 }}
+            >
+              <span className="material-symbols-outlined text-white" style={{ fontSize: 20 }}>swap_horiz</span>
+              <span className="font-bold text-sm text-white">Detalle de Traspaso</span>
+              <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff' }}>
+                #{peticion.id}
+              </span>
+              {/* SLAs del pedido (mismos iconos que en la tabla) */}
+              {slas.length > 0 ? (
+                <div className="flex items-center gap-1.5 ml-2" title="SLAs del pedido">
+                  {slas.map(s => (
+                    <span key={s.label} className="material-symbols-outlined" title={s.label} style={{ fontSize: 20, color: s.color, cursor: 'help' }}>
+                      {s.icon}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="material-symbols-outlined ml-2" title="En tiempo" style={{ fontSize: 20, color: '#86efac', cursor: 'help' }}>check_circle</span>
+              )}
+              <button
+                onClick={onClose}
+                className="ml-auto w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                style={{ background: 'rgba(255,255,255,0.15)', color: '#fff' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 p-6 flex flex-col gap-6">
@@ -149,10 +189,40 @@ export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Pr
               <InfoRow label="Usuario creador">{peticion.usuarioCreador}</InfoRow>
               <InfoRow label="Estatus"><TraspasoStatusBadge status={peticion.status} /></InfoRow>
               {peticion.observaciones && (
-                <InfoRow label="Observaciones">{peticion.observaciones}</InfoRow>
+                <InfoRow label="Observaciones — asesor">{peticion.observaciones}</InfoRow>
               )}
             </div>
           </section>
+
+          {/* Notas del surtido / revisión — las escribe el logístico de la sucursal
+              donante al finalizar surtido/revisión parcial o al rechazar. */}
+          {(peticion.notaDonante || peticion.motivoRechazo) && (
+            <section>
+              <h3 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#1a2b6b' }}>
+                Notas del surtido / revisión
+              </h3>
+              <div className="rounded-lg p-3 flex flex-col gap-2" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
+                {peticion.motivoRechazo && (
+                  <div className="flex items-start gap-2">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#dc2626' }}>cancel</span>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#9ca3af' }}>Motivo de rechazo</div>
+                      <div className="text-xs" style={{ color: '#374151' }}>{peticion.motivoRechazo}</div>
+                    </div>
+                  </div>
+                )}
+                {peticion.notaDonante && (
+                  <div className="flex items-start gap-2">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#0d9488' }}>edit_note</span>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#9ca3af' }}>Nota del donante</div>
+                      <div className="text-xs" style={{ color: '#374151' }}>{peticion.notaDonante}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Sección: Unificación con reabasto (la decide CEDIS) */}
           {peticion.resultado === 'unificada' && peticion.unificadaEnTraspaso && (
@@ -291,7 +361,8 @@ export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Pr
           </section>
           )}
 
-          {/* Sección: Cajas */}
+          {/* Sección: Cajas — solo visible una vez documentado (embarque preparado). */}
+          {['Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(peticion.status) && (
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
               Cajas
@@ -325,6 +396,7 @@ export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Pr
               })}
             </div>
           </section>
+          )}
 
           {/* Sección 4: Pedido origen (no aplica a Reabasto, nunca lleva pedido) */}
           {!isReabastoCiego && (

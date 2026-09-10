@@ -40,24 +40,7 @@ export default function ResumenTraspasosPedido({ pedidoOrigen, currentPetId }: P
         Resumen de traspasos del pedido #{orderKey}
       </h3>
 
-      {order ? (
-        faltante > 0 ? (
-          <div className="rounded-lg p-3 mb-3 flex items-start gap-2" style={{ background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.35)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#d97706' }}>report</span>
-            <p className="text-xs" style={{ color: '#b45309' }}>
-              El pedido <strong>aún no se completa</strong>: las peticiones vigentes cubren <strong>{pct(piezasVigentes)}%</strong> ({piezasVigentes}/{totalRequerido} pzs).
-              Faltan <strong>{faltante} pzs</strong> ({pct(faltante)}%) — posible por un rechazo. Recibido hasta ahora: {piezasRecibidas}/{totalRequerido}.
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-lg p-3 mb-3 flex items-start gap-2" style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.3)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#16a34a' }}>task_alt</span>
-            <p className="text-xs" style={{ color: '#166534' }}>
-              El pedido está <strong>cubierto al 100%</strong> por los traspasos vigentes ({piezasVigentes}/{totalRequerido} pzs). Recibido: {piezasRecibidas}/{totalRequerido}.
-            </p>
-          </div>
-        )
-      ) : (
+      {!order && (
         <p className="text-xs mb-2" style={{ color: '#9ca3af' }}>Pedido no disponible en catálogo local; se muestra el desglose de peticiones.</p>
       )}
 
@@ -65,7 +48,7 @@ export default function ResumenTraspasosPedido({ pedidoOrigen, currentPetId }: P
         <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-              {['Petición', 'Intento', 'Sucursal', 'Estado', 'Piezas', '% pedido', 'Existencia suc.', 'Nota'].map(col => (
+              {['Petición', 'Sucursal', 'Estado', 'Piezas', '% pedido', 'Existencia suc.', 'Nota'].map(col => (
                 <th key={col} className="text-left px-2.5 py-2 font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: '#6b7280' }}>{col}</th>
               ))}
             </tr>
@@ -84,7 +67,6 @@ export default function ResumenTraspasosPedido({ pedidoOrigen, currentPetId }: P
                     <td className="px-2.5 py-2 font-semibold whitespace-nowrap" style={{ color: '#1a2b6b' }}>
                       {t.id}{esActual && <span className="ml-1 text-[10px]" style={{ color: '#6b7280' }}>(actual)</span>}
                     </td>
-                    <td className="px-2.5 py-2 text-center">{t.intento ?? '—'}</td>
                     <td className="px-2.5 py-2 whitespace-nowrap" style={{ color: '#374151' }}>{t.sucursalContraparte}</td>
                     <td className="px-2.5 py-2">
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap" style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}>{t.status}</span>
@@ -107,7 +89,7 @@ export default function ResumenTraspasosPedido({ pedidoOrigen, currentPetId }: P
           </tbody>
           <tfoot>
             <tr style={{ borderTop: '2px solid #e5e7eb' }}>
-              <td colSpan={4} className="px-2.5 py-2 text-right font-semibold" style={{ color: '#6b7280' }}>Requerido del pedido: {totalRequerido} pzs</td>
+              <td colSpan={3} className="px-2.5 py-2 text-right font-semibold" style={{ color: '#6b7280' }}>Requerido del pedido: {totalRequerido} pzs</td>
               <td className="px-2.5 py-2 text-center font-bold" style={{ color: '#1a2b6b' }}>{piezasVigentes}</td>
               <td className="px-2.5 py-2 text-center font-bold" style={{ color: faltante > 0 ? '#d97706' : '#16a34a' }}>{pct(piezasVigentes)}%</td>
               <td colSpan={2} className="px-2.5 py-2 text-[11px]" style={{ color: faltante > 0 ? '#b45309' : '#166534' }}>

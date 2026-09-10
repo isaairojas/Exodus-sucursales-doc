@@ -11,7 +11,7 @@ import {
   EmbarqueTraspaso, EMBARQUES_TRASPASO_DB, MotivoCancelacion,
   SUCURSALES_EJERCICIO, MotivoEnvioCedis, calcularSucursalRecomendada, RecepcionLogEntry,
 } from '@/lib/data';
-import { MAX_EVALUACIONES_PETICION } from '@/lib/traspasoConfig';
+import { TIEMPO_APROBACION_TOKEN_MS } from '@/lib/traspasoConfig';
 
 export interface DiscrepancyResolution {
   code: string;
@@ -64,8 +64,8 @@ interface AppContextValue {
   // Traspasos
   traspasos: TraspasoPeticion[];
   surtirTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => void;
-  finalizarSurtidoTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => string | null;
-  finalizarRevisionTraspaso: (petId: string, piezasRevisadas: TraspasoPiezaDetalle[]) => string | null;
+  finalizarSurtidoTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[], nota?: string) => string | null;
+  finalizarRevisionTraspaso: (petId: string, piezasRevisadas: TraspasoPiezaDetalle[], nota?: string) => string | null;
   negarTraspaso: (petId: string, motivo: string) => string | null;
   reasignarPeticion: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   reasignarPeticionA: (petId: string, donante: string) => { ok: boolean; mensaje: string; derivadaId?: string };
@@ -76,6 +76,7 @@ interface AppContextValue {
   confirmarRecepcion: (petId: string, data: { tipo: 'Completa' | 'Parcial'; nota?: string; cajasRecibidas?: number }) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
   crearSolicitudCedisUrgencia: (data: CrearSolicitudCedisData) => string;
+  aprobarSolicitudCedisDraft: (petId: string) => void;
   crearEnvioCedis: (data: CrearEnvioCedisData) => string;
   // Estado compartido en tiempo real
   reiniciarEstadoCompartido: () => void;
@@ -341,14 +342,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Si quedó faltante (parcial) NO se genera nada automáticamente: el recálculo
   // (reasignar / generar restante) es una decisión MANUAL de la sucursal solicitante
   // desde "Por recibir". Devuelve null (ya no hay petición derivada automática).
-  const finalizarSurtidoTraspaso = useCallback((petId: string, piezasSurtidas: TraspasoPiezaDetalle[]): string | null => {
+  const finalizarSurtidoTraspaso = useCallback((petId: string, piezasSurtidas: TraspasoPiezaDetalle[], nota?: string): string | null => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const notaLimpia = (nota ?? '').trim();
     setTraspasos(prev => {
       const orig = prev.find(t => t.id === petId);
       if (!orig || orig.status !== 'Pendiente') return prev;
       const parcial = piezasSurtidas.some(p => p.qtySurtida < p.qtySolicitada);
       return prev.map(t => t.id === petId
-        ? { ...t, status: 'Surtido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasSurtidas, parcial, resultado: (parcial ? 'surtida-parcial' : 'surtida') as TraspasoPeticion['resultado'] }
+        ? { ...t, status: 'Surtido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasSurtidas, parcial, resultado: (parcial ? 'surtida-parcial' : 'surtida') as TraspasoPeticion['resultado'], notaDonante: notaLimpia || t.notaDonante }
         : t);
     });
     return null;
@@ -357,14 +359,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Finaliza la REVISIÓN desde la HH: Surtido → Revisado con las cantidades
   // revisadas. Igual que el surtido: si quedó faltante NO se autogenera nada; el
   // recálculo lo decide manualmente la sucursal solicitante desde "Por recibir".
-  const finalizarRevisionTraspaso = useCallback((petId: string, piezasRevisadas: TraspasoPiezaDetalle[]): string | null => {
+  const finalizarRevisionTraspaso = useCallback((petId: string, piezasRevisadas: TraspasoPiezaDetalle[], nota?: string): string | null => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const notaLimpia = (nota ?? '').trim();
     setTraspasos(prev => {
       const orig = prev.find(t => t.id === petId);
       if (!orig || orig.status !== 'Surtido') return prev;
       const parcial = piezasRevisadas.some(p => p.qtySurtida < p.qtySolicitada);
       return prev.map(t => t.id === petId
-        ? { ...t, status: 'Revisado' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRevisadas, parcial, resultado: (parcial ? 'surtida-parcial' : 'revisada') as TraspasoPeticion['resultado'] }
+        ? { ...t, status: 'Revisado' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRevisadas, parcial, resultado: (parcial ? 'surtida-parcial' : 'revisada') as TraspasoPeticion['resultado'], notaDonante: notaLimpia || t.notaDonante }
         : t);
     });
     return null;
@@ -382,14 +385,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Reasignación por SMC de una petición RECHAZADA: el algoritmo determina si
-  // puede reasignarse a otra sucursal (respetando el máximo de intentos y sin
-  // reelegir la sucursal que rechazó ni el destino). Devuelve el resultado.
+  // puede reasignarse a otra sucursal (sin reelegir la sucursal que rechazó ni
+  // el destino). Sin cap de intentos: es una acción manual del solicitante y
+  // puede repetirse mientras el pedido original no esté completado.
   const reasignarPeticion = useCallback((petId: string): { ok: boolean; mensaje: string; derivadaId?: string } => {
     const orig = traspasos.find(t => t.id === petId);
     if (!orig) return { ok: false, mensaje: 'Petición no encontrada.' };
-    if ((orig.intento ?? 1) >= MAX_EVALUACIONES_PETICION) {
-      return { ok: false, mensaje: `Se agotó el máximo de ${MAX_EVALUACIONES_PETICION} intentos: la solicitud no puede reasignarse a otra sucursal.` };
-    }
     // Faltante: rechazo total → todo; parcial → solo el restante.
     const faltante = orig.piezas
       .filter(p => p.qtySurtida < p.qtySolicitada)
@@ -406,18 +407,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       next = [derivada, ...next];
       return next;
     });
-    return { ok: true, mensaje: `Reasignada por SMC a ${derivada.sucursalOrigen} (intento ${derivada.intento}).`, derivadaId: derivada.id };
+    return { ok: true, mensaje: `Reasignada por SMC a ${derivada.sucursalOrigen}.`, derivadaId: derivada.id };
   }, [traspasos]);
 
   // Reasignación a una sucursal ESPECÍFICA (la que el usuario eligió entre las
-  // opciones que propuso SMC 4.0 en el modal de reasignación). Respeta el máximo
-  // de intentos y no permite reelegir la sucursal que rechazó ni el destino.
+  // opciones que propuso SMC 4.0 en el modal de reasignación). No permite reelegir
+  // la sucursal que rechazó ni el destino. Sin cap de intentos.
   const reasignarPeticionA = useCallback((petId: string, donante: string): { ok: boolean; mensaje: string; derivadaId?: string } => {
     const orig = traspasos.find(t => t.id === petId);
     if (!orig) return { ok: false, mensaje: 'Petición no encontrada.' };
-    if ((orig.intento ?? 1) >= MAX_EVALUACIONES_PETICION) {
-      return { ok: false, mensaje: `Se agotó el máximo de ${MAX_EVALUACIONES_PETICION} intentos: la solicitud no puede reasignarse.` };
-    }
     if (donante === orig.sucursalOrigen || donante === orig.sucursalDestino) {
       return { ok: false, mensaje: 'No se puede reasignar a la sucursal que rechazó ni al destino.' };
     }
@@ -432,7 +430,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       next = [derivada, ...next];
       return next;
     });
-    return { ok: true, mensaje: `Reasignada a ${donante} (intento ${derivada.intento}).`, derivadaId: derivada.id };
+    return { ok: true, mensaje: `Reasignada a ${donante}.`, derivadaId: derivada.id };
   }, [traspasos]);
 
   // Genera una NUEVA SOLICITUD (SMC) por el RESTANTE de una petición surtida/
@@ -608,15 +606,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return solicitudId;
   }, [sucursalActual]);
 
+  // Crea una solicitud a CEDIS en estado Draft (pendiente de aprobación de token).
+  // Un aprobador externo la aprueba manualmente (simulado con un setTimeout de
+  // TIEMPO_APROBACION_TOKEN_MS). Mientras dura el draft NO cuenta para el SLA.
+  // Devuelve el id de la petición para que el modal pueda mostrar la espera.
   const crearSolicitudCedisUrgencia = useCallback((data: CrearSolicitudCedisData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
     const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
     const solicitudId = `S${pad7(ts)}`;
+    const petId = `TU${pad7(ts)}`;
     const piezas = data.piezas.map(p => ({ ...p, qtySurtida: 0 }));
     const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
     const nueva: TraspasoPeticion = {
-      id: `TU${pad7(ts)}`,
+      id: petId,
       solicitudId,
       tipo: 'Entrante',
       categoria: 'CEDIS',
@@ -627,6 +630,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sucursalDestino: sucursalActual,
       sucursalOrigen: 'CEDIS',
       status: 'Pendiente',
+      esDraft: true,
       fechaCreacion: now,
       fechaActualizacion: now,
       piezas,
@@ -640,8 +644,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cajasRecibidas: 0,
     };
     setTraspasos(prev => [nueva, ...prev]);
-    return solicitudId;
+    // Aprobación simulada por alguien más (queda esDraft=true hasta que fire).
+    setTimeout(() => {
+      const nowAprob = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      setTraspasos(prev => prev.map(t => t.id === petId && t.esDraft
+        ? { ...t, esDraft: false, fechaActualizacion: nowAprob }
+        : t));
+    }, TIEMPO_APROBACION_TOKEN_MS);
+    return petId;
   }, [sucursalActual]);
+
+  // Aprobación manual (por si se necesita disparar sin esperar el timeout).
+  const aprobarSolicitudCedisDraft = useCallback((petId: string) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t => t.id === petId && t.esDraft
+      ? { ...t, esDraft: false, fechaActualizacion: now }
+      : t));
+  }, []);
 
   // Envío de mercancía de la sucursal HACIA CEDIS (devolución / garantía).
   // Sale de la sucursal actual (origen) con destino CEDIS; sigue el pipeline
@@ -710,7 +729,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, cancelarSolicitud, revisarTraspaso, entregarTraspaso, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
+      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, cancelarSolicitud, revisarTraspaso, entregarTraspaso, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, aprobarSolicitudCedisDraft, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>

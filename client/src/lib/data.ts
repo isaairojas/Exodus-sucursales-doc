@@ -573,6 +573,11 @@ export type TraspasoSubtipoCedis = 'Especial' | 'Urgencia' | 'Reabasto';
 // salen de la sucursal hacia el centro de distribución.
 export type MotivoEnvioCedis = 'Devolución' | 'Garantía';
 
+// Motivos tipificados para RECHAZAR un traspaso desde la sucursal donante. Si
+// se elige "Otro" se captura un comentario libre (queda en `motivoRechazo`).
+export type MotivoRechazoTipo = 'Producto dañado' | 'Diferencia de inventarios' | 'Otro';
+export const MOTIVOS_RECHAZO: MotivoRechazoTipo[] = ['Producto dañado', 'Diferencia de inventarios', 'Otro'];
+
 // Entrada del historial de confirmaciones de recepción (queda registro de cada
 // confirmación o cambio: completa/parcial, cajas, quién y cuándo).
 export interface RecepcionLogEntry {
@@ -629,7 +634,9 @@ export interface TraspasoPeticion {
   flujo?: TraspasoFlujo;             // clasificación del flujo (Automatico/Semiautomatico/Manual/CEDIS)
   intento?: number;                  // 1..MAX_EVALUACIONES_PETICION dentro de la misma solicitud
   resultado?: PeticionResultado;     // resultado operativo dentro del ciclo de la solicitud
-  motivoRechazo?: string;            // motivo capturado al rechazar/cancelar
+  motivoRechazo?: string;            // motivo capturado al rechazar/cancelar (categoría + comentario)
+  notaDonante?: string;              // nota escrita por el donante al finalizar surtido/revisión parcial
+  esDraft?: boolean;                 // solicitud CEDIS pendiente de aprobación de token (no cuenta para SLA)
   motivoCancelacion?: MotivoCancelacion; // causa tipificada de cancelación/ajuste
   peticionAnteriorId?: string;       // eslabón previo en la cadena de recálculo
   peticionSiguienteId?: string;      // eslabón siguiente (petición derivada)

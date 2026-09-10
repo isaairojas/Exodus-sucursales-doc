@@ -17,6 +17,11 @@ export const MAX_EVALUACIONES_PETICION = 3;
 export const TOKEN_PRUEBA = '0000';
 export const esTokenValido = (t: string) => t.trim() === TOKEN_PRUEBA;
 
+// Tiempo simulado que tarda alguien más en aprobar el token de una solicitud a
+// CEDIS. Mientras tanto, la solicitud queda en estado Draft (sin SLA). En una
+// implementación real, un draft sin aprobar más de 24 h se cancela solo.
+export const TIEMPO_APROBACION_TOKEN_MS = 8000;
+
 // ── Umbral para agregar piezas recomendadas automáticamente ──
 // Cuando el total del pedido NO supera este monto, las piezas recomendadas
 // (alta rotación) se agregan al traspaso automáticamente, sin que el usuario

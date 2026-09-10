@@ -14,7 +14,6 @@ import { useApp } from '@/contexts/AppContext';
 import {
   TraspasoPeticion, PRODUCT_CATALOG, EXISTENCIA_POR_SUCURSAL, SUCURSAL_DISTANCIA_ORDEN, SUCURSALES_EJERCICIO,
 } from '@/lib/data';
-import { MAX_EVALUACIONES_PETICION } from '@/lib/traspasoConfig';
 
 interface Props {
   peticion: TraspasoPeticion;
@@ -49,7 +48,9 @@ export default function ModalReasignarTraspaso({ peticion, onClose, showToast }:
     [peticion]
   );
 
-  const sinIntentos = (peticion.intento ?? 1) >= MAX_EVALUACIONES_PETICION;
+  // Sin cap de intentos: la reasignación es manual y se puede repetir cuantas veces
+  // sea necesario mientras el pedido siga sin completarse.
+  const sinIntentos = false;
 
   // Opciones que "propone SMC 4.0": sucursales elegibles ordenadas por cercanía.
   const opciones = useMemo<OpcionReasignacion[]>(() => {
@@ -84,9 +85,7 @@ export default function ModalReasignarTraspaso({ peticion, onClose, showToast }:
     if (r.ok) onClose();
   };
 
-  const motivoNoSePuede = sinIntentos
-    ? `Se agotó el máximo de ${MAX_EVALUACIONES_PETICION} evaluaciones para esta necesidad. La solicitud ya no puede reasignarse a otra sucursal.`
-    : faltante.length === 0
+  const motivoNoSePuede = faltante.length === 0
       ? 'Esta petición no tiene mercancía pendiente por reasignar.'
       : 'SMC 4.0 no encontró otra sucursal elegible (todas están excluidas por ser el destino, la que rechazó o una descartada previamente).';
 
