@@ -52,7 +52,8 @@ const GROUP_COLORS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777', '#0
 // Estatus en los que la petición sigue PENDIENTE POR SURTIR (cuenta para vencido).
 const PENDIENTE_SURTIR_STATUS: TraspasoStatus[] = ['Pendiente'];
 // Estatus "surtido/revisado pero aún sin enviar" (pendientes por envío).
-const PENDIENTE_ENVIO_STATUS: TraspasoStatus[] = ['Surtido', 'Revisado', 'Documentado'];
+// Pendiente por envío = revisado/documentado sin enviar (documentación pendiente).
+const PENDIENTE_ENVIO_STATUS: TraspasoStatus[] = ['Revisado', 'Documentado'];
 function diasDesdeCreacion(fechaIso: string): number {
   const t = new Date(fechaIso.replace(' ', 'T')).getTime();
   if (isNaN(t)) return 0;
@@ -92,10 +93,12 @@ const CARD_DEFS: CardDef[] = [
     match: esVencidoSurtir },
   { key: 'pendientesSurtir', label: 'Pendientes por surtir', sub: 'aún sin surtir', color: '#d97706', icon: 'package_2',
     match: t => t.status === 'Pendiente' },
+  { key: 'pendienteRevision', label: 'Pendiente revisión', sub: 'surtido, por revisar', color: '#7c3aed', icon: 'fact_check',
+    match: t => t.status === 'Surtido' },
+  { key: 'pendientesEnvio', label: 'Pendientes por envío', sub: 'documentación pendiente', color: '#0d9488', icon: 'outbox',
+    match: t => PENDIENTE_ENVIO_STATUS.includes(t.status) },
   { key: 'parciales', label: 'Surtido con parcialidad', sub: 'surtido/revisado parcial', color: '#1B3892', icon: 'splitscreen',
     match: t => !!t.parcial && (t.status === 'Surtido' || t.status === 'Revisado') },
-  { key: 'pendientesEnvio', label: 'Pendientes por envío', sub: 'surtido, sin enviar', color: '#0d9488', icon: 'outbox',
-    match: t => PENDIENTE_ENVIO_STATUS.includes(t.status) },
   { key: 'enviados', label: 'Enviados', sub: 'en tránsito', color: '#2563eb', icon: 'local_shipping',
     match: t => t.status === 'Enviado' },
   { key: 'finalizados', label: 'Finalizado', sub: 'con entrada a mercancía', color: '#16a34a', icon: 'inventory',
@@ -265,6 +268,13 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     return c;
   }, [filteredTraspasos]);
 
+  // Rechazados: se cuenta sobre TODO el universo del tab (no se ocultan por el
+  // filtro de estado, que por defecto es "Pendiente"), para mostrar su cantidad real.
+  const rechazadosUniverso = useMemo(
+    () => traspasosDelTipo.filter(t => t.status === 'Cancelado' && t.resultado === 'rechazada').length,
+    [traspasosDelTipo]
+  );
+
   // Al activar una card/filtro, se filtra dentro de la respuesta ya filtrada.
   const filteredConCard = useMemo(() => {
     if (!cardFilter) return filteredTraspasos;
@@ -432,18 +442,30 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           );
         })}
 
-        {/* Rechazados: filtro de consulta (no card). No se reasignan. */}
+        {/* Rechazados: card con la cantidad real (universo del tab). La explicación
+            depende de la perspectiva: en "Por recibir" los rechazó la sucursal
+            donante; en "Por enviar" son los que rechazó esta sucursal. */}
         {(() => {
           const activa = cardFilter === 'rechazados';
+          const sub = esPorRecibir ? 'los rechazó la sucursal donante' : 'los que rechazaste tú';
+          const tip = esPorRecibir
+            ? 'Peticiones que la sucursal donante rechazó. Como sucursal solicitante puedes reasignarlas a otra sucursal.'
+            : 'Peticiones que tu sucursal rechazó como donante (no las surtiste).';
           return (
             <button
               onClick={toggleRechazados}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-2 flex-shrink-0 transition-all"
-              title={activa ? 'Quitar filtro de rechazados' : 'Ver traspasos rechazados (solo consulta)'}
-              style={{ background: activa ? 'rgba(220,38,38,0.10)' : '#fff', border: `1.5px dashed ${activa ? '#dc2626' : '#e5e7eb'}`, cursor: 'pointer' }}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left"
+              title={activa ? 'Quitar filtro de rechazados' : tip}
+              style={{ background: activa ? 'rgba(220,38,38,0.12)' : '#fff', border: `1.5px solid ${activa ? '#dc2626' : '#e5e7eb'}`, minWidth: 152, cursor: 'pointer' }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#dc2626' }}>cancel</span>
-              <span className="text-[11px] font-semibold" style={{ color: activa ? '#dc2626' : '#374151' }}>Ver rechazados</span>
+              <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: 'rgba(220,38,38,0.14)', flexShrink: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#dc2626' }}>cancel</span>
+              </div>
+              <div>
+                <span className="text-lg font-extrabold leading-none" style={{ color: rechazadosUniverso > 0 ? '#dc2626' : '#9ca3af' }}>{rechazadosUniverso}</span>
+                <div className="text-[11px] font-semibold leading-tight whitespace-normal" style={{ color: '#374151' }}>Rechazados</div>
+                <div className="text-[9px] leading-tight whitespace-normal" style={{ color: '#9ca3af' }}>{sub}</div>
+              </div>
             </button>
           );
         })()}
