@@ -2387,6 +2387,159 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     fechaArribo: '2026-07-07 12:00',
     flujo: 'CEDIS', intento: 1,
   },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // POR ENVIAR (Saliente) — Federalismo es el ORIGEN (dona/surte/envía).
+  // Cubre todos los escenarios: Automático SMC, Manual con/sin pedido, y envío a
+  // CEDIS (Devolución/Garantía), en distintas etapas del pipeline.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // S1) Automático SMC (con pedido) — Sin surtir (Pendiente). Federalismo debe surtir a Tesistán.
+  {
+    id: 'DEMO-EJ-SAL-A1', solicitudId: 'DEMO-S-SALA1', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-03 09:10', fechaActualizacion: '2026-07-03 09:10',
+    piezas: [{ code: 'BP-001', qtySolicitada: 4, qtySurtida: 0 }],
+    pedidoOrigen: 'P1064834', parcial: false,
+    observaciones: 'Automático SMC: Federalismo debe surtir a Tesistán por un pedido de Tesistán.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '471001', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'vigente',
+  },
+  // S2) Automático SMC (con pedido) — Surtido (por revisar).
+  {
+    id: 'DEMO-EJ-SAL-A2', solicitudId: 'DEMO-S-SALA2', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', sucursalOrigen: 'Federalismo', sucursalDestino: 'Adolf Horn',
+    status: 'Surtido',
+    fechaCreacion: '2026-07-04 10:00', fechaActualizacion: '2026-07-04 11:30',
+    piezas: [{ code: 'AC-201', qtySolicitada: 3, qtySurtida: 3 }],
+    pedidoOrigen: 'P1064838', parcial: false,
+    observaciones: 'Automático SMC surtido por Federalismo, pendiente de revisión.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '471002', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'surtida',
+  },
+  // S3) Automático SMC (con pedido) — Enviado (en tránsito al destino).
+  {
+    id: 'DEMO-EJ-SAL-A3', solicitudId: 'DEMO-S-SALA3', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
+    status: 'Enviado',
+    fechaCreacion: '2026-07-04 08:00', fechaActualizacion: '2026-07-05 09:00',
+    piezas: [{ code: 'BP-001', qtySolicitada: 2, qtySurtida: 2 }],
+    pedidoOrigen: 'P1064847', parcial: false,
+    embarqueId: '88840', metodoEnvio: 'Transporte Interno', fechaArribo: '2026-07-06 10:00',
+    observaciones: 'Automático SMC enviado por Federalismo, en tránsito a Tesistán.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '471003', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'enviada',
+  },
+  // S4) Automático SMC (con pedido) — Surtido PARCIAL (Federalismo solo pudo surtir una parte).
+  {
+    id: 'DEMO-EJ-SAL-A4', solicitudId: 'DEMO-S-SALA4', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Colonia Jalisco', sucursalOrigen: 'Federalismo', sucursalDestino: 'Colonia Jalisco',
+    status: 'Surtido', resultado: 'surtida-parcial',
+    fechaCreacion: '2026-07-05 12:00', fechaActualizacion: '2026-07-05 12:40',
+    piezas: [{ code: 'FT-223', qtySolicitada: 4, qtySurtida: 2 }],
+    pedidoOrigen: 'P1064848', parcial: true,
+    observaciones: 'Surtido parcial: Federalismo surtió 2 de 4; el resto lo recalcula SMC.',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '471004', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1,
+  },
+  // S5) Automático SMC (con pedido) — Entregado (Finalizado).
+  {
+    id: 'DEMO-EJ-SAL-A5', solicitudId: 'DEMO-S-SALA5', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Belisario Domínguez', sucursalOrigen: 'Federalismo', sucursalDestino: 'Belisario Domínguez',
+    status: 'Entregado',
+    fechaCreacion: '2026-07-02 09:00', fechaActualizacion: '2026-07-03 15:00',
+    piezas: [{ code: 'AM-445', qtySolicitada: 3, qtySurtida: 3 }],
+    pedidoOrigen: 'P1064853', parcial: false,
+    embarqueId: '88841', metodoEnvio: 'BlueGo', fechaArribo: '2026-07-03 14:00',
+    observaciones: 'Automático SMC entregado y finalizado (el destino dio entrada).',
+    usuarioCreador: 'SISTEMA_SMC',
+    noPapeleta: '471005', packingList: true, cajasTotal: 1, cajasRecibidas: 1,
+    flujo: 'Automatico', intento: 1, resultado: 'recibida',
+  },
+  // S6) Manual CON pedido — Revisado (listo para embarcar).
+  {
+    id: 'DEMO-EJ-SAL-M1', solicitudId: 'DEMO-S-SALM1', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
+    status: 'Revisado',
+    fechaCreacion: '2026-07-05 08:30', fechaActualizacion: '2026-07-05 10:10',
+    piezas: [{ code: 'XX-999', qtySolicitada: 5, qtySurtida: 5 }],
+    pedidoOrigen: 'P1064851', parcial: false,
+    observaciones: 'Traspaso manual con pedido, revisado y listo para envío.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '471006', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1, resultado: 'revisada',
+  },
+  // S7) Manual SIN pedido — Sin surtir (autorizado con token 0000).
+  {
+    id: 'DEMO-EJ-SAL-M2', solicitudId: 'DEMO-S-SALM2', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Adolf Horn', sucursalOrigen: 'Federalismo', sucursalDestino: 'Adolf Horn',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-06 11:15', fechaActualizacion: '2026-07-06 11:15',
+    piezas: [{ code: 'LT-334', qtySolicitada: 2, qtySurtida: 0 }],
+    pedidoOrigen: '', parcial: false, autorizacionToken: '0000',
+    observaciones: 'Traspaso manual sin pedido (token 0000), pendiente de surtir.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '471007', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // S8) Manual SIN pedido — Entregado (Finalizado).
+  {
+    id: 'DEMO-EJ-SAL-M3', solicitudId: 'DEMO-S-SALM3', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Colón', sucursalOrigen: 'Federalismo', sucursalDestino: 'Colón',
+    status: 'Entregado',
+    fechaCreacion: '2026-07-01 10:00', fechaActualizacion: '2026-07-02 12:00',
+    piezas: [{ code: 'BC-118', qtySolicitada: 3, qtySurtida: 3 }],
+    pedidoOrigen: '', parcial: false, autorizacionToken: '0000',
+    observaciones: 'Traspaso manual sin pedido, entregado y finalizado.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '471008', packingList: true, cajasTotal: 1, cajasRecibidas: 1,
+    flujo: 'Manual', intento: 1, resultado: 'recibida',
+  },
+  // S9) Manual CON pedido — Cancelado/rechazado (Federalismo no pudo surtir).
+  {
+    id: 'DEMO-EJ-SAL-M4', solicitudId: 'DEMO-S-SALM4', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
+    status: 'Cancelado', resultado: 'rechazada', motivoRechazo: 'Sin existencia disponible en Federalismo',
+    fechaCreacion: '2026-07-06 09:00', fechaActualizacion: '2026-07-06 10:30',
+    piezas: [{ code: 'RD-772', qtySolicitada: 2, qtySurtida: 0 }],
+    pedidoOrigen: 'P1064844', parcial: false,
+    observaciones: 'Traspaso manual con pedido, rechazado por Federalismo (sin existencia).',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '471009', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // S10) Envío a CEDIS — GARANTÍA (Surtido).
+  {
+    id: 'DEMO-EJ-SAL-GAR-1', solicitudId: 'DEMO-S-SALGAR', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'Federalismo', sucursalDestino: 'CEDIS',
+    motivoEnvioCedis: 'Garantía', status: 'Surtido',
+    fechaCreacion: '2026-07-07 09:20', fechaActualizacion: '2026-07-07 10:00',
+    piezas: [{ code: 'RD-772', qtySolicitada: 1, qtySurtida: 1 }],
+    pedidoOrigen: '', parcial: false,
+    observaciones: 'Envío a CEDIS por garantía (pieza defectuosa), surtido.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '480702', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
+  // S11) Envío a CEDIS — DEVOLUCIÓN (Enviado, en tránsito a CEDIS).
+  {
+    id: 'DEMO-EJ-SAL-DEV-2', solicitudId: 'DEMO-S-SALDEV2', tipo: 'Saliente', categoria: 'Manual',
+    sucursalContraparte: 'CEDIS', sucursalOrigen: 'Federalismo', sucursalDestino: 'CEDIS',
+    motivoEnvioCedis: 'Devolución', status: 'Enviado',
+    fechaCreacion: '2026-07-05 09:00', fechaActualizacion: '2026-07-06 08:30',
+    piezas: [{ code: 'BT-055', qtySolicitada: 2, qtySurtida: 2 }],
+    pedidoOrigen: '', parcial: false,
+    embarqueId: '88842', metodoEnvio: 'Transporte Interno', fechaArribo: '2026-07-07 11:00',
+    observaciones: 'Devolución a CEDIS enviada, en tránsito.',
+    usuarioCreador: 'FEDERALISMO_LOG',
+    noPapeleta: '480703', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Manual', intento: 1,
+  },
 ];
 
 // Reubica los escenarios DEMO-* al MES EN CURSO para que sean visibles por
