@@ -38,9 +38,14 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 
 export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
   const isCedis = peticion.categoria === 'CEDIS';
-  // Urgencia: la sucursal ya sabe qué pidió, se ve el desglose completo (como un traspaso normal).
+  // Urgencia/Especial: la sucursal ya sabe qué pidió, se ve el desglose completo.
   // Reabasto: recepción ciega por control anti-robo, solo se ve el número de cajas.
   const isReabastoCiego = isCedis && peticion.subtipoCedis === 'Reabasto';
+  // En un traspaso de REABASTO o de REABASTO UNIFICADO (y en la solicitud que fue
+  // unificada) NO se muestran las peticiones ni el desglose de piezas: solo se
+  // indica el número de la petición sustituida/relacionada.
+  const esUnificado = peticion.resultado === 'unificada' || !!peticion.reabastoUnifica?.length;
+  const ocultarDesglose = isReabastoCiego || esUnificado;
   const STATUS_ORDER = isCedis ? TRASPASO_STATUS_CEDIS : TRASPASO_STATUS_POR_TIPO[peticion.tipo];
   const statusIndex = STATUS_ORDER.indexOf(peticion.status);
 
@@ -166,8 +171,9 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
             </section>
           )}
 
-          {/* Sección: Resumen de traspasos del pedido (cobertura / recálculo) */}
-          {peticion.pedidoOrigen && (
+          {/* Sección: Resumen de traspasos del pedido (cobertura / recálculo).
+              No se muestra en reabasto/unificado (no se ven las peticiones). */}
+          {peticion.pedidoOrigen && !ocultarDesglose && (
             <ResumenTraspasosPedido pedidoOrigen={peticion.pedidoOrigen} currentPetId={peticion.id} />
           )}
 
@@ -212,8 +218,8 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
             </div>
           </section>
 
-          {/* Sección 3: Piezas (Reabasto no desglosa — recepción ciega por caja) */}
-          {!isReabastoCiego && (
+          {/* Sección 3: Piezas — no se desglosan en reabasto/unificado (recepción ciega). */}
+          {!ocultarDesglose && (
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
               Piezas

@@ -767,21 +767,15 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    {esCedis ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap" style={{ color: '#9ca3af' }}
-                        title="Traspaso de CEDIS: recepción ciega. No se muestra la cantidad enviada/surtida.">
-                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>visibility_off</span>
-                        Ciego
-                      </span>
-                    ) : (
-                      <span className="text-xs font-medium whitespace-nowrap" style={{ color: '#374151' }}>
-                        {recibidoNum}/{recibidoDen} {recibidoUnidad}
-                      </span>
-                    )}
+                    {/* CEDIS es recepción ciega por CAJAS: se muestra el número de cajas, nunca piezas. */}
+                    <span className="text-xs font-medium whitespace-nowrap" style={{ color: '#374151' }}
+                      title={esCedis ? 'Traspaso de CEDIS: recepción ciega. Solo se controla por número de cajas (sin piezas).' : undefined}>
+                      {recibidoNum}/{recibidoDen} {recibidoUnidad}
+                    </span>
                   </td>
                   <td className="px-3 py-2.5">
                     {esCedis ? (
-                      <span className="text-xs" style={{ color: '#9ca3af' }}>—</span>
+                      <span className="text-xs" style={{ color: '#9ca3af' }} title="Recepción ciega de CEDIS: sin porcentaje de piezas.">—</span>
                     ) : (
                       <span className="text-xs font-semibold" style={{ color: porcentajeColor(pct) }}>{pct}%</span>
                     )}
