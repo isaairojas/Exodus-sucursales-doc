@@ -31,6 +31,12 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   const verboMayus = esRevision ? 'Revisar' : 'Surtir';
   const tituloPantalla = esRevision ? 'Revisión de mercancía' : 'Surtido de órdenes';
   const accionFinal = esRevision ? 'Finalizar revisión' : 'Finalizar surtido';
+  // Envío de la sucursal HACIA CEDIS (devolución/garantía): usa terminología de
+  // "Rechazar/Cancelar traspaso" en vez de "Negar" (para esta perspectiva no es la
+  // sucursal donante rechazando una necesidad, es cancelar un envío propio).
+  const esEnvioACedis = peticion.sucursalDestino === 'CEDIS' || !!peticion.motivoEnvioCedis;
+  const menuLabel = esEnvioACedis ? 'Cancelar traspaso' : 'Negar traspaso';
+  const confirmTitulo = esEnvioACedis ? 'Rechazar traspaso' : 'Negar traspaso';
 
   // En revisión se parte de lo ya surtido; en surtido se parte de 0.
   const [qtyByCode, setQtyByCode] = useState<Record<string, number>>(() => {
@@ -95,8 +101,13 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   };
 
   const ejecutarNegar = () => {
-    negarTraspaso(peticion.id, `Traspaso negado en ${esRevision ? 'revisión' : 'surtido'} (HH)`);
-    showToast('Traspaso rechazado. Queda disponible para reasignar a otra sucursal (botón "Reasignar SMC").', 'warning');
+    negarTraspaso(peticion.id, `Traspaso ${esEnvioACedis ? 'cancelado' : 'negado'} en ${esRevision ? 'revisión' : 'surtido'} (HH)`);
+    showToast(
+      esEnvioACedis
+        ? `Traspaso ${peticion.id} cancelado. Ya no será enviado a CEDIS.`
+        : 'Traspaso rechazado. La sucursal solicitante podrá reasignarlo desde "Por recibir".',
+      'warning',
+    );
     onClose();
   };
 
@@ -124,14 +135,16 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
               <span className="material-symbols-outlined" style={{ fontSize: 20 }}>more_vert</span>
             </button>
             {menuOpen && (
-              <div className="absolute right-0 mt-1 rounded-lg overflow-hidden" style={{ background: '#fff', border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', zIndex: 20, minWidth: 200 }}>
-                <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider" style={{ color: '#9ca3af' }}>Negar es para todo (no surtir nada)</div>
+              <div className="absolute right-0 mt-1 rounded-lg overflow-hidden" style={{ background: '#fff', border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', zIndex: 20, minWidth: 220 }}>
+                <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider" style={{ color: '#9ca3af' }}>
+                  {esEnvioACedis ? 'Cancela el envío completo a CEDIS' : 'Negar es para todo (no surtir nada)'}
+                </div>
                 <button
                   onClick={() => { setMenuOpen(false); setConfirmNegar(true); }}
                   className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-gray-50"
                   style={{ color: '#e53935' }}
                 >
-                  Negar traspaso
+                  {menuLabel}
                 </button>
                 <button onClick={() => setMenuOpen(false)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50" style={{ color: '#6b7280', borderTop: '1px solid #f0f0f0' }}>
                   Cerrar menú
@@ -231,17 +244,29 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
           </div>
         )}
 
-        {/* Confirmar negar traspaso (todo) */}
+        {/* Confirmar rechazar/negar traspaso (todo) */}
         {confirmNegar && (
           <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
-            <div className="w-full bg-white p-5 rounded-2xl">
-              <div className="text-sm font-extrabold mb-2" style={{ color: '#e53935' }}>Negar traspaso</div>
-              <p className="text-xs mb-4" style={{ color: '#555' }}>
-                Se negará por completo el traspaso <strong>{peticion.id}</strong> (no se surte nada). La <strong>sucursal solicitante</strong> podrá reasignarlo a otra sucursal desde "Por recibir". ¿Continuar?
+            <div className="w-full bg-white overflow-hidden" style={{ borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              {/* Icono + título */}
+              <div className="flex flex-col items-center gap-3 pt-6 px-6">
+                <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(229,57,53,0.12)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#e53935' }}>block</span>
+                </div>
+                <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>{confirmTitulo}</div>
+              </div>
+              <p className="text-xs mt-3 px-6 text-center leading-relaxed" style={{ color: '#555' }}>
+                ¿Estás seguro de rechazar el traspaso <strong style={{ color: '#1a1a2e' }}>{peticion.id}</strong>?<br />
+                Esta acción <strong>no puede ser cancelada</strong>. ¿Desea continuar?
               </p>
-              <div className="flex gap-2">
-                <button onClick={() => setConfirmNegar(false)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
-                <button onClick={ejecutarNegar} className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white" style={{ background: '#e53935' }}>Negar traspaso</button>
+              {!esEnvioACedis && (
+                <p className="text-[11px] mt-2 px-6 text-center" style={{ color: '#9ca3af' }}>
+                  La sucursal solicitante podrá reasignarlo a otra sucursal desde "Por recibir".
+                </p>
+              )}
+              <div className="flex gap-2 px-6 py-5 mt-2">
+                <button onClick={() => setConfirmNegar(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Negar</button>
+                <button onClick={ejecutarNegar} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#e53935' }}>Rechazar traspaso</button>
               </div>
             </div>
           </div>
