@@ -174,8 +174,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const [searchText, setSearchText] = useState('');
   // Estado alto (Pendiente/Finalizado/Cancelado). En "Por recibir" (Entrante)
   // se entra con "Pendiente" marcado por defecto; en "Por enviar" sin filtro.
+  // Al entrar a la ventana (Por enviar o Por recibir) el filtro por defecto es "Pendiente".
   const [filterEstados, setFilterEstados] = useState<Set<TraspasoEstadoAlto>>(
-    () => tipoFilter === 'Entrante' ? new Set<TraspasoEstadoAlto>(['Pendiente']) : new Set<TraspasoEstadoAlto>()
+    () => new Set<TraspasoEstadoAlto>(['Pendiente'])
   );
   const [filterEtapa, setFilterEtapa] = useState<'ALL' | TraspasoEtapa>('ALL');
   const [cardFilter, setCardFilter] = useState<string | null>(null); // card de control activa (filtra la respuesta)
@@ -297,7 +298,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const toggleRechazados = () => {
     if (cardFilter === 'rechazados') {
       setCardFilter(null);
-      setFilterEstados(tipoFilter === 'Entrante' ? new Set<TraspasoEstadoAlto>(['Pendiente']) : new Set<TraspasoEstadoAlto>());
+      setFilterEstados(new Set<TraspasoEstadoAlto>(['Pendiente']));
     } else {
       setCardFilter('rechazados');
       setFilterEstados(new Set<TraspasoEstadoAlto>(['Cancelado']));
@@ -309,7 +310,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     setFechaFinal(MONTH_END);
     setFilterTipo('ALL');
     setSearchText('');
-    setFilterEstados(tipoFilter === 'Entrante' ? new Set<TraspasoEstadoAlto>(['Pendiente']) : new Set<TraspasoEstadoAlto>());
+    setFilterEstados(new Set<TraspasoEstadoAlto>(['Pendiente']));
     setFilterEtapa('ALL');
     setCardFilter(null);
   };
@@ -363,9 +364,13 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const faltanteDe = (t: TraspasoPeticion) => t.piezas.reduce((s, p) => s + Math.max(0, p.qtySolicitada - p.qtySurtida), 0);
   const esRechazadaTotal = !!sel && sel.status === 'Cancelado' && sel.resultado === 'rechazada';
   const esParcial = !!sel && sel.parcial === true && sel.status !== 'Cancelado' && faltanteDe(sel) > 0;
+  // El recálculo (reasignar / generar restante) SOLO existe en "Por recibir": lo
+  // decide la sucursal que SOLICITÓ. En "Por enviar" la sucursal que ve el traspaso
+  // es la que rechazó/surtió, así que esas opciones no aplican.
+  const esPorRecibir = tipoFilter === 'Entrante';
   // Rechazo total → solo reasignar. Parcial → el logístico decide: reasignar o generar solicitud por el restante.
-  const canReasignar = !!sel && !sel.peticionSiguienteId && (esRechazadaTotal || esParcial);
-  const canGenerarRestante = !!sel && !sel.peticionSiguienteId && esParcial;
+  const canReasignar = esPorRecibir && !!sel && !sel.peticionSiguienteId && (esRechazadaTotal || esParcial);
+  const canGenerarRestante = esPorRecibir && !!sel && !sel.peticionSiguienteId && esParcial;
 
   const handleReasignar = () => {
     if (!sel) return;

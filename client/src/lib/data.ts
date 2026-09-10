@@ -413,11 +413,12 @@ export type TraspasoStatus =
   | 'Cancelado';
 
 // ── Estado de alto nivel del traspaso (segmentador Pendiente/Finalizado/Cancelado) ──
-// Pendiente = cualquier estatus distinto a Cancelado, Entregado o Recibido.
+// Finalizado = ya salió/llegó (Enviado, Recibido o Entregado). Pendiente = cualquier
+// estatus previo al envío (Sin surtir/Surtido/Revisado/Documentado). Cancelado aparte.
 export type TraspasoEstadoAlto = 'Pendiente' | 'Finalizado' | 'Cancelado';
 export function estadoAltoTraspaso(status: TraspasoStatus): TraspasoEstadoAlto {
   if (status === 'Cancelado') return 'Cancelado';
-  if (status === 'Entregado' || status === 'Recibido') return 'Finalizado';
+  if (status === 'Enviado' || status === 'Entregado' || status === 'Recibido') return 'Finalizado';
   return 'Pendiente';
 }
 
