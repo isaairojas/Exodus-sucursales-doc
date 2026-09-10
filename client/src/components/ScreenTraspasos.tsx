@@ -687,21 +687,22 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      style={{
-                        background: enGrupo ? `${groupColor}14` : '#f3f4f6',
-                        color: enGrupo ? groupColor : '#6b7280',
-                        border: `1px solid ${enGrupo ? `${groupColor}55` : '#e5e7eb'}`,
-                      }}
-                      title={enGrupo
-                        ? `Solicitud ${t.solicitudId} — ${solCount[t.solicitudId]} peticiones relacionadas (se muestran juntas)`
-                        : `Solicitud ${t.solicitudId}`}
-                    >
-                      {enGrupo && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>link</span>}
-                      {t.solicitudId}
-                      {enGrupo && <span className="text-[10px] font-bold" style={{ opacity: 0.85 }}>· {solCount[t.solicitudId]}</span>}
-                    </span>
+                    {/* Solicitud como texto plano; si agrupa varias peticiones, un icono pegado al texto. */}
+                    {enGrupo ? (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-xs font-semibold whitespace-nowrap"
+                        style={{ color: groupColor }}
+                        title={`Solicitud ${t.solicitudId} — ${solCount[t.solicitudId]} peticiones relacionadas (se muestran juntas)`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>link</span>
+                        {t.solicitudId}
+                        <span className="text-[10px] font-bold" style={{ opacity: 0.85 }}>· {solCount[t.solicitudId]}</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }} title={`Solicitud ${t.solicitudId}`}>
+                        {t.solicitudId}
+                      </span>
+                    )}
                     {t.intento != null && t.intento > 1 && (
                       <span className="ml-1 text-[10px]" style={{ color: '#9ca3af' }}>int. {t.intento}</span>
                     )}
@@ -713,19 +714,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
+                    {/* Pedido de cliente como texto plano; si no tiene, la leyenda "Sin pedido". */}
                     {t.pedidoOrigen ? (
                       <span
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
-                        style={{ background: 'rgba(22,163,74,0.08)', color: '#166534', border: '1px solid rgba(22,163,74,0.3)' }}
+                        className="text-xs font-medium whitespace-nowrap"
+                        style={{ color: '#166534' }}
                         title={`Ligado al pedido de cliente ${t.pedidoOrigen}`}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 12 }}>person</span>
                         #{t.pedidoOrigen}
                       </span>
                     ) : (
                       <span
-                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
-                        style={{ background: '#f3f4f6', color: '#9ca3af', border: '1px solid #e5e7eb' }}
+                        className="text-xs italic whitespace-nowrap"
+                        style={{ color: '#9ca3af' }}
                         title="Sin pedido de cliente (reabasto / urgencia interna)"
                       >
                         Sin pedido
