@@ -337,60 +337,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
-  // Finaliza el surtido desde la HH: marca Surtido con las cantidades reales y,
-  // si quedó faltante (parcial o negado), genera una petición automática para
-  // cubrirlo (recálculo SMC). Devuelve el id de la petición derivada, si la hubo.
+  // Finaliza el surtido desde la HH: marca Surtido con las cantidades reales.
+  // Si quedó faltante (parcial) NO se genera nada automáticamente: el recálculo
+  // (reasignar / generar restante) es una decisión MANUAL de la sucursal solicitante
+  // desde "Por recibir". Devuelve null (ya no hay petición derivada automática).
   const finalizarSurtidoTraspaso = useCallback((petId: string, piezasSurtidas: TraspasoPiezaDetalle[]): string | null => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    let derivadaId: string | null = null;
     setTraspasos(prev => {
       const orig = prev.find(t => t.id === petId);
       if (!orig || orig.status !== 'Pendiente') return prev;
       const parcial = piezasSurtidas.some(p => p.qtySurtida < p.qtySolicitada);
-      const faltante = piezasSurtidas
-        .filter(p => p.qtySurtida < p.qtySolicitada)
-        .map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada - p.qtySurtida, qtySurtida: 0 }));
-      const puedeReintentar = (orig.intento ?? 1) < MAX_EVALUACIONES_PETICION;
-      let next = prev.map(t => t.id === petId
+      return prev.map(t => t.id === petId
         ? { ...t, status: 'Surtido' as TraspasoStatus, fechaActualizacion: now, piezas: piezasSurtidas, parcial, resultado: (parcial ? 'surtida-parcial' : 'surtida') as TraspasoPeticion['resultado'] }
         : t);
-      if (faltante.length > 0 && puedeReintentar) {
-        const derivada = construirDerivada(orig, faltante, now);
-        derivadaId = derivada.id;
-        next = next.map(t => t.id === petId ? { ...t, peticionSiguienteId: derivada.id } : t);
-        next = [derivada, ...next];
-      }
-      return next;
     });
-    return derivadaId;
+    return null;
   }, []);
 
   // Finaliza la REVISIÓN desde la HH: Surtido → Revisado con las cantidades
-  // revisadas y, si quedó faltante, genera una petición automática (igual que el
-  // surtido). Devuelve el id de la petición derivada, si la hubo.
+  // revisadas. Igual que el surtido: si quedó faltante NO se autogenera nada; el
+  // recálculo lo decide manualmente la sucursal solicitante desde "Por recibir".
   const finalizarRevisionTraspaso = useCallback((petId: string, piezasRevisadas: TraspasoPiezaDetalle[]): string | null => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    let derivadaId: string | null = null;
     setTraspasos(prev => {
       const orig = prev.find(t => t.id === petId);
       if (!orig || orig.status !== 'Surtido') return prev;
       const parcial = piezasRevisadas.some(p => p.qtySurtida < p.qtySolicitada);
-      const faltante = piezasRevisadas
-        .filter(p => p.qtySurtida < p.qtySolicitada)
-        .map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada - p.qtySurtida, qtySurtida: 0 }));
-      const puedeReintentar = (orig.intento ?? 1) < MAX_EVALUACIONES_PETICION;
-      let next = prev.map(t => t.id === petId
+      return prev.map(t => t.id === petId
         ? { ...t, status: 'Revisado' as TraspasoStatus, fechaActualizacion: now, piezas: piezasRevisadas, parcial, resultado: (parcial ? 'surtida-parcial' : 'revisada') as TraspasoPeticion['resultado'] }
         : t);
-      if (faltante.length > 0 && puedeReintentar) {
-        const derivada = construirDerivada(orig, faltante, now);
-        derivadaId = derivada.id;
-        next = next.map(t => t.id === petId ? { ...t, peticionSiguienteId: derivada.id } : t);
-        next = [derivada, ...next];
-      }
-      return next;
     });
-    return derivadaId;
+    return null;
   }, []);
 
   // Negar un traspaso completo (desde la HH, solo flujo de traspasos): lo marca

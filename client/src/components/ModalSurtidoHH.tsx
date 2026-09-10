@@ -75,11 +75,10 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
 
   const ejecutarFinalizar = () => {
     const piezas = construirPiezas();
-    const derivadaId = esRevision
-      ? finalizarRevisionTraspaso(peticion.id, piezas)
-      : finalizarSurtidoTraspaso(peticion.id, piezas);
-    if (derivadaId) {
-      showToast(`${esRevision ? 'Revisión' : 'Surtido'} parcial: se generó la petición automática ${derivadaId} por el faltante (recálculo SMC).`, 'warning');
+    if (esRevision) finalizarRevisionTraspaso(peticion.id, piezas);
+    else finalizarSurtidoTraspaso(peticion.id, piezas);
+    if (hayFaltante) {
+      showToast(`${esRevision ? 'Revisión' : 'Surtido'} parcial registrado. La sucursal solicitante decidirá si reasigna o genera una nueva solicitud por el restante.`, 'warning');
     } else {
       showToast(`Traspaso ${peticion.id} ${esRevision ? 'revisado' : 'surtido'} completo.`, 'success');
     }
@@ -221,7 +220,8 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
             <div className="w-full bg-white p-5 rounded-2xl">
               <div className="text-sm font-extrabold mb-2" style={{ color: '#1a1a2e' }}>{accionFinal}</div>
               <p className="text-xs mb-4" style={{ color: '#555' }}>
-                Hay un <strong>faltante</strong> ({esRevision ? 'revisado' : 'surtido'} parcial). Al finalizar se generará una <strong>petición automática</strong> por el faltante (recálculo SMC). ¿Continuar?
+                Hay un <strong>faltante</strong> ({esRevision ? 'revisado' : 'surtido'} parcial). Se registrará solo lo que {esRevision ? 'revisaste' : 'surtiste'};
+                la <strong>sucursal solicitante</strong> decidirá manualmente si reasigna o genera una nueva solicitud por el restante. ¿Continuar?
               </p>
               <div className="flex gap-2">
                 <button onClick={() => setConfirmFaltante(false)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
@@ -237,7 +237,7 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
             <div className="w-full bg-white p-5 rounded-2xl">
               <div className="text-sm font-extrabold mb-2" style={{ color: '#e53935' }}>Negar traspaso</div>
               <p className="text-xs mb-4" style={{ color: '#555' }}>
-                Se negará por completo el traspaso <strong>{peticion.id}</strong> (no se surte nada) y se generará una <strong>petición automática</strong> desde otra sucursal para cubrir la necesidad. ¿Continuar?
+                Se negará por completo el traspaso <strong>{peticion.id}</strong> (no se surte nada). La <strong>sucursal solicitante</strong> podrá reasignarlo a otra sucursal desde "Por recibir". ¿Continuar?
               </p>
               <div className="flex gap-2">
                 <button onClick={() => setConfirmNegar(false)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
