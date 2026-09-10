@@ -365,9 +365,13 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Lógica de botones de acción
   const sel = selectedPeticion;
   const canVerDetalle = !!sel;
-  const canSurtir = !!sel && sel.status === 'Pendiente';
-  const canRevisar = !!sel && sel.status === 'Surtido';
-  const canEmbarcar = !!sel && sel.status === 'Revisado';
+  // CEDIS es recepción CIEGA: la sucursal NO surte/revisa/embarca un traspaso de
+  // CEDIS (lo hace CEDIS). El surtido y el recálculo SMC no aplican a CEDIS; aquí
+  // la única acción es "Confirmar recepción".
+  const noEsCedis = !!sel && sel.categoria !== 'CEDIS';
+  const canSurtir = noEsCedis && sel!.status === 'Pendiente';
+  const canRevisar = noEsCedis && sel!.status === 'Surtido';
+  const canEmbarcar = noEsCedis && sel!.status === 'Revisado';
   // Escenarios de recálculo por la sucursal solicitante:
   // - Rechazada en su totalidad → reasignar (nueva petición por el faltante).
   // - Surtida/revisada parcialmente → nueva solicitud por el restante.

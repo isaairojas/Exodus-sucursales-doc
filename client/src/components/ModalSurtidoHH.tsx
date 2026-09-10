@@ -65,6 +65,10 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   const surtirTodo = (code: string) => setQty(code, solicitadaDe(code));
 
   const hayFaltante = peticion.piezas.some(p => qtyByCode[p.code] < solicitadaDe(p.code));
+  // Validación de 0: puede ser parcial (menos de lo solicitado) pero NUNCA cero.
+  // Un surtido/revisión en 0 no confirma nada: para eso está "Negar traspaso".
+  const totalSurtido = peticion.piezas.reduce((s, p) => s + (qtyByCode[p.code] ?? 0), 0);
+  const puedeFinalizar = totalSurtido > 0;
 
   const construirPiezas = (): TraspasoPiezaDetalle[] =>
     peticion.piezas.map(p => ({ code: p.code, qtySolicitada: p.qtySolicitada, qtySurtida: qtyByCode[p.code] }));
@@ -83,6 +87,10 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
   };
 
   const handleFinalizar = () => {
+    if (!puedeFinalizar) {
+      showToast(`No puedes finalizar ${esRevision ? 'la revisión' : 'el surtido'} en 0. ${esRevision ? 'Revisa' : 'Surte'} al menos una pieza o usa "Negar traspaso".`, 'warning');
+      return;
+    }
     if (hayFaltante) { setConfirmFaltante(true); return; }
     ejecutarFinalizar();
   };
@@ -191,9 +199,20 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
 
         {/* Footer */}
         <div className="px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #eef0f4' }}>
-          <button onClick={handleFinalizar} className="w-full h-11 rounded-xl text-sm font-extrabold text-white" style={{ background: NAVY, letterSpacing: 0.3 }}>
+          <button
+            onClick={handleFinalizar}
+            disabled={!puedeFinalizar}
+            title={!puedeFinalizar ? `No puedes finalizar en 0. ${esRevision ? 'Revisa' : 'Surte'} al menos una pieza o usa "Negar traspaso".` : undefined}
+            className="w-full h-11 rounded-xl text-sm font-extrabold text-white"
+            style={{ background: puedeFinalizar ? NAVY : '#9ca3af', cursor: puedeFinalizar ? 'pointer' : 'not-allowed', letterSpacing: 0.3 }}
+          >
             {accionFinal}
           </button>
+          {!puedeFinalizar && (
+            <p className="text-[11px] text-center mt-1.5" style={{ color: '#b7791f' }}>
+              {esRevision ? 'Revisa' : 'Surte'} al menos una pieza (no se puede finalizar en 0) o usa "Negar traspaso".
+            </p>
+          )}
         </div>
 
         {/* Confirmar finalizar con faltante */}
