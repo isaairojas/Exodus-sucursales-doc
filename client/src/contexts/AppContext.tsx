@@ -69,6 +69,7 @@ interface AppContextValue {
   negarTraspaso: (petId: string, motivo: string) => string | null;
   reasignarPeticion: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   reasignarPeticionA: (petId: string, donante: string) => { ok: boolean; mensaje: string; derivadaId?: string };
+  cancelarSolicitud: (petId: string) => { ok: boolean; mensaje: string };
   generarSolicitudRestante: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   revisarTraspaso: (petId: string, conIncidencias: boolean) => void;
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
@@ -481,6 +482,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ok: true, mensaje: `Nueva solicitud ${derivada.solicitudId} por el restante (${totalRestante} pzs) a ${derivada.sucursalOrigen}.`, derivadaId: derivada.id };
   }, [traspasos]);
 
+  // Cancelación de la solicitud por la sucursal que la generó, ANTES de su revisión
+  // (mientras sigue Pendiente o Surtido). No mueve inventario; si aún se necesita la
+  // mercancía debe generarse una nueva solicitud.
+  const cancelarSolicitud = useCallback((petId: string): { ok: boolean; mensaje: string } => {
+    const orig = traspasos.find(t => t.id === petId);
+    if (!orig) return { ok: false, mensaje: 'Petición no encontrada.' };
+    if (orig.status !== 'Pendiente' && orig.status !== 'Surtido') {
+      return { ok: false, mensaje: 'Solo se puede cancelar la solicitud antes de su revisión.' };
+    }
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t => t.id === petId
+      ? { ...t, status: 'Cancelado' as TraspasoStatus, resultado: 'cancelada' as TraspasoPeticion['resultado'],
+          motivoCancelacion: 'solicitud-cancelada', motivoRechazo: 'Solicitud cancelada por la sucursal solicitante', fechaActualizacion: now }
+      : t));
+    return { ok: true, mensaje: 'Solicitud cancelada. No se movió inventario; genera una nueva solicitud si aún necesitas la mercancía.' };
+  }, [traspasos]);
+
   // Revisión de traspaso Saliente: Surtido → Revisado (parcial si hubo incidencias).
   const revisarTraspaso = useCallback((petId: string, conIncidencias: boolean) => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -715,7 +733,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, revisarTraspaso, entregarTraspaso, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
+      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, cancelarSolicitud, revisarTraspaso, entregarTraspaso, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>

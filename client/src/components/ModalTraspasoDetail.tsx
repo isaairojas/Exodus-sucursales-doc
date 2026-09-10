@@ -3,16 +3,19 @@
 // Detalle completo de una petición de traspaso
 // Design: Enterprise Precision
 // ============================================================
+import { useState } from 'react';
 import {
   TraspasoPeticion, TraspasoStatus, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_POR_TIPO, TRASPASO_STATUS_CEDIS,
   TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS, TRASPASO_CATEGORIA_LABELS, CEDIS_SUBTIPO_COLORS,
   PRODUCT_CATALOG, tiempoTranscurrido,
 } from '@/lib/data';
+import { useApp } from '@/contexts/AppContext';
 import ResumenTraspasosPedido from './ResumenTraspasosPedido';
 
 interface Props {
   peticion: TraspasoPeticion;
   onClose: () => void;
+  showToast?: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
 }
 
 function TraspasoStatusBadge({ status }: { status: TraspasoStatus }) {
@@ -36,7 +39,20 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
+export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Props) {
+  const { sucursalActual, cancelarSolicitud } = useApp();
+  const [confirmCancelar, setConfirmCancelar] = useState(false);
+  // La solicitud la puede cancelar la sucursal que la generó (destino/solicitante),
+  // ANTES de su revisión (mientras sigue Pendiente o Surtido). No mueve inventario.
+  const esSolicitante = peticion.sucursalDestino === sucursalActual;
+  const puedeCancelar = esSolicitante && (peticion.status === 'Pendiente' || peticion.status === 'Surtido');
+
+  const handleCancelar = () => {
+    const r = cancelarSolicitud(peticion.id);
+    showToast?.(r.mensaje, r.ok ? 'success' : 'warning');
+    if (r.ok) onClose();
+  };
+
   const isCedis = peticion.categoria === 'CEDIS';
   // Urgencia/Especial: la sucursal ya sabe qué pidió, se ve el desglose completo.
   // Reabasto: recepción ciega por control anti-robo, solo se ve el número de cajas.
@@ -348,9 +364,21 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
 
         {/* Footer */}
         <div
-          className="flex justify-end px-6 py-4"
+          className="flex items-center justify-between px-6 py-4"
           style={{ borderTop: '1px solid #e5e7eb', flexShrink: 0 }}
         >
+          {/* Cancelar solicitud: solo la sucursal solicitante, antes de la revisión. */}
+          {puedeCancelar ? (
+            <button
+              onClick={() => setConfirmCancelar(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              style={{ border: '1.5px solid #dc2626', color: '#dc2626', background: 'white' }}
+              title="Cancela esta solicitud antes de su revisión. No mueve inventario."
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>cancel</span>
+              Cancelar solicitud
+            </button>
+          ) : <span />}
           <button
             onClick={onClose}
             className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all"
@@ -359,6 +387,30 @@ export default function ModalTraspasoDetail({ peticion, onClose }: Props) {
             Cerrar
           </button>
         </div>
+
+        {/* Confirmación de cancelación de la solicitud */}
+        {confirmCancelar && (
+          <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+            <div className="w-full bg-white p-5 rounded-2xl" style={{ maxWidth: 420 }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#dc2626' }}>cancel</span>
+                <span className="text-sm font-extrabold" style={{ color: '#1a1a2e' }}>Cancelar solicitud {peticion.id}</span>
+              </div>
+              <p className="text-xs mb-2" style={{ color: '#555' }}>
+                Se cancelará esta solicitud (aún <strong>antes de su revisión</strong>). Si todavía necesitas la mercancía,
+                deberás <strong>generar una nueva solicitud</strong>.
+              </p>
+              <p className="text-[11px] mb-4 flex items-start gap-1.5" style={{ color: '#166534' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>inventory_2</span>
+                Esta cancelación <strong>no movió mercancía de tu inventario</strong>.
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setConfirmCancelar(false)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>No, volver</button>
+                <button onClick={() => { setConfirmCancelar(false); handleCancelar(); }} className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white" style={{ background: '#dc2626' }}>Cancelar solicitud</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

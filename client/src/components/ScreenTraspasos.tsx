@@ -939,6 +939,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         <ModalTraspasoDetail
           peticion={detailPeticion}
           onClose={() => setDetailPetId(null)}
+          showToast={showToast}
         />
       )}
 
