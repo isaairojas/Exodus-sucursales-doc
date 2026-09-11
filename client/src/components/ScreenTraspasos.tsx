@@ -9,8 +9,8 @@ import { useApp } from '@/contexts/AppContext';
 import {
   TraspasoTipo, TraspasoPeticion, TraspasoStatus, TRASPASO_CATEGORIA_LABELS,
   SUCURSAL_ALMACEN_CODIGOS, formatFechaCorta, CEDIS_SUBTIPO_COLORS, TRASPASO_CATEGORIA_COLORS,
-  TraspasoEstadoAlto, TraspasoEtapa, estadoAltoTraspaso, etapaTraspaso,
-  TRASPASO_ETAPAS, TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
+  etapaTraspaso,
+  TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
   TRASPASO_ETAPA_TOOLTIP, TRASPASO_CATEGORIA_TOOLTIP, PRODUCT_CATALOG,
 } from '@/lib/data';
 import { exportarExcel } from '@/lib/exportExcel';
@@ -40,17 +40,17 @@ const MONTH_START = `${_desde.getFullYear()}-${String(_desde.getMonth() + 1).pad
 const _lastDay = new Date(_now.getFullYear(), _now.getMonth() + 1, 0);
 const MONTH_END = `${_lastDay.getFullYear()}-${String(_lastDay.getMonth() + 1).padStart(2, '0')}-${String(_lastDay.getDate()).padStart(2, '0')}`;
 
-type FilterTipo = 'ALL' | 'Automático' | 'Manual' | 'CEDIS-Reabasto' | 'CEDIS-Urgencia';
-
-const ESTADOS_ALTO: TraspasoEstadoAlto[] = ['Pendiente', 'Finalizado', 'Cancelado'];
+type FilterTipo = 'ALL' | 'Automático' | 'Manual' | 'CEDIS-Reabasto' | 'CEDIS-Reabasto-Unificado' | 'CEDIS-Urgencia' | 'CEDIS-Especial' | 'Envio-Devolucion' | 'Envio-AjusteInventario';
 
 // Paleta estable para agrupar visualmente las peticiones de una misma
 // solicitud (comparten color de acento para leerse como un mismo grupo).
 const GROUP_COLORS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777', '#0891b2', '#65a30d', '#9333ea'];
 
 // ── SLA / control de tiempos ──
-// Estatus en los que la petición sigue PENDIENTE POR SURTIR (cuenta para vencido).
-const PENDIENTE_SURTIR_STATUS: TraspasoStatus[] = ['Pendiente'];
+// Estatus previos a "Enviado": el retraso (vencido) se hereda mientras la
+// petición no salga (pasa de Pendiente → Surtido → Revisado → Documentado
+// conservando la marca de vencida hasta que se envía).
+const PRE_ENVIADO_STATUS: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Documentado'];
 // Estatus "surtido/revisado pero aún sin enviar" (pendientes por envío).
 // Pendiente por envío = revisado/documentado sin enviar (documentación pendiente).
 const PENDIENTE_ENVIO_STATUS: TraspasoStatus[] = ['Revisado', 'Documentado'];
@@ -69,7 +69,15 @@ function esVencidoSurtir(t: TraspasoPeticion): boolean {
   if (t.categoria === 'CEDIS') {
     return CEDIS_NO_RECIBIDO.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_CEDIS;
   }
-  return PENDIENTE_SURTIR_STATUS.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_SURTIDO;
+  // El "retraso" se hereda mientras la petición no se envíe (Pendiente → Surtido
+  // → Revisado → Documentado). Al pasar a Enviado/Finalizados ya no aplica.
+  return PRE_ENVIADO_STATUS.includes(t.status) && diasDesdeCreacion(t.fechaCreacion) >= TRASPASO_DIAS_VENCIDO_SURTIDO;
+}
+// Parcialidad activa: la petición está marcada como parcial y todavía en el
+// pipeline (no en Finalizados/Entregado ni Cancelado). Se muestra como badge
+// azul en las cards que la contengan (mismo esquema que el badge de vencidos).
+function tieneParcialidadActiva(t: TraspasoPeticion): boolean {
+  return !!t.parcial && t.status !== 'Entregado' && t.status !== 'Cancelado';
 }
 interface SlaTag { label: string; icon: string; color: string; }
 // Etiquetas SLA de una petición (puede tener varias a la vez: p.ej. vencido +
@@ -88,32 +96,54 @@ function slaTags(t: TraspasoPeticion): SlaTag[] {
 }
 
 // Cards de control = filtros. Cada una define su predicado; al hacer click filtra
-// dentro de la respuesta ya filtrada (no del universo completo).
+// dentro de la respuesta ya filtrada. "Vencidos" ya no es una card: los vencidos
+// se muestran como un indicador en las otras cards (badge rojo con conteo).
 interface CardDef { key: string; label: string; sub: string; color: string; icon: string; match: (t: TraspasoPeticion) => boolean; }
-const CARD_DEFS: CardDef[] = [
-  { key: 'vencidos', label: 'Vencidos', sub: `+${TRASPASO_DIAS_VENCIDO_SURTIDO}d por surtir`, color: '#dc2626', icon: 'event_busy',
-    match: esVencidoSurtir },
-  { key: 'pendientesSurtir', label: 'Pendientes por surtir', sub: 'aún sin surtir', color: '#d97706', icon: 'package_2',
-    match: t => t.status === 'Pendiente' },
-  { key: 'pendienteRevision', label: 'Pendiente revisión', sub: 'surtido, por revisar', color: '#7c3aed', icon: 'fact_check',
-    match: t => t.status === 'Surtido' },
-  { key: 'pendientesEnvio', label: 'Pendientes por envío', sub: 'documentación pendiente', color: '#0d9488', icon: 'outbox',
-    match: t => PENDIENTE_ENVIO_STATUS.includes(t.status) },
-  { key: 'parciales', label: 'Surtido con parcialidad', sub: 'surtido/revisado parcial', color: '#1B3892', icon: 'splitscreen',
-    match: t => !!t.parcial && (t.status === 'Surtido' || t.status === 'Revisado') },
-  { key: 'enviados', label: 'Enviados', sub: 'en tránsito', color: '#2563eb', icon: 'local_shipping',
-    match: t => t.status === 'Enviado' },
-  { key: 'finalizados', label: 'Finalizado', sub: 'con entrada a mercancía', color: '#16a34a', icon: 'inventory',
-    match: t => t.status === 'Recibido' || t.status === 'Entregado' },
-];
+// Etiquetas con salto de línea explícito para que las cards queden angostas.
+// El div del label usa whiteSpace: 'pre-line' para respetar los "\n".
+function buildCardDefs(tipo: TraspasoTipo): CardDef[] {
+  const base: CardDef[] = [
+    { key: 'pendientesSurtir', label: 'Pendientes\npor surtir', sub: 'aún sin surtir', color: '#d97706', icon: 'package_2',
+      match: t => t.status === 'Pendiente' },
+    { key: 'pendienteRevision', label: 'Pendiente\nrevisión', sub: 'surtido, por revisar', color: '#7c3aed', icon: 'fact_check',
+      match: t => t.status === 'Surtido' },
+    // Pendientes por envío queda INMEDIATAMENTE antes de Enviados.
+    // (La antigua card "Surtido con parcialidad" desaparece: ahora la parcialidad
+    // se muestra como badge azul sobre las cards que contengan parciales.)
+    { key: 'pendientesEnvio', label: 'Pendientes\npor envío', sub: 'documentación pendiente', color: '#0d9488', icon: 'outbox',
+      match: t => PENDIENTE_ENVIO_STATUS.includes(t.status) },
+    { key: 'enviados', label: 'Enviados', sub: 'en tránsito', color: '#2563eb', icon: 'local_shipping',
+      match: t => t.status === 'Enviado' },
+  ];
+  // "Confirmación de recepción" solo aplica en Por recibir: la sucursal ya
+  // confirmó físicamente la recepción, falta darle entrada al inventario.
+  if (tipo === 'Entrante') {
+    base.push({ key: 'confirmacionRecepcion', label: 'Confirmación\nde recepción', sub: 'esperan dar entrada', color: '#0891b2', icon: 'how_to_reg',
+      match: t => t.status === 'Recibido' });
+  }
+  base.push(
+    { key: 'finalizados', label: 'Finalizados', sub: 'con entrada al inventario', color: '#16a34a', icon: 'inventory',
+      match: t => t.status === 'Entregado' || (tipo === 'Saliente' && t.status === 'Recibido') },
+    { key: 'rechazadosCancelados', label: 'Rechazados/\nCancelados', sub: 'para consulta', color: '#dc2626', icon: 'cancel',
+      match: t => t.status === 'Cancelado' },
+  );
+  return base;
+}
 
-// Filtros que NO se muestran como card (pero sí se pueden aplicar como chip).
-// Rechazados: la sucursal que rechazó NO los reasigna, pero puede querer verlos.
-const FILTER_ONLY_DEFS: CardDef[] = [
-  { key: 'rechazados', label: 'Rechazados', sub: 'solo consulta', color: '#dc2626', icon: 'cancel',
-    match: t => t.status === 'Cancelado' && t.resultado === 'rechazada' },
-];
-const ALL_FILTER_DEFS: CardDef[] = [...CARD_DEFS, ...FILTER_ONLY_DEFS];
+// Pipeline de una petición y su posición actual. Devuelve una barra segmentada
+// para mostrar visualmente en qué etapa está el traspaso.
+const PIPELINE_SUCURSAL: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'];
+const PIPELINE_CEDIS:    TraspasoStatus[] = ['Pendiente', 'Documentado', 'Enviado', 'Recibido', 'Entregado'];
+function pipelineDe(t: TraspasoPeticion): TraspasoStatus[] {
+  return t.categoria === 'CEDIS' ? PIPELINE_CEDIS : PIPELINE_SUCURSAL;
+}
+function avanceDe(t: TraspasoPeticion): { step: number; total: number; pct: number } {
+  const p = pipelineDe(t);
+  const idx = p.indexOf(t.status);
+  const step = idx < 0 ? 0 : idx + 1;
+  const total = p.length;
+  return { step, total, pct: Math.round((step / total) * 100) };
+}
 
 function porcentajeColor(pct: number) {
   if (pct >= 100) return '#16a34a';
@@ -149,7 +179,7 @@ function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
 }
 
 export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis, onReasignar }: Props) {
-  const { traspasos, sucursalActual, reasignarPeticion, generarSolicitudRestante } = useApp();
+  const { traspasos, sucursalActual, reasignarPeticion, generarSolicitudRestante, darEntradaInventario } = useApp();
 
   // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
   // según sea su origen o su destino. Solo se ven los que involucran a la sucursal.
@@ -166,10 +196,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Etiquetas de columna: la tabla es una recepción (Entrante) o un envío (Saliente)
   const colFechaSegunda = tipoFilter === 'Entrante' ? 'Fecha Arribo' : 'Fecha Envío';
   const colRecibido = tipoFilter === 'Entrante' ? 'Recibido' : 'Enviado';
-  const colPorcentaje = tipoFilter === 'Entrante' ? '% Recepción' : '% Enviado';
   const COLUMNS = [
     'Tipo', 'Solicitud', 'Almacén', 'Pedido cliente', 'No. Papeleta',
-    'Fecha traspaso', colFechaSegunda, colRecibido, colPorcentaje, 'Estado', 'SLA',
+    'Fecha traspaso', colFechaSegunda, colRecibido, 'Estado / Avance', 'SLA',
   ];
 
   // Filtros — al entrar: mes en curso y SIN filtros de estado/etapa
@@ -177,21 +206,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const [fechaFinal, setFechaFinal] = useState(MONTH_END);
   const [filterTipo, setFilterTipo] = useState<FilterTipo>('ALL');
   const [searchText, setSearchText] = useState('');
-  // Estado alto (Pendiente/Finalizado/Cancelado). En "Por recibir" (Entrante)
-  // se entra con "Pendiente" marcado por defecto; en "Por enviar" sin filtro.
-  // Al entrar a la ventana (Por enviar o Por recibir) el filtro por defecto es "Pendiente".
-  const [filterEstados, setFilterEstados] = useState<Set<TraspasoEstadoAlto>>(
-    () => new Set<TraspasoEstadoAlto>(['Pendiente'])
-  );
-  const [filterEtapa, setFilterEtapa] = useState<'ALL' | TraspasoEtapa>('ALL');
+  // Búsqueda dinámica: el usuario elige por qué campo buscar (papeleta por defecto).
+  type CampoBusqueda = 'papeleta' | 'pedido' | 'peticion' | 'solicitud';
+  const [searchField, setSearchField] = useState<CampoBusqueda>('papeleta');
+  // Sort manual por columna: null = default (agrupado por solicitud).
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const toggleSort = (col: string) => {
+    if (sortCol !== col) { setSortCol(col); setSortDir('asc'); return; }
+    if (sortDir === 'asc') { setSortDir('desc'); return; }
+    // asc → desc → null (limpia el sort y vuelve al agrupado por solicitud)
+    setSortCol(null);
+  };
   const [cardFilter, setCardFilter] = useState<string | null>(null); // card de control activa (filtra la respuesta)
-
-  const toggleEstado = (e: TraspasoEstadoAlto) =>
-    setFilterEstados(prev => {
-      const next = new Set(prev);
-      next.has(e) ? next.delete(e) : next.add(e);
-      return next;
-    });
 
   // Selección de fila
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -202,6 +229,9 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const [revisarPetId, setRevisarPetId] = useState<string | null>(null);
   const [recepcionPetId, setRecepcionPetId] = useState<string | null>(null);
   const [embarcarPetId, setEmbarcarPetId] = useState<string | null>(null);
+  // Prompt de continuación del flujo continuo (surtido → revisión → embarque
+  // en Por enviar; recepción → dar entrada en Por recibir).
+  const [continueFlow, setContinueFlow] = useState<{ petId: string; next: 'revisar' | 'embarcar' | 'entrada' } | null>(null);
 
   const selectedPeticion = useMemo(
     () => traspasos.find(t => t.id === selectedId) ?? null,
@@ -237,61 +267,121 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const filteredTraspasos = useMemo(() => {
     return traspasosDelTipo.filter(t => {
       if (filterTipo === 'CEDIS-Reabasto') {
-        if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Reabasto')) return false;
+        // Reabasto "puro" (sin mercancía unificada de un pedido).
+        if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Reabasto' && !t.reabastoUnifica?.length)) return false;
+      } else if (filterTipo === 'CEDIS-Reabasto-Unificado') {
+        if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Reabasto' && !!t.reabastoUnifica?.length)) return false;
       } else if (filterTipo === 'CEDIS-Urgencia') {
         if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Urgencia')) return false;
+      } else if (filterTipo === 'CEDIS-Especial') {
+        if (!(t.categoria === 'CEDIS' && t.subtipoCedis === 'Especial')) return false;
+      } else if (filterTipo === 'Envio-Devolucion') {
+        if (t.motivoEnvioCedis !== 'Devolución') return false;
+      } else if (filterTipo === 'Envio-AjusteInventario') {
+        if (t.motivoEnvioCedis !== 'Ajuste de inventario') return false;
+      } else if (filterTipo === 'Manual') {
+        // Manual "puro" — excluye envíos a CEDIS (que también son categoría Manual
+        // pero llevan motivoEnvioCedis y tienen su propio filtro).
+        if (t.categoria !== 'Manual' || !!t.motivoEnvioCedis) return false;
       } else if (filterTipo !== 'ALL' && t.categoria !== filterTipo) {
         return false;
       }
-      // Estado alto (Pendiente/Finalizado/Cancelado): vacío = todos
-      if (filterEstados.size > 0 && !filterEstados.has(estadoAltoTraspaso(t.status))) return false;
-      // Etapa operativa
-      if (filterEtapa !== 'ALL' && etapaTraspaso(t.status) !== filterEtapa) return false;
       const fechaDate = t.fechaCreacion.slice(0, 10);
       if (fechaInicial && fechaDate < fechaInicial) return false;
       if (fechaFinal && fechaDate > fechaFinal) return false;
       if (searchText) {
         const q = searchText.toLowerCase();
-        const matchSol = t.solicitudId.toLowerCase().includes(q);
-        const matchPet = t.id.toLowerCase().includes(q);
-        const matchSuc = perspectivaTraspaso(t, sucursalActual).contraparte.toLowerCase().includes(q);
-        const matchPapeleta = t.noPapeleta.toLowerCase().includes(q);
-        const matchCode = t.piezas.some(p => p.code.toLowerCase().includes(q));
-        if (!matchSol && !matchPet && !matchSuc && !matchPapeleta && !matchCode) return false;
+        // Búsqueda dinámica: se aplica SOLO al campo seleccionado por el usuario.
+        const field =
+          searchField === 'papeleta'  ? t.noPapeleta :
+          searchField === 'pedido'    ? (t.pedidoOrigen ?? '') :
+          searchField === 'peticion'  ? t.id :
+          /* solicitud */               t.solicitudId;
+        if (!field.toLowerCase().includes(q)) return false;
       }
       return true;
     });
-  }, [traspasosDelTipo, filterTipo, filterEstados, filterEtapa, fechaInicial, fechaFinal, searchText, sucursalActual]);
+  }, [traspasosDelTipo, filterTipo, fechaInicial, fechaFinal, searchText, searchField, sucursalActual]);
+
+  // Cards del tab actual (Por enviar / Por recibir).
+  const cardDefs = useMemo(() => buildCardDefs(tipoFilter), [tipoFilter]);
 
   // Conteo por card sobre la RESPUESTA ya filtrada (no el universo).
   const cardCounts = useMemo(() => {
     const c: Record<string, number> = {};
-    ALL_FILTER_DEFS.forEach(def => { c[def.key] = filteredTraspasos.filter(def.match).length; });
+    cardDefs.forEach(def => { c[def.key] = filteredTraspasos.filter(def.match).length; });
     return c;
-  }, [filteredTraspasos]);
+  }, [filteredTraspasos, cardDefs]);
 
-  // Rechazados: se cuenta sobre TODO el universo del tab (no se ocultan por el
-  // filtro de estado, que por defecto es "Pendiente"), para mostrar su cantidad real.
-  const rechazadosUniverso = useMemo(
-    () => traspasosDelTipo.filter(t => t.status === 'Cancelado' && t.resultado === 'rechazada').length,
-    [traspasosDelTipo]
-  );
+  // Vencidos por card: indicador (badge rojo) que muestra cuántos de esa card
+  // están vencidos. En "Finalizados" no aplica (ya salieron del pipeline).
+  const vencidosPorCard = useMemo(() => {
+    const v: Record<string, number> = {};
+    cardDefs.forEach(def => {
+      if (def.key === 'finalizados') { v[def.key] = 0; return; }
+      v[def.key] = filteredTraspasos.filter(t => def.match(t) && esVencidoSurtir(t)).length;
+    });
+    return v;
+  }, [filteredTraspasos, cardDefs]);
+  // Parciales por card: indicador (badge azul) — reemplaza a la antigua card
+  // "Surtido con parcialidad". Tampoco aplica en "Finalizados".
+  const parcialesPorCard = useMemo(() => {
+    const p: Record<string, number> = {};
+    cardDefs.forEach(def => {
+      if (def.key === 'finalizados') { p[def.key] = 0; return; }
+      p[def.key] = filteredTraspasos.filter(t => def.match(t) && tieneParcialidadActiva(t)).length;
+    });
+    return p;
+  }, [filteredTraspasos, cardDefs]);
 
   // Al activar una card/filtro, se filtra dentro de la respuesta ya filtrada.
   const filteredConCard = useMemo(() => {
     if (!cardFilter) return filteredTraspasos;
-    const def = ALL_FILTER_DEFS.find(d => d.key === cardFilter);
+    const def = cardDefs.find(d => d.key === cardFilter);
     return def ? filteredTraspasos.filter(def.match) : filteredTraspasos;
-  }, [filteredTraspasos, cardFilter]);
+  }, [filteredTraspasos, cardFilter, cardDefs]);
 
   // Agrupación por solicitud: las peticiones de una misma solicitud se ordenan
   // juntas y comparten un color de acento, para que siempre se vean como grupo.
+  // Extractor de valor por columna para el sort manual.
+  const sortValue = (t: TraspasoPeticion, col: string): string | number => {
+    const per = perspectivaTraspaso(t, sucursalActual);
+    switch (col) {
+      case 'Tipo':           return t.motivoEnvioCedis ?? (t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : t.categoria);
+      case 'Solicitud':      return `${t.solicitudId}-${t.id}`;
+      case 'Almacén':        return per.contraparte;
+      case 'Pedido cliente': return t.pedidoOrigen || 'zzz'; // "sin pedido" al final
+      case 'No. Papeleta':   return t.noPapeleta;
+      case 'Fecha traspaso': return t.fechaCreacion;
+      case 'Fecha Arribo':
+      case 'Fecha Envío':    return t.fechaArribo ?? '';
+      case 'Recibido':
+      case 'Enviado':        return calcularRecibido(t, per.tipo).num;
+      case 'Estado / Avance':return avanceDe(t).step;
+      case 'SLA':            return slaTags(t).length; // más tags = "menos en tiempo"
+      default:               return '';
+    }
+  };
+
   const { rows, solCount, solColor } = useMemo(() => {
-    const arr = [...filteredConCard].sort((a, b) =>
-      a.solicitudId === b.solicitudId
-        ? (a.intento ?? 0) - (b.intento ?? 0)
-        : a.solicitudId.localeCompare(b.solicitudId)
-    );
+    // Sort por defecto: agrupado por solicitud. Si hay sort manual, se respeta.
+    let arr: TraspasoPeticion[];
+    if (sortCol) {
+      arr = [...filteredConCard].sort((a, b) => {
+        const va = sortValue(a, sortCol);
+        const vb = sortValue(b, sortCol);
+        let cmp = 0;
+        if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+        else cmp = String(va).localeCompare(String(vb));
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    } else {
+      arr = [...filteredConCard].sort((a, b) =>
+        a.solicitudId === b.solicitudId
+          ? (a.intento ?? 0) - (b.intento ?? 0)
+          : a.solicitudId.localeCompare(b.solicitudId)
+      );
+    }
     const count: Record<string, number> = {};
     arr.forEach(t => { count[t.solicitudId] = (count[t.solicitudId] ?? 0) + 1; });
     const color: Record<string, string> = {};
@@ -302,28 +392,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       ci++;
     });
     return { rows: arr, solCount: count, solColor: color };
-  }, [filteredConCard]);
-
-  // Rechazados: no es card, es un filtro de consulta. Como los rechazados están
-  // en estado alto "Cancelado" (excluido por defecto), al activarlo forzamos ese
-  // estado; al quitarlo restauramos el estado por defecto de la vista.
-  const toggleRechazados = () => {
-    if (cardFilter === 'rechazados') {
-      setCardFilter(null);
-      setFilterEstados(new Set<TraspasoEstadoAlto>(['Pendiente']));
-    } else {
-      setCardFilter('rechazados');
-      setFilterEstados(new Set<TraspasoEstadoAlto>(['Cancelado']));
-    }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredConCard, sortCol, sortDir, sucursalActual]);
 
   const handleClearFilters = () => {
     setFechaInicial(MONTH_START);
     setFechaFinal(MONTH_END);
     setFilterTipo('ALL');
     setSearchText('');
-    setFilterEstados(new Set<TraspasoEstadoAlto>(['Pendiente']));
-    setFilterEtapa('ALL');
     setCardFilter(null);
   };
 
@@ -371,7 +447,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // CEDIS (lo hace CEDIS). El surtido y el recálculo SMC no aplican a CEDIS; aquí
   // la única acción es "Confirmar recepción".
   const noEsCedis = !!sel && sel.categoria !== 'CEDIS';
-  const canSurtir = noEsCedis && sel!.status === 'Pendiente';
+  // Regla de negocio: SURTIR solo aplica en esta plataforma para traspasos
+  // MANUALES (entre sucursales o hacia CEDIS: devolución/ajuste). Los
+  // Automáticos SMC se surten desde la HH (botón deshabilitado + leyenda azul).
+  // REVISAR y EMBARCAR sí se pueden hacer aquí para automáticos también — la
+  // revisión asume que el surtido ya fue concluido en HH.
+  const surtidoEnHH = !!sel && sel.categoria === 'Automático';
+  const esSurtibleEnPlataforma = noEsCedis && !surtidoEnHH;
+  const canSurtir = esSurtibleEnPlataforma && sel!.status === 'Pendiente';
   const canRevisar = noEsCedis && sel!.status === 'Surtido';
   const canEmbarcar = noEsCedis && sel!.status === 'Revisado';
   // Escenarios de recálculo por la sucursal solicitante:
@@ -409,6 +492,10 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Confirmar recepción: disponible cuando ya fue Enviado (por confirmar) o ya
   // Recibido (para cambiar completa/parcial; queda registro).
   const canConfirmarRecepcion = !!sel && (sel.status === 'Enviado' || sel.status === 'Recibido');
+  // Dar entrada al inventario: disponible cuando la petición ya se confirmó
+  // (Recibido) y falta darle entrada. Pronto abrirá una ventana propia; por
+  // ahora solo mueve la petición a Entregado (Finalizados).
+  const canDarEntrada = !!sel && sel.status === 'Recibido';
 
   const btnEnabled = (active: boolean, bg: string) =>
     active
@@ -423,60 +510,68 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
 
-      {/* ── Cards de control (filtros sobre la respuesta) ── */}
+      {/* ── Cards de control (filtros sobre la respuesta) ──
+          Cada card muestra su conteo. Si alguno de sus registros está VENCIDO,
+          se muestra un badge rojo (event_busy + conteo) en la esquina superior
+          derecha; ya no existe una card "Vencidos" independiente. */}
       <div className="flex gap-2 px-6 py-3 overflow-x-auto items-center" style={{ background: '#f4f6fa', flexShrink: 0 }}>
-        {CARD_DEFS.map(c => {
+        {cardDefs.map(c => {
           const val = cardCounts[c.key] ?? 0;
+          const venc = vencidosPorCard[c.key] ?? 0;
+          const parc = parcialesPorCard[c.key] ?? 0;
           const activa = cardFilter === c.key;
+          const tip = activa ? 'Quitar filtro' :
+            `Filtrar: ${c.label.replace(/\n/g, ' ')}` +
+            (venc > 0 ? ` · ${venc} vencido${venc !== 1 ? 's' : ''}` : '') +
+            (parc > 0 ? ` · ${parc} con parcialidad` : '');
           return (
             <button
               key={c.key}
               onClick={() => setCardFilter(activa ? null : c.key)}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left"
-              title={activa ? 'Quitar filtro' : `Filtrar: ${c.label}`}
-              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, minWidth: 152, cursor: 'pointer' }}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left relative"
+              title={tip}
+              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, width: 128, height: 78, cursor: 'pointer' }}
             >
               <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: `${c.color}14`, flexShrink: 0 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, color: c.color }}>{c.icon}</span>
               </div>
-              <div>
-                <span className="text-lg font-extrabold leading-none" style={{ color: val > 0 ? c.color : '#9ca3af' }}>{val}</span>
-                <div className="text-[11px] font-semibold leading-tight whitespace-normal" style={{ color: '#374151' }}>{c.label}</div>
-                <div className="text-[9px] leading-tight whitespace-normal" style={{ color: '#9ca3af' }}>{c.sub}</div>
+              {/* Reservamos altura fija para que labels de 1 o 2 líneas y subs de
+                  1 o 2 líneas ocupen siempre el mismo espacio → cards uniformes. */}
+              <div className="flex-1 min-w-0">
+                <span className="block text-lg font-extrabold leading-none" style={{ color: val > 0 ? c.color : '#9ca3af' }}>{val}</span>
+                <div className="text-[11px] font-semibold" style={{ color: '#374151', whiteSpace: 'pre-line', lineHeight: '1.15', height: '2.3em', overflow: 'hidden' }}>{c.label}</div>
+                <div className="text-[9px]" style={{ color: '#9ca3af', lineHeight: '1.2', height: '2.4em', overflow: 'hidden' }}>{c.sub}</div>
               </div>
+              {/* Indicadores superpuestos: rojo (vencidos) y azul (parcialidad). */}
+              {(venc > 0 || parc > 0) && (
+                <div className="absolute flex items-center gap-1" style={{ top: -6, right: -6 }}>
+                  {parc > 0 && (
+                    <span
+                      className="flex items-center gap-0.5 rounded-full px-1.5"
+                      title={`${parc} con parcialidad en esta card`}
+                      style={{ background: '#1B3892', color: '#fff', height: 18, fontSize: 10, fontWeight: 800, boxShadow: '0 2px 6px rgba(27,56,146,0.35)' }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>splitscreen</span>
+                      {parc}
+                    </span>
+                  )}
+                  {venc > 0 && (
+                    <span
+                      className="flex items-center gap-0.5 rounded-full px-1.5"
+                      title={`${venc} vencido${venc !== 1 ? 's' : ''} en esta card`}
+                      style={{ background: '#dc2626', color: '#fff', height: 18, fontSize: 10, fontWeight: 800, boxShadow: '0 2px 6px rgba(220,38,38,0.35)' }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>event_busy</span>
+                      {venc}
+                    </span>
+                  )}
+                </div>
+              )}
             </button>
           );
         })}
 
-        {/* Rechazados: card con la cantidad real (universo del tab). La explicación
-            depende de la perspectiva: en "Por recibir" los rechazó la sucursal
-            donante; en "Por enviar" son los que rechazó esta sucursal. */}
-        {(() => {
-          const activa = cardFilter === 'rechazados';
-          const sub = esPorRecibir ? 'los rechazó la sucursal donante' : 'los que rechazaste tú';
-          const tip = esPorRecibir
-            ? 'Peticiones que la sucursal donante rechazó. Como sucursal solicitante puedes reasignarlas a otra sucursal.'
-            : 'Peticiones que tu sucursal rechazó como donante (no las surtiste).';
-          return (
-            <button
-              onClick={toggleRechazados}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left"
-              title={activa ? 'Quitar filtro de rechazados' : tip}
-              style={{ background: activa ? 'rgba(220,38,38,0.12)' : '#fff', border: `1.5px solid ${activa ? '#dc2626' : '#e5e7eb'}`, minWidth: 152, cursor: 'pointer' }}
-            >
-              <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: 'rgba(220,38,38,0.14)', flexShrink: 0 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#dc2626' }}>cancel</span>
-              </div>
-              <div>
-                <span className="text-lg font-extrabold leading-none" style={{ color: rechazadosUniverso > 0 ? '#dc2626' : '#9ca3af' }}>{rechazadosUniverso}</span>
-                <div className="text-[11px] font-semibold leading-tight whitespace-normal" style={{ color: '#374151' }}>Rechazados</div>
-                <div className="text-[9px] leading-tight whitespace-normal" style={{ color: '#9ca3af' }}>{sub}</div>
-              </div>
-            </button>
-          );
-        })()}
-
-        {cardFilter && cardFilter !== 'rechazados' && (
+        {cardFilter && (
           <button onClick={() => setCardFilter(null)} className="flex items-center gap-1 text-xs font-semibold flex-shrink-0 px-2 py-1 rounded" style={{ color: '#6b7280' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
             Quitar filtro
@@ -511,16 +606,32 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             />
           </div>
 
-          <div className="relative flex items-center">
-            <span className="material-symbols-outlined absolute left-2" style={{ fontSize: 15, color: '#9ca3af' }}>search</span>
-            <input
-              type="text"
-              placeholder="Buscar solicitud, sucursal, papeleta, código…"
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              className="text-xs rounded border pl-7 pr-3 py-1"
-              style={{ borderColor: '#d1d5db', width: 260 }}
-            />
+          {/* Búsqueda DINÁMICA: el usuario elige por qué campo quiere buscar.
+              Papeleta es el default. */}
+          <div className="flex items-center rounded border overflow-hidden" style={{ borderColor: '#d1d5db' }}>
+            <select
+              value={searchField}
+              onChange={e => setSearchField(e.target.value as CampoBusqueda)}
+              className="text-xs px-2 py-1 border-0 outline-none"
+              style={{ background: '#f8f9fb', color: '#1a2b6b', accentColor: '#1a2b6b' }}
+              title="Elige el campo por el que quieres buscar"
+            >
+              <option value="papeleta">Papeleta</option>
+              <option value="pedido">Pedido ID</option>
+              <option value="peticion">Petición</option>
+              <option value="solicitud">Solicitud</option>
+            </select>
+            <div className="relative flex items-center">
+              <span className="material-symbols-outlined absolute left-2" style={{ fontSize: 15, color: '#9ca3af' }}>search</span>
+              <input
+                type="text"
+                placeholder={`Buscar por ${searchField === 'papeleta' ? 'papeleta' : searchField === 'pedido' ? 'pedido' : searchField === 'peticion' ? 'petición' : 'solicitud'}…`}
+                value={searchText}
+                onChange={e => setSearchText(e.target.value)}
+                className="text-xs border-0 outline-none pl-7 pr-3 py-1"
+                style={{ width: 210 }}
+              />
+            </div>
           </div>
 
           <select
@@ -532,38 +643,22 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             <option value="ALL">Todos los tipos</option>
             <option value="Automático">{TRASPASO_CATEGORIA_LABELS.Automático}</option>
             <option value="Manual">{TRASPASO_CATEGORIA_LABELS.Manual}</option>
-            <option value="CEDIS-Reabasto">CEDIS Reabasto</option>
-            <option value="CEDIS-Urgencia">CEDIS Urgencia</option>
+            {/* En "Por enviar" la sucursal no recibe traspasos de CEDIS, así que los
+                tipos CEDIS no aplican; en su lugar aparecen los envíos a CEDIS. */}
+            {tipoFilter === 'Saliente' ? (
+              <>
+                <option value="Envio-Devolucion">Devolución</option>
+                <option value="Envio-AjusteInventario">Ajuste de inventario</option>
+              </>
+            ) : (
+              <>
+                <option value="CEDIS-Reabasto">Reabasto</option>
+                <option value="CEDIS-Reabasto-Unificado">Reabasto unificado</option>
+                <option value="CEDIS-Urgencia">Urgencia CEDIS</option>
+                <option value="CEDIS-Especial">Especial CEDIS</option>
+              </>
+            )}
           </select>
-
-          {/* Estado alto: Pendiente / Finalizado / Cancelado (vacío = todos) */}
-          <div className="flex items-center gap-3 rounded-lg px-3 py-1.5" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
-            {ESTADOS_ALTO.map(est => {
-              const checked = filterEstados.has(est);
-              const color = est === 'Cancelado' ? '#dc2626' : est === 'Finalizado' ? '#16a34a' : '#1a2b6b';
-              return (
-                <label key={est} className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={checked} onChange={() => toggleEstado(est)}
-                    className="w-3.5 h-3.5 rounded" style={{ accentColor: color }} />
-                  <span className="text-xs font-medium" style={{ color: checked ? color : '#6b7280' }}>{est}</span>
-                </label>
-              );
-            })}
-          </div>
-
-          {/* Etapa operativa */}
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs text-gray-500 whitespace-nowrap">Etapa</label>
-            <select
-              value={filterEtapa}
-              onChange={e => setFilterEtapa(e.target.value as 'ALL' | TraspasoEtapa)}
-              className="text-xs rounded border px-2 py-1"
-              style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
-            >
-              <option value="ALL">Todas las etapas</option>
-              {TRASPASO_ETAPAS.map(et => <option key={et} value={et}>{et}</option>)}
-            </select>
-          </div>
 
           <button
             onClick={() => setSearchText(searchText)}
@@ -631,15 +726,31 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
             <tr style={{ background: '#f8f9fb', borderBottom: '2px solid #e5e7eb' }}>
-              {COLUMNS.map(col => (
-                <th
-                  key={col}
-                  className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
-                  style={{ color: '#6b7280' }}
-                >
-                  {col}
-                </th>
-              ))}
+              {COLUMNS.map(col => {
+                const active = sortCol === col;
+                return (
+                  <th
+                    key={col}
+                    onClick={() => toggleSort(col)}
+                    className="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                    style={{ color: active ? '#1a2b6b' : '#6b7280', cursor: 'pointer', userSelect: 'none' }}
+                    title={active
+                      ? (sortDir === 'asc' ? 'Ordenado ascendente. Click para descendente.' : 'Ordenado descendente. Click para quitar orden.')
+                      : `Ordenar por ${col}`}
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      {col}
+                      {active ? (
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                          {sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}
+                        </span>
+                      ) : (
+                        <span className="material-symbols-outlined opacity-30" style={{ fontSize: 14 }}>unfold_more</span>
+                      )}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -715,20 +826,21 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    {/* Solicitud como texto plano; si agrupa varias peticiones, un icono pegado al texto. */}
+                    {/* Solicitud + Petición separados por guión medio.
+                        Si la solicitud agrupa varias peticiones, un icono de
+                        enlace pegado al texto con el color del grupo. */}
                     {enGrupo ? (
                       <span
                         className="inline-flex items-center gap-0.5 text-xs font-semibold whitespace-nowrap"
                         style={{ color: groupColor }}
-                        title={`Solicitud ${t.solicitudId} — ${solCount[t.solicitudId]} peticiones relacionadas (se muestran juntas)`}
+                        title={`Solicitud ${t.solicitudId} — ${solCount[t.solicitudId]} peticiones relacionadas (se muestran juntas). Petición ${t.id}`}
                       >
                         <span className="material-symbols-outlined" style={{ fontSize: 13 }}>link</span>
-                        {t.solicitudId}
-                        <span className="text-[10px] font-bold" style={{ opacity: 0.85 }}>· {solCount[t.solicitudId]}</span>
+                        {t.solicitudId} <span style={{ color: '#9ca3af' }}>–</span> {t.id}
                       </span>
                     ) : (
-                      <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }} title={`Solicitud ${t.solicitudId}`}>
-                        {t.solicitudId}
+                      <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }} title={`Solicitud ${t.solicitudId} · Petición ${t.id}`}>
+                        {t.solicitudId} <span style={{ color: '#9ca3af' }}>–</span> {t.id}
                       </span>
                     )}
                   </td>
@@ -776,14 +888,11 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                       {recibidoNum}/{recibidoDen} {recibidoUnidad}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5">
-                    {esCedis ? (
-                      <span className="text-xs" style={{ color: '#9ca3af' }} title="Recepción ciega de CEDIS: sin porcentaje de piezas.">—</span>
-                    ) : (
-                      <span className="text-xs font-semibold" style={{ color: porcentajeColor(pct) }}>{pct}%</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
+                  <td className="px-3 py-2.5" style={{ minWidth: 160 }}>
+                    {/* Estado + barra de avance del pipeline. La barra segmentada
+                        muestra en qué etapa está el traspaso (paso N de M). Los
+                        estados especiales (Draft, Unificada, Cancelado) reemplazan
+                        la barra por su badge propio. */}
                     {t.esDraft ? (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
@@ -802,7 +911,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                         <span className="material-symbols-outlined" style={{ fontSize: 13 }}>merge</span>
                         Unificada
                       </span>
-                    ) : (
+                    ) : t.status === 'Cancelado' ? (
                       <span
                         className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
                         title={TRASPASO_ETAPA_TOOLTIP[etapa]}
@@ -810,7 +919,37 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                       >
                         {etapa}
                       </span>
-                    )}
+                    ) : (() => {
+                      const av = avanceDe(t);
+                      const pipeline = pipelineDe(t);
+                      return (
+                        <div className="flex flex-col gap-1" style={{ minWidth: 140 }}>
+                          <span
+                            className="px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap self-start"
+                            title={TRASPASO_ETAPA_TOOLTIP[etapa]}
+                            style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
+                          >
+                            {etapa}
+                          </span>
+                          <div
+                            className="flex items-center gap-0.5"
+                            title={`Paso ${av.step} de ${av.total} — ${pipeline[av.step - 1] ?? ''} (${av.pct}%)`}
+                          >
+                            {pipeline.map((_, i) => {
+                              const alcanzado = i < av.step;
+                              return (
+                                <div key={i} style={{
+                                  flex: 1, height: 5, borderRadius: 3,
+                                  background: alcanzado ? etapaColor.text : '#e5e7eb',
+                                  transition: 'background 0.2s',
+                                }} />
+                              );
+                            })}
+                            <span className="text-[9px] font-semibold ml-1" style={{ color: '#6b7280' }}>{av.pct}%</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-2.5">
                     {tagsSla.length === 0 ? (
@@ -864,16 +1003,33 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         <span style={{ color: '#e5e7eb', margin: '0 4px', fontSize: 18 }}>|</span>
 
         {tipoFilter === 'Entrante' ? (
-          <button
-            disabled={!canConfirmarRecepcion}
-            onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-            style={btnEnabled(canConfirmarRecepcion, '#16a34a')}
-            title="Confirmar que la sucursal ya recibió la mercancía (no da entrada al inventario)"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>how_to_reg</span>
-            Confirmar recepción
-          </button>
+          <>
+            <button
+              disabled={!canConfirmarRecepcion}
+              onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+              style={btnEnabled(canConfirmarRecepcion, '#0891b2')}
+              title="Confirmar que la sucursal ya recibió la mercancía (no da entrada al inventario)"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>how_to_reg</span>
+              Confirmar recepción
+            </button>
+            <button
+              disabled={!canDarEntrada}
+              onClick={() => {
+                if (!sel) return;
+                darEntradaInventario(sel.id);
+                showToast(`Traspaso ${sel.id} finalizado — entrada al inventario registrada.`, 'success');
+                setSelectedId(null);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+              style={btnEnabled(canDarEntrada, '#16a34a')}
+              title="Dar entrada al inventario (Finalizado). Pronto abrirá una ventana dedicada."
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>inventory</span>
+              Dar entrada
+            </button>
+          </>
         ) : (
           <>
             <button
@@ -881,6 +1037,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               onClick={() => { if (sel) setSurtirPetId(sel.id); }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
               style={btnEnabled(canSurtir, '#7c3aed')}
+              title={surtidoEnHH ? 'Los traspasos automáticos SMC se surten desde la aplicación HH.' : undefined}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>package_2</span>
               Surtir
@@ -905,6 +1062,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
               Embarcar
             </button>
+
+            {/* Leyenda cuando el traspaso seleccionado es Automático SMC: sólo
+                el SURTIDO se hace desde la HH (revisar/embarcar sí en esta app). */}
+            {surtidoEnHH && (
+              <span
+                className="flex items-center gap-1 ml-2 text-xs font-semibold underline"
+                title="El SURTIDO de los traspasos automáticos SMC solo se realiza desde la aplicación HH. La revisión y embarque sí se hacen en esta plataforma."
+                style={{ color: '#2563eb', cursor: 'help' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>info</span>
+                Este traspaso se surte desde la aplicación HH
+              </span>
+            )}
           </>
         )}
 
@@ -960,6 +1130,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           peticion={surtirPeticion}
           onClose={() => setSurtirPetId(null)}
           showToast={showToast}
+          onFinalizado={() => setContinueFlow({ petId: surtirPeticion.id, next: 'revisar' })}
         />
       )}
 
@@ -969,6 +1140,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           modo="revision"
           onClose={() => { setRevisarPetId(null); setSelectedId(null); }}
           showToast={showToast}
+          onFinalizado={() => setContinueFlow({ petId: revisarPeticion.id, next: 'embarcar' })}
         />
       )}
 
@@ -977,6 +1149,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           peticion={recepcionPeticion}
           onClose={() => { setRecepcionPetId(null); setSelectedId(null); }}
           showToast={showToast}
+          onFinalizado={() => setContinueFlow({ petId: recepcionPeticion.id, next: 'entrada' })}
         />
       )}
 
@@ -987,6 +1160,51 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           showToast={showToast}
         />
       )}
+
+      {/* Continuación del flujo: aparece tras cada paso exitoso ofreciendo la
+          siguiente acción del pipeline. El usuario elige continuar o cerrar. */}
+      {continueFlow && (() => {
+        const nextMeta = {
+          revisar:  { titulo: '¡Surtido finalizado!',           siguiente: 'Continuar con la revisión',  icono: 'fact_check',  color: '#2563eb' },
+          embarcar: { titulo: '¡Revisión finalizada!',          siguiente: 'Continuar con embarque',     icono: 'local_shipping', color: '#d97706' },
+          entrada:  { titulo: '¡Recepción confirmada!',         siguiente: 'Dar entrada al inventario',  icono: 'inventory',   color: '#16a34a' },
+        }[continueFlow.next];
+        const doContinue = () => {
+          const { petId, next } = continueFlow;
+          setContinueFlow(null);
+          if (next === 'revisar') setRevisarPetId(petId);
+          else if (next === 'embarcar') setEmbarcarPetId(petId);
+          else if (next === 'entrada') {
+            darEntradaInventario(petId);
+            showToast(`Traspaso ${petId} finalizado — entrada al inventario registrada.`, 'success');
+            setSelectedId(null);
+          }
+        };
+        return (
+          <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+            <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
+              <div className="flex flex-col items-center gap-3 pt-6 px-6">
+                <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(22,163,74,0.14)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#16a34a' }}>check_circle</span>
+                </div>
+                <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>{nextMeta.titulo}</div>
+              </div>
+              <p className="text-xs mt-3 px-6 text-center" style={{ color: '#555' }}>
+                Traspaso <strong>{continueFlow.petId}</strong>. ¿Quieres continuar con el siguiente paso?
+              </p>
+              <div className="flex gap-2 px-6 py-5 mt-2">
+                <button onClick={() => { setContinueFlow(null); setSelectedId(null); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>
+                  Cerrar
+                </button>
+                <button onClick={doContinue} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: nextMeta.color }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{nextMeta.icono}</span>
+                  {nextMeta.siguiente}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

@@ -22,7 +22,7 @@ interface PiezaSeleccionada { code: string; qty: number; }
 
 const MOTIVOS: { value: MotivoEnvioCedis; icon: string; desc: string }[] = [
   { value: 'Devolución', icon: 'assignment_return', desc: 'Regresas mercancía a CEDIS (exceso de inventario, error de surtido, etc.).' },
-  { value: 'Garantía', icon: 'verified', desc: 'Envías piezas defectuosas a CEDIS para su gestión de garantía.' },
+  { value: 'Ajuste de inventario', icon: 'inventory', desc: 'Envías mercancía a CEDIS para regularizar diferencias de inventario.' },
 ];
 
 // ── Buscador tipo sugerencias (autocomplete) ──────────────────
@@ -74,11 +74,16 @@ function Buscador({ placeholder, options, onSelect, disabled }: BuscadorProps) {
 }
 
 export default function ModalEnviarCedis({ onClose, showToast }: Props) {
-  const { crearEnvioCedis, sucursalActual } = useApp();
+  const { crearEnvioCedis, sucursalActual, traspasos } = useApp();
   const [step, setStep] = useState<Step>(1);
   const [motivo, setMotivo] = useState<MotivoEnvioCedis | null>(null);
   const [piezas, setPiezas] = useState<PiezaSeleccionada[]>([]);
   const [observaciones, setObservaciones] = useState('');
+
+  // Aprobación de token (INVENTARIOS aprueba el envío a CEDIS): idle → aprobando → aprobado.
+  const [aprobEstado, setAprobEstado] = useState<'idle' | 'aprobando' | 'aprobado'>('idle');
+  const [draftPetId, setDraftPetId] = useState<string | null>(null);
+  const [confirmVolver, setConfirmVolver] = useState(false);
 
   const stock = EXISTENCIA_POR_SUCURSAL[sucursalActual] ?? {};
   const existenciaDe = (code: string) => stock[code] ?? 0;
@@ -91,18 +96,48 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
 
   const canStep2 = !!motivo;
   const canStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
-  const canConfirmar = canStep2 && canStep3;
+  const puedeSolicitarAprobacion = canStep2 && canStep3 && aprobEstado === 'idle';
 
-  const handleConfirmar = () => {
-    if (!canConfirmar || !motivo) return;
+  const totalPiezas = piezas.reduce((s, p) => s + p.qty, 0);
+
+  // Solicita la aprobación de token a INVENTARIOS: crea el envío en Draft
+  // (esDraft=true) y espera a que alguien lo apruebe (simulado con setTimeout
+  // en AppContext). El usuario puede cerrar y seguir trabajando.
+  const handleSolicitarAprobacion = () => {
+    if (!puedeSolicitarAprobacion || !motivo) return;
     const data = {
       piezas: piezas.map(p => ({ code: p.code, qtySolicitada: p.qty, qtySurtida: 0 } as TraspasoPiezaDetalle)),
       motivo,
       observaciones: observaciones.trim() || undefined,
     };
-    const solicitudId = crearEnvioCedis(data);
-    showToast(`Envío a CEDIS ${solicitudId} (${motivo}) creado desde ${sucursalActual}`, 'success');
-    onClose();
+    const petId = crearEnvioCedis(data);
+    setDraftPetId(petId);
+    setAprobEstado('aprobando');
+    showToast('Token enviado a INVENTARIOS para su aprobación. Puedes cerrar esta ventana.', 'info');
+  };
+
+  // Observa el draft: cuando esDraft pasa a false, marca "aprobado".
+  useEffect(() => {
+    if (aprobEstado !== 'aprobando' || !draftPetId) return;
+    const pet = traspasos.find(t => t.id === draftPetId);
+    if (pet && !pet.esDraft) {
+      setAprobEstado('aprobado');
+      showToast(`Token aprobado por INVENTARIOS. Envío ${draftPetId} entró como Pendiente.`, 'success');
+    }
+  }, [traspasos, draftPetId, aprobEstado, showToast]);
+
+  const handleAtras = () => {
+    if (step === 3 && aprobEstado !== 'idle') {
+      setConfirmVolver(true);
+      return;
+    }
+    setStep(prev => (prev - 1) as Step);
+  };
+  const confirmarVolverAPiezas = () => {
+    setAprobEstado('idle');
+    setDraftPetId(null);
+    setConfirmVolver(false);
+    setStep(2);
   };
 
   const canAdvance = step === 1 ? canStep2 : step === 2 ? canStep3 : true;
@@ -228,15 +263,19 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
               </div>
             )}
 
-            {/* Paso 3: Confirmación */}
+            {/* Paso 3: Confirmación con aprobación de token por INVENTARIOS */}
             {step === 3 && motivo && (
               <div className="flex flex-col gap-5">
                 <div className="rounded-lg p-4 flex flex-col gap-2" style={{ background: '#f8f9fb', border: '1px solid #e5e7eb' }}>
                   <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: '#1a2b6b' }}>Resumen</p>
-                  <div className="flex gap-6 text-sm items-center">
+                  <div className="flex gap-6 text-sm items-center flex-wrap">
                     <div>
                       <span className="text-2xl font-bold" style={{ color: '#1a2b6b' }}>{piezas.length}</span>
-                      <span className="text-xs ml-1" style={{ color: '#6b7280' }}>pieza{piezas.length !== 1 ? 's' : ''} distinta{piezas.length !== 1 ? 's' : ''}</span>
+                      <span className="text-xs ml-1" style={{ color: '#6b7280' }}>producto{piezas.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div>
+                      <span className="text-2xl font-bold" style={{ color: '#1a2b6b' }}>{totalPiezas}</span>
+                      <span className="text-xs ml-1" style={{ color: '#6b7280' }}>pieza{totalPiezas !== 1 ? 's' : ''} en total</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: MOTIVO_ENVIO_CEDIS_COLORS[motivo].bg, color: MOTIVO_ENVIO_CEDIS_COLORS[motivo].text, border: `1px solid ${MOTIVO_ENVIO_CEDIS_COLORS[motivo].border}` }}>{motivo}</span>
@@ -264,6 +303,62 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
                   <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)} placeholder="Notas del envío a CEDIS…" rows={3}
                     className="w-full text-xs rounded border px-3 py-2 resize-none" style={{ borderColor: '#d1d5db', fontFamily: 'Roboto, sans-serif' }} />
                 </div>
+
+                {/* Aprobación de token por INVENTARIOS. Todo movimiento hacia CEDIS
+                    requiere aprobación: el envío queda en Draft hasta que alguien
+                    de inventarios lo apruebe manualmente. */}
+                <div className="rounded-lg p-4 flex flex-col gap-3" style={{ background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)' }}>
+                  <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: '#d97706' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>vpn_key</span>
+                    Autorización de INVENTARIOS
+                  </p>
+
+                  {aprobEstado === 'idle' && (
+                    <>
+                      <p className="text-xs" style={{ color: '#6b7280' }}>
+                        Todo envío a CEDIS requiere <strong>aprobación de token</strong> por parte de INVENTARIOS. Al presionar el botón,
+                        el envío queda en <strong>Draft</strong> (sin SLA) hasta que alguien lo apruebe. Puedes cerrar la ventana
+                        y seguir trabajando; la cancelación se puede hacer desde el detalle de la petición.
+                      </p>
+                      <button
+                        onClick={handleSolicitarAprobacion}
+                        disabled={!puedeSolicitarAprobacion}
+                        className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold text-white"
+                        style={{ background: puedeSolicitarAprobacion ? '#d97706' : '#9ca3af', cursor: puedeSolicitarAprobacion ? 'pointer' : 'not-allowed' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>key</span>
+                        Solicitar aprobación de token
+                      </button>
+                    </>
+                  )}
+
+                  {aprobEstado === 'aprobando' && (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <div className="animate-spin rounded-full" style={{ width: 36, height: 36, border: '3px solid #fde68a', borderTopColor: '#d97706' }} />
+                      <p className="text-xs font-semibold text-center" style={{ color: '#b45309' }}>
+                        Esperando aprobación de INVENTARIOS…
+                      </p>
+                      <p className="text-[11px] text-center" style={{ color: '#6b7280' }}>
+                        Envío <strong style={{ color: '#1a2b6b' }}>{draftPetId}</strong> creado en <strong>Draft</strong>.
+                        Puedes cerrar esta ventana; el draft queda pendiente de aprobación (los drafts sin aprobar más de 24 h se cancelan solos).
+                      </p>
+                    </div>
+                  )}
+
+                  {aprobEstado === 'aprobado' && (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <div className="flex items-center justify-center rounded-full" style={{ width: 40, height: 40, background: 'rgba(22,163,74,0.14)' }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#16a34a' }}>check</span>
+                      </div>
+                      <p className="text-xs font-semibold text-center" style={{ color: '#166534' }}>
+                        Token aprobado por INVENTARIOS
+                      </p>
+                      <p className="text-[11px] text-center" style={{ color: '#6b7280' }}>
+                        El envío <strong style={{ color: '#1a2b6b' }}>{draftPetId}</strong> pasó a <strong>Pendiente</strong> y ya cuenta para SLA.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -271,7 +366,7 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4" style={{ borderTop: '1px solid #e5e7eb', flexShrink: 0 }}>
-          <button onClick={step === 1 ? onClose : () => setStep(prev => (prev - 1) as Step)}
+          <button onClick={step === 1 ? onClose : handleAtras}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all"
             style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white' }}>
             {step === 1 ? 'Cancelar' : (<><span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_back</span>Atrás</>)}
@@ -282,15 +377,45 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
               style={{ background: canAdvance ? '#1a2b6b' : '#9ca3af', cursor: canAdvance ? 'pointer' : 'not-allowed' }}>
               Siguiente<span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_forward</span>
             </button>
-          ) : (
-            <button onClick={handleConfirmar} disabled={!canConfirmar}
+          ) : aprobEstado === 'aprobado' ? (
+            <button onClick={onClose}
               className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold text-white transition-all"
-              style={{ background: canConfirmar ? '#16a34a' : '#9ca3af', cursor: canConfirmar ? 'pointer' : 'not-allowed', boxShadow: canConfirmar ? '0 2px 8px rgba(22,163,74,0.3)' : 'none' }}>
+              style={{ background: '#16a34a', boxShadow: '0 2px 8px rgba(22,163,74,0.3)' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check</span>
-              Confirmar envío
+              Listo, cerrar
             </button>
+          ) : aprobEstado === 'aprobando' ? (
+            <button onClick={onClose}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium border transition-all"
+              style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white' }}>
+              Cerrar y seguir trabajando
+            </button>
+          ) : (
+            <span className="text-[11px]" style={{ color: '#9ca3af' }}>Presiona "Solicitar aprobación de token" para continuar</span>
           )}
         </div>
+
+        {/* Confirmación al regresar de Confirmación → Piezas si hay draft en curso */}
+        {confirmVolver && (
+          <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+            <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div className="flex flex-col items-center gap-3 pt-6 px-6">
+                <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(217,119,6,0.14)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#d97706' }}>warning</span>
+                </div>
+                <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>¿Regresar a Piezas?</div>
+              </div>
+              <p className="text-xs mt-3 px-6 text-center leading-relaxed" style={{ color: '#555' }}>
+                Si modificas el envío tendrás que <strong>volver a solicitar la aprobación del token</strong>.
+                El draft <strong>#{draftPetId}</strong> queda en curso y podrás cancelarlo desde el detalle de la petición.
+              </p>
+              <div className="flex gap-2 px-6 py-5 mt-2">
+                <button onClick={() => setConfirmVolver(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
+                <button onClick={confirmarVolverAPiezas} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#d97706' }}>Sí, regresar</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

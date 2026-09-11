@@ -15,11 +15,14 @@ interface Props {
   peticion: TraspasoPeticion;
   onClose: () => void;
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
+  // Se dispara SOLO cuando se confirma la recepción con éxito (para encadenar
+  // el flujo continuo: recepción → dar entrada).
+  onFinalizado?: () => void;
 }
 
 const NAVY = '#1a2b6b';
 
-export default function ModalConfirmarRecepcion({ peticion, onClose, showToast }: Props) {
+export default function ModalConfirmarRecepcion({ peticion, onClose, showToast, onFinalizado }: Props) {
   const { confirmarRecepcion } = useApp();
   const esCedis = peticion.categoria === 'CEDIS';
   const yaConfirmado = peticion.status === 'Recibido' || peticion.status === 'Entregado';
@@ -44,6 +47,7 @@ export default function ModalConfirmarRecepcion({ peticion, onClose, showToast }
       tipoEfectivo === 'Parcial' ? 'warning' : 'success',
     );
     onClose();
+    onFinalizado?.();
   };
 
   return (

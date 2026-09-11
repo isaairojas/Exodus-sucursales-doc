@@ -20,11 +20,14 @@ interface Props {
   modo?: Modo;
   onClose: () => void;
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
+  // Se dispara SOLO cuando el surtido/revisión se finaliza con éxito (no en Negar).
+  // Sirve para encadenar el flujo continuo (surtido → revisión → embarque).
+  onFinalizado?: () => void;
 }
 
 const NAVY = '#1B3892';
 
-export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, showToast }: Props) {
+export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, showToast, onFinalizado }: Props) {
   const { finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, sucursalActual } = useApp();
   const stock = EXISTENCIA_POR_SUCURSAL[sucursalActual] ?? {};
   const esRevision = modo === 'revision';
@@ -95,6 +98,7 @@ export default function ModalSurtidoHH({ peticion, modo = 'surtido', onClose, sh
       showToast(`Traspaso ${peticion.id} ${esRevision ? 'revisado' : 'surtido'} completo.`, 'success');
     }
     onClose();
+    onFinalizado?.();
   };
 
   const handleFinalizar = () => {

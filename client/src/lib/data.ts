@@ -455,6 +455,7 @@ export const TRASPASO_CATEGORIA_TOOLTIP: Record<string, string> = {
   'Urgencia': 'Urgencia CEDIS: solicitud manual a CEDIS SIN pedido de cliente. La valida CEDIS con token y puede tardar más. Recepción ciega.',
   'Reabasto': 'Reabasto CEDIS: CEDIS envía por su cuenta para restock (sin pedido). Recepción ciega por cajas.',
   'Devolución': 'Devolución: la sucursal regresa mercancía a CEDIS (p. ej. exceso de inventario).',
+  'Ajuste de inventario': 'Ajuste de inventario: la sucursal envía mercancía a CEDIS para regularizar diferencias de inventario.',
   'Garantía': 'Garantía: la sucursal envía piezas defectuosas a CEDIS para su gestión de garantía.',
 };
 export function etapaTraspaso(status: TraspasoStatus): TraspasoEtapa {
@@ -569,9 +570,11 @@ export const TRASPASO_CATEGORIA_LABELS: Record<TraspasoCategoria, string> = {
 export type TraspasoSubtipoCedis = 'Especial' | 'Urgencia' | 'Reabasto';
 
 // Motivo de un ENVÍO de la sucursal hacia CEDIS. Rompe la unidireccionalidad
-// histórica (la sucursal ahora también envía a CEDIS): devoluciones y garantías
-// salen de la sucursal hacia el centro de distribución.
-export type MotivoEnvioCedis = 'Devolución' | 'Garantía';
+// histórica (la sucursal ahora también envía a CEDIS): devoluciones o ajustes
+// de inventario salen de la sucursal hacia el centro de distribución. (La
+// opción "Garantía" ya no se ofrece pero se conserva por compatibilidad de
+// datos históricos que la mencionen.)
+export type MotivoEnvioCedis = 'Devolución' | 'Ajuste de inventario' | 'Garantía';
 
 // Motivos tipificados para RECHAZAR un traspaso desde la sucursal donante. Si
 // se elige "Otro" se captura un comentario libre (queda en `motivoRechazo`).
@@ -590,8 +593,9 @@ export interface RecepcionLogEntry {
 }
 
 export const MOTIVO_ENVIO_CEDIS_COLORS: Record<MotivoEnvioCedis, { bg: string; text: string; border: string }> = {
-  'Devolución': { bg: 'rgba(217,119,6,0.1)', text: '#b45309', border: 'rgba(217,119,6,0.35)' },
-  'Garantía':   { bg: 'rgba(37,99,235,0.1)', text: '#1d4ed8', border: 'rgba(37,99,235,0.35)' },
+  'Devolución':            { bg: 'rgba(217,119,6,0.1)',   text: '#b45309', border: 'rgba(217,119,6,0.35)' },
+  'Ajuste de inventario':  { bg: 'rgba(13,148,136,0.1)',  text: '#0d9488', border: 'rgba(13,148,136,0.35)' },
+  'Garantía':              { bg: 'rgba(37,99,235,0.1)',   text: '#1d4ed8', border: 'rgba(37,99,235,0.35)' },
 };
 
 export interface TraspasoPeticion {
@@ -2534,15 +2538,15 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     noPapeleta: '471009', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,
   },
-  // S10) Envío a CEDIS — GARANTÍA (Surtido).
+  // S10) Envío a CEDIS — AJUSTE DE INVENTARIO (Surtido).
   {
-    id: 'DEMO-EJ-SAL-GAR-1', solicitudId: 'DEMO-S-SALGAR', tipo: 'Saliente', categoria: 'Manual',
+    id: 'DEMO-EJ-SAL-AJU-1', solicitudId: 'DEMO-S-SALAJU', tipo: 'Saliente', categoria: 'Manual',
     sucursalContraparte: 'CEDIS', sucursalOrigen: 'Federalismo', sucursalDestino: 'CEDIS',
-    motivoEnvioCedis: 'Garantía', status: 'Surtido',
+    motivoEnvioCedis: 'Ajuste de inventario', status: 'Surtido',
     fechaCreacion: '2026-07-07 09:20', fechaActualizacion: '2026-07-07 10:00',
     piezas: [{ code: 'RD-772', qtySolicitada: 1, qtySurtida: 1 }],
     pedidoOrigen: '', parcial: false,
-    observaciones: 'Envío a CEDIS por garantía (pieza defectuosa), surtido.',
+    observaciones: 'Envío a CEDIS por ajuste de inventario, surtido.',
     usuarioCreador: 'FEDERALISMO_LOG',
     noPapeleta: '480702', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,

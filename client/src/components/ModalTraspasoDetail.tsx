@@ -7,7 +7,7 @@ import { useState } from 'react';
 import {
   TraspasoPeticion, TraspasoStatus, TRASPASO_STATUS_COLORS, TRASPASO_STATUS_POR_TIPO, TRASPASO_STATUS_CEDIS,
   TRASPASO_TIPO_LABELS, TRASPASO_TIPO_ICONS, TRASPASO_CATEGORIA_LABELS, CEDIS_SUBTIPO_COLORS,
-  PRODUCT_CATALOG, tiempoTranscurrido,
+  PRODUCT_CATALOG, tiempoTranscurrido, ORDERS_DB,
 } from '@/lib/data';
 import { TRASPASO_DIAS_VENCIDO_SURTIDO, TRASPASO_DIAS_VENCIDO_CEDIS } from '@/lib/traspasoConfig';
 import { useApp } from '@/contexts/AppContext';
@@ -65,6 +65,7 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Props) {
   const { sucursalActual, cancelarSolicitud } = useApp();
   const [confirmCancelar, setConfirmCancelar] = useState(false);
+  const [showPedidoDetalle, setShowPedidoDetalle] = useState(false);
   // La solicitud la puede cancelar la sucursal que la generó (destino/solicitante),
   // ANTES de su revisión (mientras sigue Pendiente o Surtido). No mueve inventario.
   const esSolicitante = peticion.sucursalDestino === sucursalActual;
@@ -404,14 +405,26 @@ export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Pr
               <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#1a2b6b' }}>
                 Pedido origen
               </h3>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {peticion.pedidoOrigen ? (
-                  <span
-                    className="px-3 py-1 rounded-full text-xs font-semibold"
-                    style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.18)' }}
-                  >
-                    #{peticion.pedidoOrigen}
-                  </span>
+                  <>
+                    <span
+                      className="px-3 py-1 rounded-full text-xs font-semibold"
+                      style={{ background: 'rgba(26,43,107,0.08)', color: '#1a2b6b', border: '1px solid rgba(26,43,107,0.18)' }}
+                    >
+                      #{peticion.pedidoOrigen}
+                    </span>
+                    {/* Botón para abrir un resumen del pedido origen (solo si existe). */}
+                    <button
+                      onClick={() => setShowPedidoDetalle(true)}
+                      className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all"
+                      style={{ background: 'rgba(37,99,235,0.08)', color: '#2563eb', border: '1px solid rgba(37,99,235,0.35)' }}
+                      title="Abrir detalle del pedido origen"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>open_in_new</span>
+                      Ver detalle del pedido
+                    </button>
+                  </>
                 ) : (
                   <span style={{ color: '#9ca3af' }}>—</span>
                 )}
@@ -483,6 +496,64 @@ export default function ModalTraspasoDetail({ peticion, onClose, showToast }: Pr
             </div>
           </div>
         )}
+
+        {/* Detalle del pedido origen (modal ligero anidado) */}
+        {showPedidoDetalle && peticion.pedidoOrigen && (() => {
+          const orderKey = peticion.pedidoOrigen.replace(/^P/, '');
+          const order = ORDERS_DB[orderKey];
+          return (
+            <div className="absolute inset-0 z-[90] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={e => { if (e.target === e.currentTarget) setShowPedidoDetalle(false); }}>
+              <div className="w-full bg-white overflow-hidden flex flex-col" style={{ maxWidth: 520, maxHeight: '86vh', borderRadius: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                <div className="flex items-center gap-2 px-5 py-4" style={{ background: '#2563eb' }}>
+                  <span className="material-symbols-outlined text-white" style={{ fontSize: 20 }}>person</span>
+                  <span className="font-bold text-sm text-white">Detalle del pedido</span>
+                  <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff' }}>#{peticion.pedidoOrigen}</span>
+                  <button onClick={() => setShowPedidoDetalle(false)} className="ml-auto w-7 h-7 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+                  {order ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Cliente</div><div className="font-semibold" style={{ color: '#1a2b6b' }}>{order.cliente}</div></div>
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Vendedor</div><div className="font-semibold" style={{ color: '#1a2b6b' }}>{order.vendedor}</div></div>
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Fecha captura</div><div className="font-semibold" style={{ color: '#1a2b6b' }}>{order.fechaCaptura}</div></div>
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Estatus</div><div className="font-semibold" style={{ color: '#1a2b6b' }}>{order.status}</div></div>
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Total</div><div className="font-bold text-sm" style={{ color: '#16a34a' }}>{order.total}</div></div>
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Origen</div><div className="font-semibold" style={{ color: '#1a2b6b' }}>{order.origen}</div></div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-semibold mb-1.5" style={{ color: '#9ca3af' }}>Partidas del pedido</div>
+                        <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #e5e7eb' }}>
+                          <div className="grid grid-cols-[1fr_60px] px-3 py-2 text-[10px] font-bold uppercase" style={{ background: '#f8f9fb', color: '#6b7280' }}>
+                            <span>Producto</span><span className="text-center">Cant.</span>
+                          </div>
+                          {order.partidas.map(p => (
+                            <div key={p.code} className="grid grid-cols-[1fr_60px] px-3 py-2 text-xs" style={{ borderTop: '1px solid #f0f0f0' }}>
+                              <div><span className="font-semibold" style={{ color: '#1a2b6b' }}>{p.code}</span> <span style={{ color: '#6b7280' }}>— {PRODUCT_CATALOG[p.code]?.name ?? p.code}</span></div>
+                              <span className="text-center font-bold" style={{ color: '#1a2b6b' }}>{p.qty}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {order.observaciones && (
+                        <div><div className="text-[10px] uppercase font-semibold" style={{ color: '#9ca3af' }}>Observaciones</div><div className="text-xs" style={{ color: '#374151' }}>{order.observaciones}</div></div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-xs text-center py-6" style={{ color: '#9ca3af' }}>
+                      Pedido <strong>#{peticion.pedidoOrigen}</strong> no disponible en catálogo local.
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-end px-5 py-3" style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <button onClick={() => setShowPedidoDetalle(false)} className="px-4 py-2 rounded-lg text-sm font-medium border" style={{ border: '1.5px solid #d1d5db', color: '#374151', background: 'white' }}>Cerrar</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

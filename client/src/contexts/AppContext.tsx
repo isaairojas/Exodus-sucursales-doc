@@ -73,6 +73,10 @@ interface AppContextValue {
   generarSolicitudRestante: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   revisarTraspaso: (petId: string, conIncidencias: boolean) => void;
   entregarTraspaso: (petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => void;
+  // Dar entrada al inventario: Recibido → Entregado (Finalizado). En el futuro
+  // abrirá una ventana propia con el proceso completo de entrada a inventario;
+  // por ahora solo mueve la petición a Finalizados.
+  darEntradaInventario: (petId: string) => void;
   confirmarRecepcion: (petId: string, data: { tipo: 'Completa' | 'Parcial'; nota?: string; cajasRecibidas?: number }) => void;
   crearSolicitudTraspaso: (data: CrearSolicitudData) => string;
   crearSolicitudCedisUrgencia: (data: CrearSolicitudCedisData) => string;
@@ -489,6 +493,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  // Placeholder — al hacer click en "Dar entrada" en Por recibir, mueve la
+  // petición de Recibido (confirmado físicamente) a Entregado (finalizado con
+  // entrada al inventario). Pronto abrirá una ventana dedicada al proceso.
+  const darEntradaInventario = useCallback((petId: string) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setTraspasos(prev => prev.map(t => t.id === petId && t.status === 'Recibido'
+      ? { ...t, status: 'Entregado' as TraspasoStatus, fechaActualizacion: now }
+      : t));
+  }, []);
+
   const entregarTraspaso = useCallback((petId: string, piezasRecibidas?: TraspasoPiezaDetalle[]) => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     setTraspasos(prev => prev.map(t => {
@@ -663,17 +677,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Envío de mercancía de la sucursal HACIA CEDIS (devolución / garantía).
-  // Sale de la sucursal actual (origen) con destino CEDIS; sigue el pipeline
-  // normal de "Por enviar" (Pendiente → Surtido → Revisado → Enviado).
+  // Sale de la sucursal actual (origen) con destino CEDIS. Como todo movimiento
+  // hacia CEDIS requiere aprobación de token por parte de INVENTARIOS, el envío
+  // se crea en estado Draft (esDraft=true, sin SLA) y alguien más lo aprueba
+  // (simulado con setTimeout). Devuelve el id de la PETICIÓN para observarla.
   const crearEnvioCedis = useCallback((data: CrearEnvioCedisData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
     const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
     const solicitudId = `S${pad7(ts)}`;
+    const petId = `TM${pad7(ts)}`;
     const piezas = data.piezas.map(p => ({ ...p, qtySurtida: 0 }));
     const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
     const nueva: TraspasoPeticion = {
-      id: `TM${pad7(ts)}`,
+      id: petId,
       solicitudId,
       tipo: 'Saliente',
       categoria: 'Manual',
@@ -682,6 +699,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sucursalDestino: 'CEDIS',
       motivoEnvioCedis: data.motivo,
       status: 'Pendiente',
+      esDraft: true,
       fechaCreacion: now,
       fechaActualizacion: now,
       piezas,
@@ -697,7 +715,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       intento: 1,
     };
     setTraspasos(prev => [nueva, ...prev]);
-    return solicitudId;
+    // Aprobación simulada por INVENTARIOS.
+    setTimeout(() => {
+      const nowAprob = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      setTraspasos(prev => prev.map(t => t.id === petId && t.esDraft
+        ? { ...t, esDraft: false, fechaActualizacion: nowAprob }
+        : t));
+    }, TIEMPO_APROBACION_TOKEN_MS);
+    return petId;
   }, [sucursalActual]);
 
   // Eliminación/ajuste de peticiones auto/semi cuando una urgencia CEDIS o un
@@ -729,7 +754,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goToScreen, loadOrder, processScan,
       toggleAuthorize, finalizeReview, resetReview,
       setPreSelectedOrder, updateOrderStatus,
-      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, cancelarSolicitud, revisarTraspaso, entregarTraspaso, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, aprobarSolicitudCedisDraft, crearEnvioCedis, cancelarPeticiones,
+      traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, cancelarSolicitud, revisarTraspaso, entregarTraspaso, darEntradaInventario, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, aprobarSolicitudCedisDraft, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
       embarquesTraspaso, embarcarTraspaso,
     }}>
