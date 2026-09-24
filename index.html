@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Exodus Handheld · Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<style>
+  /* ---------- Página de documentación (no forma parte del DS) ---------- */
+  :root {
+    --doc-bg: #f4f6fb;
+    --doc-panel: #ffffff;
+    --doc-ink: #1a1f2e;
+    --doc-muted: #5b6478;
+    --doc-line: #e4e8f2;
+    --doc-code: #0d1224;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: "Roboto", system-ui, sans-serif;
+    background: var(--doc-bg);
+    color: var(--doc-ink);
+    line-height: 1.55;
+  }
+  code, .mono { font-family: "Roboto Mono", ui-monospace, monospace; }
+
+  /* Layout */
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  .layout { display: grid; grid-template-columns: 220px 1fr; gap: 48px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+
+  /* Hero */
+  .hero {
+    background: var(--gradient-login);
+    color: #fff;
+    padding: 64px 0 72px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::after {
+    content: ""; position: absolute; right: -80px; top: -60px;
+    width: 340px; height: 340px; border-radius: 50%;
+    background: rgba(255,255,255,0.07);
+  }
+  .hero .wrap { position: relative; z-index: 1; }
+  .hero .eyebrow { text-transform: uppercase; letter-spacing: 3px; font-size: 12px; font-weight: 700; opacity: .8; }
+  .hero h1 { font-size: 46px; font-weight: 900; margin: 12px 0 10px; line-height: 1.05; }
+  .hero p { font-size: 17px; font-weight: 300; max-width: 620px; margin: 0; opacity: .95; }
+  .hero .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .chip {
+    background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.25);
+    padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500;
+    backdrop-filter: blur(6px);
+  }
+  .chip-ico { font-size: 15px; vertical-align: -3px; margin-right: 5px; }
+
+  /* TOC */
+  .toc { position: sticky; top: 24px; }
+  .toc h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--doc-muted); margin: 0 0 12px; }
+  .toc a { display: block; padding: 7px 12px; border-radius: 8px; color: var(--doc-muted); text-decoration: none; font-size: 14px; font-weight: 500; }
+  .toc a:hover { background: var(--navy-100); color: var(--color-primary); }
+
+  /* Secciones */
+  section { padding: 52px 0; border-bottom: 1px solid var(--doc-line); }
+  section:last-child { border-bottom: 0; }
+  .kicker { font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--color-primary); }
+  h2 { font-size: 30px; font-weight: 900; margin: 8px 0 6px; letter-spacing: -.5px; }
+  .lead { color: var(--doc-muted); font-size: 16px; margin: 0 0 28px; max-width: 680px; }
+  h3 { font-size: 18px; font-weight: 700; margin: 34px 0 14px; }
+
+  /* Paneles / tarjetas de doc */
+  .panel { background: var(--doc-panel); border: 1px solid var(--doc-line); border-radius: 14px; }
+  .grid { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 720px) { .g3, .g4 { grid-template-columns: repeat(2,1fr); } }
+
+  /* Muestras de color */
+  .swatch { border: 1px solid var(--doc-line); border-radius: 12px; overflow: hidden; background: #fff; }
+  .swatch .fill { height: 76px; }
+  .swatch .info { padding: 10px 12px; }
+  .swatch .name { font-size: 13px; font-weight: 700; }
+  .swatch .val { font-size: 12px; color: var(--doc-muted); }
+  .swatch .val code { font-size: 11px; }
+
+  /* Ejemplo de componente */
+  .demo {
+    background: var(--doc-panel); border: 1px solid var(--doc-line); border-radius: 14px;
+    padding: 24px; display: flex; flex-direction: column; gap: 16px;
+  }
+  .demo .label { font-size: 13px; font-weight: 700; color: var(--doc-ink); }
+  .demo .desc { font-size: 13px; color: var(--doc-muted); margin: -8px 0 4px; }
+  .demo .stage {
+    background: var(--doc-bg); border-radius: 10px; padding: 20px;
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: center;
+  }
+  .demo .stage.col { flex-direction: column; align-items: stretch; }
+
+  /* Bloque de código */
+  pre {
+    background: var(--doc-code); color: #cdd6f4; border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.6; margin: 0;
+  }
+  pre .tok-tag { color: #89b4fa; }
+  pre .tok-attr { color: #f9e2af; }
+  pre .tok-str { color: #a6e3a1; }
+  pre .tok-com { color: #6c7394; }
+
+  /* Tabla de tokens */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--doc-line); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--doc-muted); }
+  td code { background: var(--navy-100); color: var(--color-primary); padding: 2px 7px; border-radius: 5px; font-size: 12.5px; }
+  .dot { display: inline-block; width: 15px; height: 15px; border-radius: 4px; vertical-align: -2px; margin-right: 8px; border: 1px solid var(--doc-line); }
+
+  /* Frame handheld */
+  .frame-row { display: flex; gap: 32px; flex-wrap: wrap; }
+  .device {
+    width: 360px; max-width: 100%;
+    background: #fff; border-radius: 34px; padding: 10px;
+    box-shadow: var(--shadow-device); border: 1px solid #d5dbe9;
+  }
+  .device__notch { height: 22px; display: flex; align-items: center; justify-content: center; }
+  .device__notch span { width: 90px; height: 6px; border-radius: 3px; background: #d5dbe9; }
+  .device__screen {
+    border-radius: 26px; overflow: hidden; background: #fff;
+    height: 720px; position: relative; border: 1px solid var(--doc-line);
+  }
+  .device__cap { text-align: center; font-size: 13px; color: var(--doc-muted); margin-top: 12px; font-weight: 500; }
+
+  /* Escala tipográfica */
+  .type-row { display: flex; align-items: baseline; gap: 20px; padding: 14px 0; border-bottom: 1px solid var(--doc-line); }
+  .type-row .spec { width: 150px; flex-shrink: 0; font-size: 12px; color: var(--doc-muted); }
+  .type-row .spec b { color: var(--doc-ink); display: block; font-size: 13px; }
+
+  /* Notas */
+  .note { display: flex; gap: 12px; background: var(--navy-100); border: 1px solid #d7e0f7; border-radius: 12px; padding: 16px 18px; font-size: 14px; color: #2a3557; }
+  .note.warn { background: #fff4f6; border-color: #ffd0da; color: #7a1128; }
+  .note b { font-weight: 700; }
+  .note .mark { font-size: 18px; }
+
+  footer { padding: 40px 0 60px; color: var(--doc-muted); font-size: 13px; text-align: center; }
+
+  /* Íconos genéricos usados en demos */
+  .ic { width: 20px; height: 20px; display: inline-flex; }
+  .ic svg { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">APYMSA · Autopartes y Mayoreo</div>
+    <h1>Exodus Handheld<br />Design System</h1>
+    <p>Sistema de diseño para la PWA operativa de sucursales, pensada para dispositivos handheld Zebra. Tema claro, navy institucional y una única fuente de verdad en tokens.</p>
+    <div class="meta">
+      <span class="chip"><span class="material-symbols-outlined chip-ico">crop_portrait</span>Frame objetivo 360&nbsp;px</span>
+      <span class="chip"><span class="material-symbols-outlined chip-ico">light_mode</span>Tema claro</span>
+      <span class="chip"><span class="material-symbols-outlined chip-ico">text_fields</span>Roboto</span>
+      <span class="chip"><span class="material-symbols-outlined chip-ico">palette</span>Primario #1B3892</span>
+      <span class="chip"><span class="material-symbols-outlined chip-ico">smartphone</span>PWA · Zebra TC/T</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap" style="padding-top:40px;">
+<div class="layout">
+
+  <!-- ============ TOC ============ -->
+  <nav class="toc">
+    <h4>Contenido</h4>
+    <a href="#principios">Principios</a>
+    <a href="#color">Color</a>
+    <a href="#tipografia">Tipografía</a>
+    <a href="#radios">Radios y espaciado</a>
+    <a href="#sombras">Sombras</a>
+    <a href="#botones">Botones</a>
+    <a href="#inputs">Inputs y campos</a>
+    <a href="#select">Select</a>
+    <a href="#stepper">Stepper</a>
+    <a href="#feedback">Feedback</a>
+    <a href="#navegacion">Navegación</a>
+    <a href="#pantallas">Pantallas</a>
+    <a href="#uso">Cómo usar</a>
+  </nav>
+
+  <main>
+
+    <!-- ============ PRINCIPIOS ============ -->
+    <section id="principios" style="padding-top:12px;">
+      <div class="kicker">Fundamentos</div>
+      <h2>Principios de diseño</h2>
+      <p class="lead">Exodus Handheld es una herramienta operativa de almacén y sucursal. El diseño prioriza claridad, toques grandes y lectura rápida bajo condiciones de trabajo.</p>
+      <div class="grid g3">
+        <div class="panel" style="padding:22px;">
+          <div><span class="material-symbols-outlined" style="font-size:30px;color:var(--color-primary);">touch_app</span></div>
+          <h3 style="margin:10px 0 6px;">Táctil primero</h3>
+          <p style="margin:0;color:var(--doc-muted);font-size:14px;">Botones de 60&nbsp;px y campos de 43–50&nbsp;px. Objetivos amplios para operar con guantes o a ritmo de almacén.</p>
+        </div>
+        <div class="panel" style="padding:22px;">
+          <div><span class="material-symbols-outlined" style="font-size:30px;color:var(--color-primary);">ads_click</span></div>
+          <h3 style="margin:10px 0 6px;">Una acción por pantalla</h3>
+          <p style="margin:0;color:var(--doc-muted);font-size:14px;">Flujo lineal. La acción primaria vive en una barra inferior fija; cancelar/rechazar siempre a la izquierda.</p>
+        </div>
+        <div class="panel" style="padding:22px;">
+          <div><span class="material-symbols-outlined" style="font-size:30px;color:var(--color-primary);">palette</span></div>
+          <h3 style="margin:10px 0 6px;">Color con significado</h3>
+          <p style="margin:0;color:var(--doc-muted);font-size:14px;">Navy = marca y acción principal. Verde = confirmar. Rojo = cancelar, error o alerta. Sin decoración gratuita.</p>
+        </div>
+      </div>
+      <div class="note warn" style="margin-top:22px;">
+        <span class="material-symbols-outlined mark">warning</span>
+        <div><b>Corrección respecto a la implementación actual.</b> La app <code>Exodus-sucursales-doc</code> se construyó en <b>tema oscuro</b> con un navy distinto (#1a2b6b) y 11+ tonos de azul sueltos. Este Design System toma como fuente de verdad el <b>prototipo real de Figma</b>: tema claro, navy <b>#1B3892</b> y paleta consolidada.</div>
+      </div>
+    </section>
+
+    <!-- ============ COLOR ============ -->
+    <section id="color">
+      <div class="kicker">Tokens</div>
+      <h2>Color</h2>
+      <p class="lead">Todos los colores provienen del prototipo de Figma. Usa siempre las variables, nunca hex a mano.</p>
+
+      <h3>Escala de marca (Navy)</h3>
+      <div class="grid g3">
+        <div class="swatch"><div class="fill" style="background:var(--navy-900)"></div><div class="info"><div class="name">navy-900</div><div class="val">#12285F · <code>--navy-900</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--navy-700)"></div><div class="info"><div class="name">navy-700 · Primario</div><div class="val">#1B3892 · <code>--navy-700</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--navy-500)"></div><div class="info"><div class="name">navy-500 · Hover</div><div class="val">#3651A7 · <code>--navy-500</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--navy-300)"></div><div class="info"><div class="name">navy-300</div><div class="val">#7991DC · <code>--navy-300</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--navy-200)"></div><div class="info"><div class="name">navy-200</div><div class="val">#A7B9EF · <code>--navy-200</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--navy-100)"></div><div class="info"><div class="name">navy-100 · Tinte</div><div class="val">#EEF1F9 · <code>--navy-100</code></div></div></div>
+      </div>
+
+      <h3>Semántico</h3>
+      <div class="grid g3">
+        <div class="swatch"><div class="fill" style="background:var(--color-primary)"></div><div class="info"><div class="name">Primario</div><div class="val"><code>--color-primary</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-success)"></div><div class="info"><div class="name">Éxito / Confirmar</div><div class="val">#2DAA81 · <code>--color-success</code></div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-danger)"></div><div class="info"><div class="name">Peligro / Error</div><div class="val">#E6002B · <code>--color-danger</code></div></div></div>
+      </div>
+
+      <h3>Neutrales</h3>
+      <div class="grid g4">
+        <div class="swatch"><div class="fill" style="background:var(--color-text-strong)"></div><div class="info"><div class="name">Texto fuerte</div><div class="val">#343434</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-icon)"></div><div class="info"><div class="name">Ícono</div><div class="val">#616161</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-disabled)"></div><div class="info"><div class="name">Deshabilitado</div><div class="val">#BDBDBD</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-border)"></div><div class="info"><div class="name">Borde</div><div class="val">#E1E1E1</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-surface);box-shadow:inset 0 0 0 1px var(--doc-line)"></div><div class="info"><div class="name">Superficie</div><div class="val">#FFFFFF</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-surface-hover)"></div><div class="info"><div class="name">Hover fila</div><div class="val">#EEF1F9</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--color-toast-bg)"></div><div class="info"><div class="name">Toast</div><div class="val">#242C32</div></div></div>
+        <div class="swatch"><div class="fill" style="background:var(--gradient-login)"></div><div class="info"><div class="name">Degradado login</div><div class="val"><code>--gradient-login</code></div></div></div>
+      </div>
+    </section>
+
+    <!-- ============ TIPOGRAFÍA ============ -->
+    <section id="tipografia">
+      <div class="kicker">Tokens</div>
+      <h2>Tipografía</h2>
+      <p class="lead">Roboto es la única familia. Los pesos disponibles van de 100 a 900.</p>
+      <div class="panel" style="padding:8px 24px 24px;">
+        <div class="type-row"><div class="spec"><b>Display</b>48px / 700</div><span style="font-size:48px;font-weight:700;color:var(--color-primary);">$580.00</span></div>
+        <div class="type-row"><div class="spec"><b>H1 Login</b>30px / 700</div><span style="font-size:30px;font-weight:700;">Inicio de sesión</span></div>
+        <div class="type-row"><div class="spec"><b>Título</b>24px / 700</div><span style="font-size:24px;font-weight:700;color:var(--color-text-strong);">Menú principal</span></div>
+        <div class="type-row"><div class="spec"><b>Encabezado</b>20px / 700</div><span style="font-size:20px;font-weight:700;">Datos de la factura</span></div>
+        <div class="type-row"><div class="spec"><b>Etiqueta</b>18px / 700</div><span style="font-size:18px;font-weight:700;">Empleado</span></div>
+        <div class="type-row"><div class="spec"><b>Cuerpo</b>15px / 400</div><span style="font-size:15px;">Captura los datos para continuar.</span></div>
+        <div class="type-row"><div class="spec"><b>Input / valor</b>14px / 400</div><span style="font-size:14px;color:var(--color-text-strong);">JUAN ANTONIO GUERRERO</span></div>
+        <div class="type-row"><div class="spec"><b>Flotante</b>13px / 700</div><span style="font-size:13px;font-weight:700;">Dirección fiscal</span></div>
+        <div class="type-row" style="border-bottom:0;"><div class="spec"><b>Meta / versión</b>12px / 400</div><span style="font-size:12px;color:var(--doc-muted);">v 1.1.75.0</span></div>
+      </div>
+    </section>
+
+    <!-- ============ RADIOS Y ESPACIADO ============ -->
+    <section id="radios">
+      <div class="kicker">Tokens</div>
+      <h2>Radios y espaciado</h2>
+      <p class="lead">Dos radios definen el sistema: 5&nbsp;px para controles y 30&nbsp;px (solo esquinas superiores) para sheets.</p>
+      <div class="grid g2">
+        <div class="panel" style="padding:24px;">
+          <h3 style="margin-top:0;">Radios</h3>
+          <table>
+            <tr><td><span class="dot" style="background:var(--color-primary);border-radius:5px;"></span> Control</td><td><code>--radius-control</code></td><td>5px</td></tr>
+            <tr><td><span class="dot" style="background:var(--color-primary);border-radius:10px 10px 0 0;"></span> Sheet</td><td><code>--radius-sheet</code></td><td>30px</td></tr>
+            <tr><td><span class="dot" style="background:var(--color-primary);border-radius:6px;"></span> Toast</td><td><code>--radius-toast</code></td><td>10px</td></tr>
+            <tr><td><span class="dot" style="background:var(--color-primary);border-radius:50%;"></span> Pill</td><td><code>--radius-pill</code></td><td>999px</td></tr>
+          </table>
+        </div>
+        <div class="panel" style="padding:24px;">
+          <h3 style="margin-top:0;">Escala de espaciado</h3>
+          <table>
+            <tr><td><code>--space-1</code></td><td>8px</td></tr>
+            <tr><td><code>--space-2</code></td><td>13px</td></tr>
+            <tr><td><code>--space-3</code></td><td>16px</td></tr>
+            <tr><td><code>--space-4</code></td><td>21px</td></tr>
+            <tr><td><code>--space-5</code></td><td>24px</td></tr>
+            <tr><td><code>--space-6</code></td><td>32px</td></tr>
+          </table>
+        </div>
+      </div>
+      <h3>Alturas de control</h3>
+      <div class="grid g3">
+        <div class="demo"><div class="label">Campo · 43px</div><div class="stage"><div class="exo" style="width:100%"><div class="exo-stack__body" style="border-radius:5px;box-shadow:var(--ring-focus);">Campo secundario</div></div></div></div>
+        <div class="demo"><div class="label">Input · 50px</div><div class="stage"><div class="exo" style="width:100%"><div class="exo-input"><input placeholder="Usuario" /></div></div></div></div>
+        <div class="demo"><div class="label">Botón · 60px</div><div class="stage"><div class="exo" style="width:100%"><button class="exo-btn exo-btn--primary">Iniciar sesión</button></div></div></div>
+      </div>
+    </section>
+
+    <!-- ============ SOMBRAS ============ -->
+    <section id="sombras">
+      <div class="kicker">Tokens</div>
+      <h2>Sombras</h2>
+      <p class="lead">Sutiles. Las sheets proyectan hacia arriba; los overlays hacia abajo.</p>
+      <div class="grid g4">
+        <div class="demo"><div class="label">Sheet</div><div class="stage" style="background:#eef1f9;"><div style="width:90px;height:60px;background:#fff;border-radius:10px;box-shadow:var(--shadow-sheet);"></div></div></div>
+        <div class="demo"><div class="label">Card</div><div class="stage" style="background:#eef1f9;"><div style="width:90px;height:60px;background:#fff;border-radius:10px;box-shadow:var(--shadow-card);"></div></div></div>
+        <div class="demo"><div class="label">Dropdown</div><div class="stage" style="background:#eef1f9;"><div style="width:90px;height:60px;background:#fff;border-radius:10px;box-shadow:var(--shadow-dropdown);"></div></div></div>
+        <div class="demo"><div class="label">Toast</div><div class="stage" style="background:#eef1f9;"><div style="width:90px;height:60px;background:#fff;border-radius:10px;box-shadow:var(--shadow-toast);"></div></div></div>
+      </div>
+    </section>
+
+    <!-- ============ BOTONES ============ -->
+    <section id="botones">
+      <div class="kicker">Componentes</div>
+      <h2>Botones</h2>
+      <p class="lead">Altura 60&nbsp;px, radio 5&nbsp;px. En barras dobles el destructivo va a la izquierda y el de avance a la derecha.</p>
+      <div class="grid g2">
+        <div class="demo">
+          <div class="label">Primario</div>
+          <div class="desc">Acción principal / navegación de avance.</div>
+          <div class="stage col"><button class="exo-btn exo-btn--primary">Iniciar sesión</button></div>
+        </div>
+        <div class="demo">
+          <div class="label">Éxito</div>
+          <div class="desc">Confirmar, aceptar tarea, generar factura.</div>
+          <div class="stage col"><button class="exo-btn exo-btn--success">Generar factura</button></div>
+        </div>
+        <div class="demo">
+          <div class="label">Peligro</div>
+          <div class="desc">Salir, cancelar, rechazar.</div>
+          <div class="stage col"><button class="exo-btn exo-btn--danger">Salir</button></div>
+        </div>
+        <div class="demo">
+          <div class="label">Deshabilitado</div>
+          <div class="desc">Sin datos válidos aún.</div>
+          <div class="stage col"><button class="exo-btn exo-btn--primary" disabled>Iniciar sesión</button></div>
+        </div>
+      </div>
+      <div class="demo" style="margin-top:16px;">
+        <div class="label">Barra de acciones doble (patrón)</div>
+        <div class="stage"><div class="exo" style="display:flex;gap:16px;width:100%;"><button class="exo-btn exo-btn--danger">Cancelar</button><button class="exo-btn exo-btn--success">Generar factura</button></div></div>
+      </div>
+      <h3>Código</h3>
+      <pre><span class="tok-tag">&lt;button</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo-btn exo-btn--primary"</span><span class="tok-tag">&gt;</span>Iniciar sesión<span class="tok-tag">&lt;/button&gt;</span>
+<span class="tok-tag">&lt;button</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo-btn exo-btn--success"</span><span class="tok-tag">&gt;</span>Generar factura<span class="tok-tag">&lt;/button&gt;</span>
+<span class="tok-tag">&lt;button</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo-btn exo-btn--danger"</span><span class="tok-tag">&gt;</span>Salir<span class="tok-tag">&lt;/button&gt;</span></pre>
+    </section>
+
+    <!-- ============ INPUTS Y CAMPOS ============ -->
+    <section id="inputs">
+      <div class="kicker">Componentes</div>
+      <h2>Inputs y campos</h2>
+      <p class="lead">Cinco variantes de campo cubren el prototipo. Todas comparten radio de 5&nbsp;px y foco navy.</p>
+
+      <div class="grid g2">
+        <div class="demo">
+          <div class="label">Input con ícono</div>
+          <div class="desc">Login. Foco → borde navy.</div>
+          <div class="stage col">
+            <div class="exo"><div class="exo-input"><span class="material-symbols-outlined exo-icon">person</span><input placeholder="Usuario" /></div></div>
+            <div class="exo"><div class="exo-input"><span class="material-symbols-outlined exo-icon">lock</span><input type="password" placeholder="Contraseña" value="12345" /><span class="material-symbols-outlined exo-input__toggle">visibility</span></div></div>
+          </div>
+        </div>
+
+        <div class="demo">
+          <div class="label">Campo con etiqueta flotante</div>
+          <div class="desc">Datos de factura. Chip de etiqueta sobre el borde.</div>
+          <div class="stage col">
+            <div class="exo"><div class="exo-field"><span class="exo-field__label">Empleado</span><span class="exo-field__value exo-field__value--filled">200655 · MONTSERRAT PENICHE</span></div></div>
+            <div class="exo"><div class="exo-field"><span class="exo-field__label">Dirección de entrega</span><span class="exo-field__value">Seleccione una opción</span></div></div>
+          </div>
+        </div>
+
+        <div class="demo">
+          <div class="label">Campo con prefijo navy</div>
+          <div class="desc">Código + descripción (empleado, tarea).</div>
+          <div class="stage col">
+            <div class="exo"><div class="exo-prefix"><div class="exo-prefix__key">9029</div><div class="exo-prefix__val">JUAN ANTONIO GUERRERO MEDINA</div></div></div>
+          </div>
+        </div>
+
+        <div class="demo">
+          <div class="label">Campo con encabezado</div>
+          <div class="desc">Barra navy + cuerpo blanco. Fechas, actividad, folio.</div>
+          <div class="stage col">
+            <div class="exo"><div class="exo-stack"><div class="exo-stack__head"><span>Fecha</span><span class="material-symbols-outlined" style="font-size:18px;">calendar_today</span></div><div class="exo-stack__body"><b>Inicio:</b><span>31/08/2023</span></div></div></div>
+          </div>
+        </div>
+      </div>
+      <h3>Código</h3>
+      <pre><span class="tok-com">&lt;!-- Input de login --&gt;</span>
+<span class="tok-tag">&lt;div</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo-input"</span><span class="tok-tag">&gt;</span>
+  <span class="tok-tag">&lt;span</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo-icon"</span><span class="tok-tag">&gt;</span>…<span class="tok-tag">&lt;/span&gt;</span>
+  <span class="tok-tag">&lt;input</span> <span class="tok-attr">placeholder</span>=<span class="tok-str">"Usuario"</span> <span class="tok-tag">/&gt;</span>
+<span class="tok-tag">&lt;/div&gt;</span></pre>
+    </section>
+
+    <!-- ============ SELECT ============ -->
+    <section id="select">
+      <div class="kicker">Componentes</div>
+      <h2>Select / Dropdown</h2>
+      <p class="lead">Selector desplegable con opciones. Hover de opción usa <code>--color-surface-hover</code>.</p>
+      <div class="demo">
+        <div class="label">CEDIS / dirección</div>
+        <div class="stage col">
+          <div class="exo" style="position:relative;">
+            <div class="exo-field exo-select" style="cursor:pointer;">
+              <span class="material-symbols-outlined exo-icon">warehouse</span>
+              <span class="exo-field__value exo-field__value--filled">CEDIS 1</span>
+              <span class="material-symbols-outlined" style="color:var(--color-icon);">expand_more</span>
+            </div>
+            <div class="exo-select__menu" style="position:static;margin-top:6px;box-shadow:var(--shadow-dropdown);">
+              <div class="exo-select__option">CEDIS 1</div>
+              <div class="exo-select__option">CEDIS 2</div>
+              <div class="exo-select__option">CEDIS PRUEBAS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ STEPPER ============ -->
+    <section id="stepper">
+      <div class="kicker">Componentes</div>
+      <h2>Stepper · Checkbox · Badge</h2>
+      <div class="grid g3">
+        <div class="demo">
+          <div class="label">Stepper</div>
+          <div class="desc">Número de copias. − se deshabilita en el mínimo.</div>
+          <div class="stage"><div class="exo" style="width:200px;"><div class="exo-stepper"><button class="exo-stepper__btn" disabled>−</button><div class="exo-stepper__val">1</div><button class="exo-stepper__btn">+</button></div></div></div>
+        </div>
+        <div class="demo">
+          <div class="label">Checkbox</div>
+          <div class="desc">Estados on / off.</div>
+          <div class="stage"><div class="exo" style="display:flex;gap:20px;align-items:center;"><span class="exo-check exo-check--on"><svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4.5 4.2 7.7 11 1" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="exo-check"></span></div></div>
+        </div>
+        <div class="demo">
+          <div class="label">Badge / contador</div>
+          <div class="desc">Notificaciones pendientes.</div>
+          <div class="stage"><div class="exo" style="display:flex;gap:16px;align-items:center;"><span class="exo-badge">+5</span><span class="exo-badge--sm exo-badge">3</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FEEDBACK ============ -->
+    <section id="feedback">
+      <div class="kicker">Componentes</div>
+      <h2>Feedback · Toast</h2>
+      <p class="lead">Notificación superior con ícono, título, texto y barra de progreso. Se autocierra a los ~4&nbsp;s.</p>
+      <div class="demo">
+        <div class="stage" style="background:#eef1f9;">
+          <div class="exo" style="width:340px;max-width:100%;">
+            <div class="exo-toast">
+              <span class="exo-toast__icon"><svg viewBox="0 0 25 25" width="25" height="25"><circle cx="12.5" cy="12.5" r="11" fill="#fff"/><path d="M7 13l3.5 3.5L18 8" stroke="#2daa81" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <div class="exo-toast__body">
+                <span class="exo-toast__title">Imprimiendo factura</span>
+                <span class="exo-toast__text">La factura ha sido generada correctamente.</span>
+              </div>
+              <span class="material-symbols-outlined" style="color:#fff;opacity:.5;cursor:pointer;font-size:18px;">close</span>
+              <div class="exo-toast__bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ NAVEGACIÓN ============ -->
+    <section id="navegacion">
+      <div class="kicker">Componentes</div>
+      <h2>Navegación · Header y tarjetas de menú</h2>
+      <p class="lead">Header navy de 90&nbsp;px con retroceso y título. El menú usa tarjetas apiladas en escala navy descendente.</p>
+      <div class="grid g2">
+        <div class="demo">
+          <div class="label">Header</div>
+          <div class="stage" style="padding:0;background:transparent;">
+            <div class="exo" style="width:100%;border-radius:10px;overflow:hidden;">
+              <div class="exo-header" style="height:70px;">
+                <a class="exo-header__title"><span class="material-symbols-outlined">arrow_back</span> Menú</a>
+                <div class="exo-header__action"><span class="material-symbols-outlined" style="color:var(--color-primary);">more_vert</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="demo">
+          <div class="label">Tarjetas de menú (escala navy)</div>
+          <div class="stage col" style="gap:0;">
+            <div class="exo" style="width:100%;">
+              <div class="exo-menu-card exo-menu-card--l1" style="min-height:70px;padding:18px 24px;"><span class="exo-menu-card__title" style="font-size:18px;">Tareas</span></div>
+              <div class="exo-menu-card exo-menu-card--l2" style="min-height:70px;padding:18px 24px;margin-top:-14px;"><span class="exo-menu-card__title" style="font-size:18px;">Consulta</span></div>
+              <div class="exo-menu-card exo-menu-card--l3" style="min-height:70px;padding:18px 24px;margin-top:-14px;"><span class="exo-menu-card__title" style="font-size:18px;">Descarga</span></div>
+              <div class="exo-menu-card exo-menu-card--l4" style="min-height:70px;padding:18px 24px;margin-top:-14px;"><span class="exo-menu-card__title" style="font-size:18px;color:#fff;">Evidencias</span><span class="exo-badge" style="position:relative;z-index:1;">+5</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PANTALLAS ============ -->
+    <section id="pantallas">
+      <div class="kicker">Composición</div>
+      <h2>Pantallas de referencia</h2>
+      <p class="lead">Cómo se combinan los componentes dentro del frame objetivo de 360&nbsp;px.</p>
+      <div class="frame-row">
+
+        <!-- LOGIN -->
+        <div>
+          <div class="device"><div class="device__notch"><span></span></div>
+            <div class="device__screen" style="background:var(--gradient-login);">
+              <div class="exo" style="position:absolute;left:0;right:0;bottom:0;top:120px;background:#fff;border-radius:30px 30px 0 0;padding:46px 26px 26px;display:flex;flex-direction:column;gap:22px;">
+                <div style="position:absolute;left:50%;top:-42px;transform:translateX(-50%);width:84px;height:84px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,.12);">
+                  <div style="width:62px;height:62px;border-radius:50%;background:var(--color-primary);display:flex;align-items:center;justify-content:center;color:#fff;"><span class="material-symbols-outlined" style="font-size:32px;">person</span></div>
+                </div>
+                <div style="text-align:center;"><div style="font-size:24px;font-weight:700;">Inicio de sesión</div><div style="font-size:14px;font-weight:100;margin-top:8px;">Ingresa tus credenciales</div></div>
+                <div class="exo-input"><span class="material-symbols-outlined exo-icon">person</span><input placeholder="Usuario" /></div>
+                <div class="exo-input"><span class="material-symbols-outlined exo-icon">lock</span><input type="password" placeholder="Contraseña" /><span class="material-symbols-outlined exo-input__toggle">visibility</span></div>
+                <div class="exo-field exo-select" style="cursor:pointer;"><span class="material-symbols-outlined exo-icon">warehouse</span><span class="exo-field__value exo-field__value--filled">CEDIS 1</span><span class="material-symbols-outlined" style="color:var(--color-icon);">expand_more</span></div>
+                <button class="exo-btn exo-btn--primary" style="margin-top:auto;">Iniciar sesión</button>
+                <div style="text-align:center;font-size:12px;color:#30648d;">v 1.1.75.0</div>
+              </div>
+            </div>
+          </div>
+          <div class="device__cap">Login</div>
+        </div>
+
+        <!-- MENÚ -->
+        <div>
+          <div class="device"><div class="device__notch"><span></span></div>
+            <div class="device__screen">
+              <div class="exo" style="position:absolute;inset:0;display:flex;flex-direction:column;">
+                <div style="padding:18px 22px;font-size:22px;font-weight:700;color:var(--color-text-strong);box-shadow:var(--shadow-card);z-index:2;">Menú</div>
+                <div style="flex:1;overflow:hidden;">
+                  <div class="exo-menu-card exo-menu-card--l1"><span class="exo-menu-card__title">Tareas</span></div>
+                  <div class="exo-menu-card exo-menu-card--l2" style="margin-top:-30px;"><span class="exo-menu-card__title">Consulta de\ntareas cargadas</span></div>
+                  <div class="exo-menu-card exo-menu-card--l3" style="margin-top:-30px;"><span class="exo-menu-card__title">Descarga de\nmercancía</span></div>
+                  <div class="exo-menu-card exo-menu-card--l4" style="margin-top:-30px;"><span class="exo-menu-card__title">Evidencias de\nenvíos</span><span class="exo-badge" style="position:relative;z-index:1;">+5</span></div>
+                </div>
+                <div class="exo-sheet" style="padding:20px 24px;box-shadow:var(--shadow-sheet);"><button class="exo-btn exo-btn--danger">Salir</button></div>
+              </div>
+            </div>
+          </div>
+          <div class="device__cap">Menú principal</div>
+        </div>
+
+        <!-- FACTURA -->
+        <div>
+          <div class="device"><div class="device__notch"><span></span></div>
+            <div class="device__screen">
+              <div class="exo" style="position:absolute;inset:0;display:flex;flex-direction:column;">
+                <div class="exo-header" style="height:70px;"><a class="exo-header__title"><span class="material-symbols-outlined">arrow_back</span> Menú</a><div class="exo-header__action"><span class="material-symbols-outlined" style="color:var(--color-primary);">more_vert</span></div></div>
+                <div class="exo-sheet" style="flex:1;margin-top:-14px;padding:20px 24px;display:flex;flex-direction:column;gap:18px;overflow:hidden;">
+                  <div style="text-align:center;font-size:18px;font-weight:700;">Datos de la factura</div>
+                  <hr class="exo-divider" />
+                  <div class="exo-total"><span class="exo-total__label">Total</span><span class="exo-total__amount" style="font-size:40px;">$580.00</span></div>
+                  <div class="exo-field"><span class="exo-field__label">Empleado</span><span class="exo-field__value exo-field__value--filled" style="font-size:13px;">200655 · MONTSERRAT P.</span></div>
+                  <div class="exo-field"><span class="exo-field__label">Pedido</span><span class="exo-field__value exo-field__value--filled" style="font-size:13px;">#123456 · Mostrador</span></div>
+                  <div style="margin-top:auto;display:flex;gap:12px;"><button class="exo-btn exo-btn--danger exo-btn--sm">Cancelar</button><button class="exo-btn exo-btn--success exo-btn--sm">Generar</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="device__cap">Datos de la factura</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============ USO ============ -->
+    <section id="uso">
+      <div class="kicker">Integración</div>
+      <h2>Cómo usar</h2>
+      <p class="lead">Enlaza los dos CSS y usa las clases <code>exo-*</code>. Todo control debe ir dentro de un contenedor con la clase <code>exo</code>.</p>
+      <pre><span class="tok-tag">&lt;link</span> <span class="tok-attr">rel</span>=<span class="tok-str">"stylesheet"</span> <span class="tok-attr">href</span>=<span class="tok-str">"tokens.css"</span><span class="tok-tag">&gt;</span>
+<span class="tok-tag">&lt;link</span> <span class="tok-attr">rel</span>=<span class="tok-str">"stylesheet"</span> <span class="tok-attr">href</span>=<span class="tok-str">"components.css"</span><span class="tok-tag">&gt;</span>
+
+<span class="tok-tag">&lt;div</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo"</span><span class="tok-tag">&gt;</span>
+  <span class="tok-tag">&lt;button</span> <span class="tok-attr">class</span>=<span class="tok-str">"exo-btn exo-btn--primary"</span><span class="tok-tag">&gt;</span>Continuar<span class="tok-tag">&lt;/button&gt;</span>
+<span class="tok-tag">&lt;/div&gt;</span></pre>
+      <div class="note" style="margin-top:20px;">
+        <span class="material-symbols-outlined mark" style="color:var(--color-primary);">lightbulb</span>
+        <div>Para migrar la app <b>Exodus</b> a React/Tailwind, mapea estos tokens al <code>@theme</code> de Tailwind v4 en <code>index.css</code> y reemplaza los hex hardcodeados por variables. Puedo ayudarte con esa migración cuando quieras.</div>
+      </div>
+    </section>
+
+  </main>
+</div>
+</div>
+
+<footer>
+  Exodus Handheld Design System · APYMSA · Fuente de verdad: prototipo Figma · Frame objetivo 360&nbsp;px
+</footer>
+
+</body>
+</html>

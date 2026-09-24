@@ -1,0 +1,127 @@
+/* ============================================================
+   EXODUS HANDHELD — DESIGN TOKENS
+   Única fuente de verdad. Extraído del prototipo real de Figma
+   (APYMSA · Autopartes y Mayoreo). PWA para handheld Zebra.
+
+   Tema: CLARO · Primario: Navy #1B3892 · Tipografía: Roboto
+   Todos los valores en px pensados para un frame de 360px.
+   ============================================================ */
+
+:root {
+  /* ---------------------------------------------------------
+     1. COLOR — Escala de marca (Navy)
+     rgb(27,56,146) es el primario real del prototipo.
+     --------------------------------------------------------- */
+  --navy-900: #12285f; /* derivado — headers/pressed */
+  --navy-700: #1b3892; /* PRIMARIO  rgb(27,56,146) */
+  --navy-500: #3651a7; /* hover / 2ª tarjeta  rgb(54,81,167) */
+  --navy-300: #7991dc; /* 3ª tarjeta  rgb(121,145,220) */
+  --navy-200: #a7b9ef; /* 4ª tarjeta  rgb(167,185,239) */
+  --navy-100: #eef1f9; /* tinte de fondo / hover de fila  rgb(238,241,249) */
+
+  /* Degradado de login: navy → azul claro */
+  --gradient-login: linear-gradient(-58deg, #1b3892 0%, #6784dd 100%);
+
+  /* ---------------------------------------------------------
+     2. COLOR — Semántico
+     --------------------------------------------------------- */
+  --color-primary: var(--navy-700);
+  --color-primary-hover: var(--navy-500);
+  --color-primary-foreground: #ffffff;
+
+  --color-success: #2daa81; /* rgb(45,170,129) — botones aceptar/generar */
+  --color-success-foreground: #ffffff;
+
+  --color-danger: #e6002b; /* rgb(230,0,43) — salir / rechazar / error / badge */
+  --color-danger-foreground: #ffffff;
+
+  /* ---------------------------------------------------------
+     3. COLOR — Neutrales
+     --------------------------------------------------------- */
+  --color-surface: #ffffff; /* superficie principal (sheets, cards) */
+  --color-surface-hover: #eef1f9; /* hover de filas de lista */
+  --color-canvas: #444444; /* lienzo detrás del device frame */
+
+  --color-text: #000000; /* texto principal */
+  --color-text-strong: #343434; /* rgb(52,52,52) — títulos/valores */
+  --color-text-muted: rgba(0, 0, 0, 0.39); /* placeholders / campos vacíos */
+  --color-icon: #616161; /* rgb(97,97,97) — íconos de input */
+
+  --color-border: #e1e1e1; /* rgb(225,225,225) — divisores / bordes suaves */
+  --color-disabled: #bdbdbd; /* rgb(189,189,189) — botón/borde deshabilitado */
+
+  --color-toast-bg: #242c32; /* rgb(36,44,50) — fondo del toast */
+  --color-toast-foreground: #ffffff;
+
+  /* ---------------------------------------------------------
+     4. TIPOGRAFÍA — Roboto (100/300/400/500/700/900)
+     --------------------------------------------------------- */
+  --font-family: "Roboto", system-ui, -apple-system, sans-serif;
+
+  --font-thin: 100;
+  --font-light: 300;
+  --font-regular: 400;
+  --font-medium: 500;
+  --font-bold: 700;
+  --font-black: 900;
+
+  /* Escala tipográfica (px) */
+  --fs-display: 48px; /* Total facturación */
+  --fs-h1: 30px; /* Título de login */
+  --fs-title: 24px; /* Título de pantalla / header */
+  --fs-heading: 20px; /* Encabezado de sección */
+  --fs-label: 18px; /* Etiqueta de grupo */
+  --fs-body: 15px; /* Texto de cuerpo */
+  --fs-input: 14px; /* Texto de input / valores */
+  --fs-small: 13px; /* Etiquetas flotantes */
+  --fs-xs: 12px; /* Versión / metadatos */
+
+  --lh-tight: 100%;
+  --lh-body: 1.25;
+
+  /* ---------------------------------------------------------
+     5. RADIOS
+     --------------------------------------------------------- */
+  --radius-control: 5px; /* inputs, botones, campos */
+  --radius-sheet: 30px; /* sheets y tarjetas (solo esquinas superiores) */
+  --radius-toast: 10px;
+  --radius-pill: 999px; /* badges / botones circulares */
+
+  /* ---------------------------------------------------------
+     6. ESPACIADO
+     --------------------------------------------------------- */
+  --space-1: 8px;
+  --space-2: 13px;
+  --space-3: 16px;
+  --space-4: 21px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ---------------------------------------------------------
+     7. DIMENSIONES DE CONTROL
+     --------------------------------------------------------- */
+  --h-field: 43px; /* campos secundarios (label+valor) */
+  --h-input: 50px; /* inputs de login */
+  --h-button: 60px; /* acciones primarias */
+  --frame-width: 360px; /* ancho objetivo del handheld Zebra */
+
+  /* ---------------------------------------------------------
+     8. SOMBRAS
+     --------------------------------------------------------- */
+  --shadow-sheet: 0 -5px 5px 0 rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 0 5px 0 rgba(0, 0, 0, 0.05);
+  --shadow-dropdown: 0 4px 12px 0 rgba(0, 0, 0, 0.18);
+  --shadow-toast: 0 0 7.5px 0 rgba(0, 0, 0, 0.25);
+  --shadow-device: 0 24px 60px rgba(0, 0, 0, 0.45);
+
+  /* Anillo de foco de inputs (borde interno navy) */
+  --ring-focus: inset 0 0 0 1px var(--color-primary);
+  --ring-idle: inset 0 0 0 1px var(--color-disabled);
+
+  /* ---------------------------------------------------------
+     9. MOVIMIENTO
+     --------------------------------------------------------- */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 0.12s;
+  --dur-base: 0.28s;
+}

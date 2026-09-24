@@ -1,0 +1,519 @@
+/* ============================================================
+   EXODUS HANDHELD — COMPONENTES
+   Clases reutilizables basadas en tokens.css.
+   Importa siempre tokens.css antes que este archivo.
+   ============================================================ */
+
+/* ---------- Base ---------- */
+.exo,
+.exo * {
+  box-sizing: border-box;
+  font-family: var(--font-family);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- Iconografía: Material Symbols Outlined ----------
+   Carga la fuente en el <head>:
+   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+   Uso: <span class="material-symbols-outlined">person</span>            */
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  -webkit-font-smoothing: antialiased;
+  vertical-align: middle;
+  user-select: none;
+}
+
+/* ============================================================
+   BOTONES
+   ============================================================ */
+.exo-btn {
+  height: var(--h-button);
+  border: 0;
+  border-radius: var(--radius-control);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-4);
+  font-family: var(--font-family);
+  font-size: var(--fs-label);
+  font-weight: var(--font-regular);
+  color: #fff;
+  cursor: pointer;
+  width: 100%;
+  transition: filter var(--dur-fast) var(--ease);
+}
+.exo-btn:active {
+  filter: brightness(0.88);
+}
+.exo-btn--primary {
+  background: var(--color-primary);
+}
+.exo-btn--success {
+  background: var(--color-success);
+}
+.exo-btn--danger {
+  background: var(--color-danger);
+}
+.exo-btn:disabled,
+.exo-btn--disabled {
+  background: var(--color-disabled);
+  cursor: not-allowed;
+  filter: none;
+}
+/* Botón compacto (43px) para barras dobles */
+.exo-btn--sm {
+  height: var(--h-field);
+  font-size: var(--fs-input);
+}
+
+/* ============================================================
+   INPUTS (login)
+   ============================================================ */
+.exo-input {
+  height: var(--h-input);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: var(--ring-idle);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 10px 10px 13px;
+  width: 100%;
+}
+.exo-input:focus-within {
+  box-shadow: var(--ring-focus);
+}
+.exo-input > .exo-icon {
+  flex-shrink: 0;
+  color: var(--color-icon);
+  display: flex;
+}
+.exo-input > input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--font-family);
+  font-size: var(--fs-input);
+  color: var(--color-text);
+}
+.exo-input > input::placeholder {
+  color: var(--color-disabled);
+  opacity: 1;
+}
+.exo-input__toggle {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: var(--color-icon);
+}
+
+/* ============================================================
+   CAMPO CON ETIQUETA FLOTANTE (chip sobre el borde)
+   ============================================================ */
+.exo-field {
+  position: relative;
+  min-height: var(--h-input);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.39);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 13px;
+  width: 100%;
+}
+.exo-field > .exo-icon {
+  flex-shrink: 0;
+  display: flex;
+}
+.exo-field__value {
+  flex: 1;
+  font-size: var(--fs-body);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.exo-field__value--filled {
+  color: var(--color-text-strong);
+}
+.exo-field__label {
+  position: absolute;
+  left: 9px;
+  top: -7px;
+  height: 14px;
+  background: var(--color-surface);
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  font-size: var(--fs-small);
+  font-weight: var(--font-bold);
+  color: var(--color-text);
+}
+
+/* ============================================================
+   CAMPO PREFIJO NAVY (código + valor, ej. empleado)
+   ============================================================ */
+.exo-prefix {
+  height: var(--h-field);
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.exo-prefix__key {
+  height: 100%;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 18px;
+  font-size: var(--fs-input);
+  flex-shrink: 0;
+}
+.exo-prefix__val {
+  height: 100%;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: var(--color-surface);
+  box-shadow: var(--ring-focus);
+  display: flex;
+  align-items: center;
+  padding: 13px 12px;
+  font-size: var(--fs-input);
+  color: var(--color-text-strong);
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============================================================
+   CAMPO CON ENCABEZADO (barra navy + cuerpo blanco apilados)
+   ============================================================ */
+.exo-stack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.exo-stack__head {
+  height: var(--h-field);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px;
+  font-size: var(--fs-input);
+}
+.exo-stack__body {
+  min-height: var(--h-field);
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: var(--ring-focus);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 12px;
+  font-size: var(--fs-input);
+  color: var(--color-text-strong);
+}
+.exo-stack__body b {
+  font-weight: var(--font-bold);
+}
+
+/* ============================================================
+   SELECT / DROPDOWN
+   ============================================================ */
+.exo-select {
+  position: relative;
+  cursor: pointer;
+}
+.exo-select__menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  width: 100%;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dropdown), inset 0 0 0 1px var(--color-border);
+  overflow: hidden;
+  z-index: 5;
+}
+.exo-select__option {
+  padding: 13px;
+  font-size: var(--fs-input);
+  color: var(--color-text-strong);
+  cursor: pointer;
+}
+.exo-select__option:hover {
+  background: var(--color-surface-hover);
+}
+
+/* ============================================================
+   STEPPER (− valor +)
+   ============================================================ */
+.exo-stepper {
+  display: flex;
+  align-items: center;
+  height: var(--h-field);
+}
+.exo-stepper__btn {
+  width: 52px;
+  height: 100%;
+  border: 0;
+  background: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 20px;
+}
+.exo-stepper__btn:first-child {
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+.exo-stepper__btn:last-child {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+.exo-stepper__btn:disabled {
+  background: var(--color-disabled);
+  cursor: not-allowed;
+}
+.exo-stepper__val {
+  height: 100%;
+  flex: 1;
+  box-shadow: var(--ring-focus);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  font-size: var(--fs-label);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+/* ============================================================
+   CHECKBOX
+   ============================================================ */
+.exo-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 2px #49454f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  flex-shrink: 0;
+}
+.exo-check--on {
+  background: var(--color-primary);
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+}
+
+/* ============================================================
+   BADGE (contador rojo)
+   ============================================================ */
+.exo-badge {
+  min-width: 45px;
+  height: 45px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-danger);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  font-weight: var(--font-bold);
+}
+.exo-badge--sm {
+  min-width: 22px;
+  height: 22px;
+  font-size: var(--fs-small);
+}
+
+/* ============================================================
+   HEADER (barra navy)
+   ============================================================ */
+.exo-header {
+  height: 90px;
+  background: var(--color-primary);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 13px 14px 16px 32px;
+  position: relative;
+  overflow: hidden;
+}
+.exo-header__title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: #fff;
+  font-size: var(--fs-title);
+  font-weight: var(--font-bold);
+  text-decoration: none;
+}
+.exo-header__action {
+  width: 37px;
+  height: 37px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   SHEET (superficie redondeada superior)
+   ============================================================ */
+.exo-sheet {
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+/* ============================================================
+   TARJETA DE MENÚ (apilables, escala navy)
+   ============================================================ */
+.exo-menu-card {
+  position: relative;
+  width: 100%;
+  min-height: 130px;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  overflow: hidden;
+  padding: 32px 40px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: var(--shadow-sheet);
+  transition: filter var(--dur-fast) var(--ease);
+}
+.exo-menu-card:active {
+  filter: brightness(1.08);
+}
+.exo-menu-card__title {
+  font-size: var(--fs-title);
+  color: #fff;
+  white-space: pre-line;
+  position: relative;
+  z-index: 1;
+}
+.exo-menu-card--l1 {
+  background: var(--navy-700);
+}
+.exo-menu-card--l2 {
+  background: var(--navy-500);
+}
+.exo-menu-card--l3 {
+  background: var(--navy-300);
+}
+.exo-menu-card--l4 {
+  background: var(--navy-200);
+}
+
+/* ============================================================
+   DIVISOR
+   ============================================================ */
+.exo-divider {
+  height: 1.5px;
+  background: var(--color-border);
+  width: 100%;
+  border: 0;
+}
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+.exo-toast {
+  position: relative;
+  border-radius: var(--radius-toast);
+  background: var(--color-toast-bg);
+  box-shadow: var(--shadow-toast);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 18px;
+  overflow: hidden;
+  animation: exo-toast-in var(--dur-base) var(--ease);
+}
+.exo-toast__icon {
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+}
+.exo-toast__body {
+  flex: 1;
+}
+.exo-toast__title {
+  font-size: var(--fs-label);
+  font-weight: var(--font-bold);
+  display: block;
+}
+.exo-toast__text {
+  font-size: var(--fs-input);
+  font-weight: var(--font-light);
+  line-height: var(--lh-body);
+  display: block;
+  margin-top: 6px;
+}
+.exo-toast__bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 5px;
+  width: 100%;
+  background: var(--color-success);
+}
+@keyframes exo-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   DISPLAY DE TOTAL
+   ============================================================ */
+.exo-total {
+  text-align: center;
+}
+.exo-total__label {
+  font-size: var(--fs-title);
+  font-weight: var(--font-bold);
+  color: var(--color-primary);
+  display: block;
+}
+.exo-total__amount {
+  font-size: var(--fs-display);
+  font-weight: var(--font-bold);
+  color: var(--color-primary);
+  display: block;
+  margin-top: 10px;
+}
