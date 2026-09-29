@@ -22,7 +22,6 @@ interface PiezaSeleccionada { code: string; qty: number; }
 
 const MOTIVOS: { value: MotivoEnvioCedis; icon: string; desc: string }[] = [
   { value: 'Devolución', icon: 'assignment_return', desc: 'Regresas mercancía a CEDIS (exceso de inventario, error de surtido, etc.).' },
-  { value: 'Ajuste de inventario', icon: 'inventory', desc: 'Envías mercancía a CEDIS para regularizar diferencias de inventario.' },
 ];
 
 // ── Buscador tipo sugerencias (autocomplete) ──────────────────
@@ -76,7 +75,8 @@ function Buscador({ placeholder, options, onSelect, disabled }: BuscadorProps) {
 export default function ModalEnviarCedis({ onClose, showToast }: Props) {
   const { crearEnvioCedis, sucursalActual, traspasos } = useApp();
   const [step, setStep] = useState<Step>(1);
-  const [motivo, setMotivo] = useState<MotivoEnvioCedis | null>(null);
+  // Solo hay una opción de envío a CEDIS: "Devolución". Se preselecciona.
+  const [motivo, setMotivo] = useState<MotivoEnvioCedis | null>('Devolución');
   const [piezas, setPiezas] = useState<PiezaSeleccionada[]>([]);
   const [observaciones, setObservaciones] = useState('');
 
@@ -94,7 +94,9 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
   const handleRemove = (code: string) => setPiezas(prev => prev.filter(p => p.code !== code));
   const handleQty = (code: string, qty: number) => setPiezas(prev => prev.map(p => p.code === code ? { ...p, qty: Math.max(1, qty) } : p));
 
-  const canStep2 = !!motivo;
+  // Regla: paso 1 requiere motivo (siempre Devolución) Y observación obligatoria.
+  // Se captura desde el inicio para que llegue al paso 3 en modo lectura.
+  const canStep2 = !!motivo && observaciones.trim().length > 0;
   const canStep3 = piezas.length > 0 && piezas.every(p => p.qty > 0);
   const puedeSolicitarAprobacion = canStep2 && canStep3 && aprobEstado === 'idle';
 
@@ -185,7 +187,9 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
             {step === 1 && (
               <div className="flex flex-col gap-4">
                 <p className="text-sm font-semibold" style={{ color: '#1a2b6b' }}>¿Por qué envías mercancía a CEDIS?</p>
-                <div className="grid grid-cols-2 gap-3">
+                {/* Solo hay una opción activa: Devolución. Se muestra igual
+                    como card informativa, ya preseleccionada. */}
+                <div className="grid grid-cols-1 gap-3">
                   {MOTIVOS.map(m => {
                     const active = motivo === m.value;
                     const c = MOTIVO_ENVIO_CEDIS_COLORS[m.value];
@@ -201,6 +205,35 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Observación OBLIGATORIA — se captura desde el inicio para
+                    que el asesor deje claro el porqué del envío. En el paso 3
+                    aparecerá en modo solo lectura (no editable). */}
+                <div>
+                  <label className="text-xs font-semibold flex items-center gap-1 mb-1" style={{ color: '#374151' }}>
+                    Observación
+                    <span style={{ color: '#dc2626' }}>*</span>
+                    <span className="text-[10px] font-normal" style={{ color: '#9ca3af' }}>(obligatoria)</span>
+                  </label>
+                  <textarea
+                    value={observaciones}
+                    onChange={e => setObservaciones(e.target.value)}
+                    placeholder="Describe el motivo del envío a CEDIS (por qué, referencia interna, etc.)…"
+                    rows={4}
+                    className="w-full text-xs rounded border px-3 py-2 resize-none"
+                    style={{
+                      borderColor: observaciones.trim().length > 0 ? '#d1d5db' : '#fca5a5',
+                      background: observaciones.trim().length > 0 ? '#fff' : 'rgba(220,38,38,0.03)',
+                      fontFamily: 'Roboto, sans-serif',
+                    }}
+                  />
+                  {observaciones.trim().length === 0 && (
+                    <p className="text-[11px] mt-1 flex items-center gap-1" style={{ color: '#dc2626' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>error</span>
+                      Debes escribir la observación para poder continuar.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -298,10 +331,26 @@ export default function ModalEnviarCedis({ onClose, showToast }: Props) {
                   </div>
                 </div>
 
+                {/* Observación (solo lectura) — se capturó de forma obligatoria
+                    en el paso 1 y ya no puede editarse en la confirmación. */}
                 <div>
-                  <label className="text-xs font-semibold block mb-1" style={{ color: '#374151' }}>Observaciones (opcional)</label>
-                  <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)} placeholder="Notas del envío a CEDIS…" rows={3}
-                    className="w-full text-xs rounded border px-3 py-2 resize-none" style={{ borderColor: '#d1d5db', fontFamily: 'Roboto, sans-serif' }} />
+                  <label className="text-xs font-semibold block mb-1" style={{ color: '#374151' }}>Observación</label>
+                  <div
+                    className="w-full text-xs rounded border px-3 py-2 whitespace-pre-wrap"
+                    style={{
+                      borderColor: '#e5e7eb',
+                      background: '#f8f9fb',
+                      color: '#1a2b6b',
+                      fontFamily: 'Roboto, sans-serif',
+                      minHeight: 60,
+                    }}
+                    title="Observación capturada en el paso 1 (no editable)"
+                  >
+                    {observaciones}
+                  </div>
+                  <p className="text-[10px] mt-1" style={{ color: '#9ca3af' }}>
+                    La observación se registró desde el paso 1 y no puede modificarse aquí.
+                  </p>
                 </div>
 
                 {/* Aprobación de token por INVENTARIOS. Todo movimiento hacia CEDIS

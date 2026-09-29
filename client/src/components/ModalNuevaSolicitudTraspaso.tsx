@@ -213,11 +213,22 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
   const pedidoTotal = pedidoSelected ? totalPartidas(ORDERS_DB[pedidoSelected].partidas) : 0;
   const autoRecomendados = !!pedidoSelected && pedidoTotal <= UMBRAL_AUTO_RECOMENDADOS;
 
-  // Recomendados de alta rotación que aún no están en la lista.
+  // Total en curso de las piezas ya agregadas (para el tope duro de $2,000).
+  const totalPiezasEnCurso = totalPartidas(piezas);
+  // Tope duro: una vez que se cruza el umbral, no se puede seguir agregando
+  // más mercancía a este traspaso. Las piezas YA agregadas se conservan.
+  const topeAlcanzado = totalPiezasEnCurso > UMBRAL_AUTO_RECOMENDADOS;
+
+  // Recomendados de alta rotación que aún no están en la lista. Cuando ya
+  // se alcanzó el tope, se ocultan/deshabilitan.
   const recomendadosAltaRotacion = PRODUCTOS_ALTA_ROTACION
     .filter(code => !piezas.some(p => p.code === code) && PRODUCT_CATALOG[code]);
 
   const handleAddRecomendado = (code: string) => {
+    if (topeAlcanzado) {
+      showToast(`No se pueden agregar más piezas: se alcanzó el tope de $${UMBRAL_AUTO_RECOMENDADOS.toLocaleString('es-MX')}.`, 'warning');
+      return;
+    }
     setPiezas(prev => [...prev, { code, qty: 1 }]);
   };
 
@@ -281,7 +292,14 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
   );
 
   // ── Paso 4 ──
-  const requiereAutorizacion = !pedidoSelected;
+  // Token de autorización requerido cuando:
+  //   • No hay pedido de origen (flujo Manual sin pedido — regla original), o
+  //   • Hay pedido que supera el umbral Y además el usuario ya agregó al
+  //     menos una pieza recomendada manualmente (extra al pedido).
+  const hayRecomendadoManual = !!pedidoSelected
+    && pedidoTotal > UMBRAL_AUTO_RECOMENDADOS
+    && piezas.some(p => requeridoDe(p.code) == null);
+  const requiereAutorizacion = !pedidoSelected || hayRecomendadoManual;
   const canConfirmar = !requiereAutorizacion || esTokenValido(autorizacionToken);
 
   const sucursalesConPiezas = sucursalesAgregadas.filter(suc =>
@@ -460,16 +478,23 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                       <span className="text-xs font-bold" style={{ color: '#0f766e' }}>Recomendados (más vendidos / alta rotación)</span>
                       {pedidoSelected && <span className="text-[10px]" style={{ color: '#9ca3af' }}>· pedido supera ${UMBRAL_AUTO_RECOMENDADOS.toLocaleString('es-MX')}: agrégalos manualmente</span>}
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {recomendadosAltaRotacion.map(code => (
-                        <button key={code} onClick={() => handleAddRecomendado(code)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
-                          style={{ background: '#fff', border: '1px solid rgba(13,148,136,0.4)', color: '#0f766e' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>add</span>
-                          {code}
-                        </button>
-                      ))}
-                    </div>
+                    {topeAlcanzado ? (
+                      <p className="text-[11px]" style={{ color: '#b91c1c' }}>
+                        <span className="material-symbols-outlined align-middle" style={{ fontSize: 13 }}>block</span>
+                        {' '}Se alcanzó el tope de <strong>${UMBRAL_AUTO_RECOMENDADOS.toLocaleString('es-MX')}</strong> (en curso: ${totalPiezasEnCurso.toLocaleString('es-MX')}). No se puede agregar más mercancía a este traspaso.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {recomendadosAltaRotacion.map(code => (
+                          <button key={code} onClick={() => handleAddRecomendado(code)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+                            style={{ background: '#fff', border: '1px solid rgba(13,148,136,0.4)', color: '#0f766e' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>add</span>
+                            {code}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -525,13 +550,38 @@ export default function ModalNuevaSolicitudTraspaso({ onClose, showToast }: Prop
                             width: 64,
                           }}
                         />
-                        <button
-                          onClick={() => handleRemovePieza(p.code)}
-                          className="w-7 h-7 flex items-center justify-center rounded transition-all"
-                          style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
-                        </button>
+                        {(() => {
+                          // No removibles:
+                          //   • Piezas del pedido (req != null) — parte del compromiso al cliente.
+                          //   • Recomendados auto-agregados (autoRecomendados = true) — se
+                          //     insertaron por regla del sistema, no por decisión del usuario.
+                          const esDelPedido = req != null;
+                          const esRecomendadaAuto = autoRecomendados && req == null && !!pedidoSelected;
+                          const noRemovible = esDelPedido || esRecomendadaAuto;
+                          if (noRemovible) {
+                            return (
+                              <div
+                                className="w-7 h-7 flex items-center justify-center rounded"
+                                title={esDelPedido
+                                  ? 'Pieza del pedido — no se puede quitar'
+                                  : 'Recomendado auto-agregado — no se puede quitar mientras el pedido no supere el tope'}
+                                style={{ color: '#cbd5e1', background: 'transparent', cursor: 'not-allowed' }}
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>lock</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <button
+                              onClick={() => handleRemovePieza(p.code)}
+                              className="w-7 h-7 flex items-center justify-center rounded transition-all"
+                              style={{ color: '#dc2626', background: 'rgba(220,38,38,0.08)' }}
+                              title="Quitar esta pieza"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
+                            </button>
+                          );
+                        })()}
                       </div>
                     );
                   })}

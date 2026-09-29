@@ -9,7 +9,9 @@ import { useApp } from '@/contexts/AppContext';
 import {
   ORDERS_DB, Order, OrderStatus, STATUS_COLORS,
   Shipment, ShipmentStatus, SHIPMENT_STATUS_COLORS, SHIPMENTS_DB_INITIAL, BoxItem,
+  tipoPaqueteriaDe,
 } from '@/lib/data';
+import Pipeline6Monitores, { monitorDeShipmentStatus } from './Pipeline6Monitores';
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
@@ -1398,6 +1400,17 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, preSele
   const [filterDate, setFilterDate] = useState('');
   const [filterStatus, setFilterStatus] = useState<'ALL' | ShipmentStatus>('ALL');
   const [filterPaqueteria, setFilterPaqueteria] = useState<'ALL' | string>('ALL');
+  // F23 — Filtro rápido por TIPO de paquetería (WebService/Uber/BlueGo/Manual)
+  // F51 — persiste en localStorage.
+  const [filterTipo, setFilterTipo] = useState<'ALL' | 'WebService' | 'Uber' | 'BlueGo' | 'Manual'>(() => {
+    try { return (localStorage.getItem('apymsa_emb_filter_tipo') as any) ?? 'ALL'; }
+    catch { return 'ALL'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('apymsa_emb_filter_tipo', filterTipo); } catch {}
+  }, [filterTipo]);
+  // F42 — Búsqueda libre: ID embarque, guía, paquetería.
+  const [busqueda, setBusqueda] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showGuiaModal, setShowGuiaModal] = useState(false);
   const [showUberModal, setShowUberModal] = useState(false);
@@ -1444,9 +1457,16 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, preSele
       if (filterDate && s.fecha !== filterDate) return false;
       if (filterStatus !== 'ALL' && s.status !== filterStatus) return false;
       if (filterPaqueteria !== 'ALL' && s.paqueteria !== filterPaqueteria) return false;
+      if (filterTipo !== 'ALL' && tipoPaqueteriaDe(s.paqueteria) !== filterTipo) return false;
+      if (busqueda.trim()) {
+        const q = busqueda.trim().toLowerCase();
+        const hay = [s.id, s.paqueteria, s.guia ?? '', ...(s.pedidos ?? [])]
+          .some(v => String(v).toLowerCase().includes(q));
+        if (!hay) return false;
+      }
       return true;
     }),
-    [shipments, filterDate, filterStatus, filterPaqueteria]
+    [shipments, filterDate, filterStatus, filterPaqueteria, filterTipo, busqueda]
   );
 
   const setTodayFilter = () => {
@@ -1784,6 +1804,53 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, preSele
                 ))}
               </select>
             </div>
+            {/* F61 — botón "Limpiar" */}
+            {(filterDate || filterStatus !== 'ALL' || filterPaqueteria !== 'ALL' || filterTipo !== 'ALL' || busqueda) && (
+              <button
+                onClick={() => { setFilterDate(''); setFilterStatus('ALL'); setFilterPaqueteria('ALL'); setFilterTipo('ALL'); setBusqueda(''); }}
+                className="mt-2 text-[11px] font-semibold px-2 py-1 rounded"
+                style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }}
+              >
+                <span className="material-symbols-outlined align-middle" style={{ fontSize: 12 }}>close</span>
+                {' '}Limpiar filtros
+              </button>
+            )}
+            {/* F42 — Búsqueda libre (ID, guía, paquetería, pedido) */}
+            <div className="relative mt-2">
+              <span className="material-symbols-outlined absolute" style={{ left: 8, top: 6, fontSize: 14, color: '#94a3b8' }}>search</span>
+              <input
+                value={busqueda}
+                onChange={e => setBusqueda(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape' && busqueda) { setBusqueda(''); e.stopPropagation(); } }}
+                placeholder="Buscar por ID, guía, paquetería o pedido…"
+                className="w-full text-xs rounded border py-1.5 pl-7 pr-2"
+                style={{ borderColor: '#cbd5e1' }}
+              />
+            </div>
+            {/* F23 — Chips de filtro por TIPO de paquetería */}
+            <div className="flex items-center gap-1 mt-2 flex-wrap">
+              {(['ALL', 'WebService', 'Uber', 'BlueGo', 'Manual'] as const).map(t => {
+                const active = filterTipo === t;
+                const colores: Record<string, string> = {
+                  ALL: '#64748b', WebService: '#0891b2', Uber: '#111827',
+                  BlueGo: '#1a2b6b', Manual: '#7c3aed',
+                };
+                return (
+                  <button
+                    key={t}
+                    onClick={() => setFilterTipo(t)}
+                    className="text-[10px] font-bold rounded-full px-2 py-1"
+                    style={{
+                      background: active ? colores[t] : 'white',
+                      color: active ? 'white' : colores[t],
+                      border: `1px solid ${colores[t]}`,
+                    }}
+                  >
+                    {t === 'ALL' ? 'Todos' : t}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -1878,6 +1945,156 @@ export default function ScreenEmbarques({ showToast, preSelectedOrderId, preSele
                   </p>
                 </div>
               </div>
+
+              {/* F7 — Pipeline de 6 monitores del embarque */}
+              <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                <div className="text-xs font-semibold mb-3" style={{ color: '#64748b', letterSpacing: '0.05em' }}>PROGRESO DEL EMBARQUE</div>
+                <Pipeline6Monitores monitorActual={monitorDeShipmentStatus(selectedShipment.status)} />
+              </div>
+
+              {/* F15 — Cotización aceptada (desglose sin IVA). Solo se pinta
+                  si el shipment ya recorrió el Paso 3 y guardó los detalles. */}
+              {selectedShipment.paqueteriaSeleccionada && (
+                <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-semibold" style={{ color: '#64748b', letterSpacing: '0.05em' }}>COTIZACIÓN ACEPTADA</div>
+                    <button
+                      onClick={() => {
+                        // F109 — copiar desglose plano
+                        const c = selectedShipment.paqueteriaCosto ?? 0;
+                        const lineas = [
+                          `Cotización: ${selectedShipment.paqueteriaSeleccionada}`,
+                          ...((selectedShipment as any).paqueteriaDesglose ?? []).map((d: any) => `  ${d.concepto}: $${d.monto.toFixed(2)}`),
+                          `IVA 16%: $${(c * 0.16).toFixed(2)}`,
+                          `Total: $${(c * 1.16).toFixed(2)} MXN`,
+                        ];
+                        navigator.clipboard.writeText(lineas.join('\n')).catch(() => {});
+                      }}
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                      style={{ background: '#f1f5f9', color: '#1a2b6b', border: '1px solid #cbd5e1' }}
+                      title="Copiar desglose completo al portapapeles"
+                    >
+                      <span className="material-symbols-outlined align-middle" style={{ fontSize: 12 }}>content_copy</span>
+                    </button>
+                    {selectedShipment.paqueteriaTiempoEntrega && (
+                      <span className="text-[11px]" style={{ color: '#475569' }}>
+                        <span className="material-symbols-outlined align-middle" style={{ fontSize: 12 }}>schedule</span>
+                        {' '}{selectedShipment.paqueteriaTiempoEntrega}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{selectedShipment.paqueteriaSeleccionada}</div>
+                    <div className="text-right">
+                      <div style={{ fontSize: 20, fontWeight: 800, color: '#1a2b6b' }}>
+                        ${(selectedShipment.paqueteriaCosto ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#64748b' }}>MXN · sin IVA</div>
+                    </div>
+                  </div>
+                  {selectedShipment.paqueteriaDesglose && selectedShipment.paqueteriaDesglose.length > 0 && (
+                    <details className="mt-2" style={{ fontSize: 12, color: '#475569' }}>
+                      <summary style={{ cursor: 'pointer', color: '#1a2b6b', fontWeight: 600 }}>Ver desglose</summary>
+                      <table className="mt-2 w-full">
+                        <tbody>
+                          {selectedShipment.paqueteriaDesglose.map((d, i) => (
+                            <tr key={i}>
+                              <td style={{ padding: '2px 0' }}>{d.concepto}</td>
+                              <td style={{ padding: '2px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${d.monto.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ borderTop: '1px solid #e5e7eb' }}>
+                            <td style={{ padding: '4px 0', color: '#64748b' }}>IVA 16%</td>
+                            <td style={{ padding: '4px 0', textAlign: 'right', color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+                              ${((selectedShipment.paqueteriaCosto ?? 0) * 0.16).toFixed(2)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style={{ padding: '4px 0', fontWeight: 700, color: '#0f172a' }}>Total con IVA</td>
+                            <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                              ${((selectedShipment.paqueteriaCosto ?? 0) * 1.16).toFixed(2)}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </details>
+                  )}
+                </div>
+              )}
+
+              {/* F101 — Cotizaciones descartadas (histórico de recotizaciones) */}
+              {((selectedShipment as any).cotizacionesDescartadas as any[])?.length > 0 && (
+                <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                  <div className="text-xs font-semibold mb-2" style={{ color: '#64748b', letterSpacing: '0.05em' }}>COTIZACIONES DESCARTADAS</div>
+                  <table style={{ width: '100%', fontSize: 12 }}>
+                    <tbody>
+                      {(((selectedShipment as any).cotizacionesDescartadas as any[]) ?? []).slice().reverse().map((c: any, i: number) => (
+                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '4px 0', color: '#0f172a', fontWeight: 500 }}>{c.paqueteria}</td>
+                          <td style={{ padding: '4px 0', color: '#94a3b8', fontSize: 10 }}>{c.motivo ?? 'Recotizada'}</td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', color: '#475569', fontVariantNumeric: 'tabular-nums' }}>${c.costo.toFixed(2)}</td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', color: '#94a3b8', fontSize: 10 }}>{c.ts}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* F19 — Bitácora de eventos del embarque */}
+              {((selectedShipment as any).eventos as any[])?.length > 0 && (
+                <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-semibold" style={{ color: '#64748b', letterSpacing: '0.05em' }}>BITÁCORA</div>
+                    <button
+                      onClick={() => {
+                        // F110 — export CSV de la bitácora
+                        const evs = ((selectedShipment as any).eventos as any[]) ?? [];
+                        const rows = ['Timestamp;Tipo;Usuario;Detalle', ...evs.map(e => `${e.ts};${e.tipo};${e.usuario};${(e.detalle ?? '').replace(/;/g, ',')}`)];
+                        const bom = '﻿';
+                        const blob = new Blob([bom + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `bitacora-${selectedShipment.id}.csv`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="text-[10px] font-semibold px-2 py-1 rounded flex items-center gap-1"
+                      style={{ background: '#16a34a', color: 'white' }}
+                      title="Descargar CSV de la bitácora"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>download</span>
+                      CSV
+                    </button>
+                  </div>
+                  <ol className="flex flex-col gap-2" style={{ fontSize: 12 }}>
+                    {(((selectedShipment as any).eventos as any[]) ?? []).slice().reverse().map((ev: any, i: number) => {
+                      const iconos: Record<string, string> = {
+                        documentado: 'inventory_2', cotizado: 'request_quote', recotizado: 'compare_arrows',
+                        guiaGenerada: 'qr_code_2', entregado: 'outbox', reparto: 'local_shipping', finalizado: 'task_alt',
+                      };
+                      const colores: Record<string, string> = {
+                        documentado: '#ea580c', cotizado: '#1a2b6b', recotizado: '#7c3aed',
+                        guiaGenerada: '#0891b2', entregado: '#0d9488', reparto: '#2563eb', finalizado: '#16a34a',
+                      };
+                      const c = colores[ev.tipo] ?? '#64748b';
+                      return (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="material-symbols-outlined mt-0.5" style={{ fontSize: 16, color: c }}>{iconos[ev.tipo] ?? 'event'}</span>
+                          <div className="flex-1">
+                            <div style={{ fontWeight: 600, color: '#0f172a', textTransform: 'capitalize' }}>
+                              {ev.tipo.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                              {ev.detalle && <span style={{ color: '#475569', fontWeight: 400 }}> · {ev.detalle}</span>}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>{ev.ts} · {ev.usuario}</div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              )}
 
               {/* Meta card */}
               <div className="rounded-xl px-5 py-4" style={{ background: '#fff', border: '1px solid #e5e7eb' }}>

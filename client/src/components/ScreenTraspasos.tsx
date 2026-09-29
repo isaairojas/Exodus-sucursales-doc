@@ -12,12 +12,21 @@ import {
   etapaTraspaso,
   TRASPASO_ETAPA_COLORS, perspectivaTraspaso, MOTIVO_ENVIO_CEDIS_COLORS,
   TRASPASO_ETAPA_TOOLTIP, TRASPASO_CATEGORIA_TOOLTIP, PRODUCT_CATALOG,
+  esConsolidadorIntermedio, peticionesDependientesDe, peticionesDependientesPendientesDe, puedeSurtirPeticion,
+  embarquesCompatiblesParaTraspaso, tipoPaqueteriaDe,
+  DocumentacionPorPedido, SUCURSAL_COORDS,
+  embarqueAtorado, horasSinMovimiento, cotizacionCaducada,
 } from '@/lib/data';
+import ModalDocumentacionCajas from './ModalDocumentacionCajas';
+import ModalCotizador from './ModalCotizador';
+import MiniMapaRuta from './MiniMapaRuta';
+import { imprimirEmbarque } from '@/lib/printEmbarque';
 import { exportarExcel } from '@/lib/exportExcel';
 import { imprimirTraspaso } from '@/lib/printDoc';
 import { TRASPASO_DIAS_VENCIDO_SURTIDO, TRASPASO_DIAS_VENCIDO_CEDIS } from '@/lib/traspasoConfig';
 import ModalTraspasoDetail from './ModalTraspasoDetail';
 import ModalSurtidoHH from './ModalSurtidoHH';
+import ModalRevisionHH from './ModalRevisionHH';
 import ModalConfirmarRecepcion from './ModalConfirmarRecepcion';
 import ModalEmbarcarTraspaso from './ModalEmbarcarTraspaso';
 
@@ -28,17 +37,20 @@ interface Props {
   onSolicitarCedis?: () => void;
   onEnviarCedis?: () => void;
   onReasignar?: (petId: string) => void;
+  onVerPedido?: (pedidoId: string) => void;
+  // Navega a la ventana de Embarques con el embarque preseleccionado para
+  // continuar con la documentación (flujo post-revisión).
+  onVerEmbarque?: (embarqueId: string) => void;
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
-// Rango por defecto: ~30 días atrás hasta fin de mes, para incluir los traspasos
-// vencidos (varios días de antigüedad) además de los recientes.
+// Rango por defecto: día actual hasta 1 mes atrás (los traspasos vigentes
+// siempre están en esa ventana; los más antiguos son consultas puntuales).
 const _now = new Date();
 const _desde = new Date(_now.getTime() - 30 * 86_400_000);
 const MONTH_START = `${_desde.getFullYear()}-${String(_desde.getMonth() + 1).padStart(2, '0')}-${String(_desde.getDate()).padStart(2, '0')}`;
-const _lastDay = new Date(_now.getFullYear(), _now.getMonth() + 1, 0);
-const MONTH_END = `${_lastDay.getFullYear()}-${String(_lastDay.getMonth() + 1).padStart(2, '0')}-${String(_lastDay.getDate()).padStart(2, '0')}`;
+const MONTH_END = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
 
 type FilterTipo = 'ALL' | 'Automático' | 'Manual' | 'CEDIS-Reabasto' | 'CEDIS-Reabasto-Unificado' | 'CEDIS-Urgencia' | 'CEDIS-Especial' | 'Envio-Devolucion' | 'Envio-AjusteInventario';
 
@@ -53,7 +65,12 @@ const GROUP_COLORS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777', '#0
 const PRE_ENVIADO_STATUS: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Documentado'];
 // Estatus "surtido/revisado pero aún sin enviar" (pendientes por envío).
 // Pendiente por envío = revisado/documentado sin enviar (documentación pendiente).
-const PENDIENTE_ENVIO_STATUS: TraspasoStatus[] = ['Revisado', 'Documentado'];
+// Status que cuentan como "Pendiente de envío" cuando además el traspaso YA
+// tiene embarque asignado (embarqueId presente). Ver card en buildCardDefs.
+// 'Embarcado' entra aquí porque tiene embarque pero aún no completó
+// documentación; 'Documentado' porque tiene todo listo pero aún no ha salido.
+// 'Revisado' queda porque puede llegar con embarqueId de una unificación.
+const PENDIENTE_ENVIO_STATUS: TraspasoStatus[] = ['Revisado', 'Embarcado', 'Documentado'];
 function diasDesdeCreacion(fechaIso: string): number {
   const t = new Date(fechaIso.replace(' ', 'T')).getTime();
   if (isNaN(t)) return 0;
@@ -91,7 +108,8 @@ function slaTags(t: TraspasoPeticion): SlaTag[] {
   if (t.categoria === 'CEDIS') return tags;
   if (t.parcial && ['Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Surtido con parcialidad', icon: 'splitscreen', color: '#1B3892' });
   if (t.parcial && ['Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'].includes(t.status)) tags.push({ label: 'Revisado con parcialidad', icon: 'fact_check', color: '#7c3aed' });
-  if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', icon: 'cancel', color: '#dc2626' });
+  if (t.status === 'Cancelado' && t.resultado === 'rechazada') tags.push({ label: 'Rechazado', icon: 'block', color: '#dc2626' });
+  if (t.status === 'Cancelado' && t.resultado !== 'rechazada') tags.push({ label: 'Cancelado', icon: 'do_not_disturb_on', color: '#6b7280' });
   return tags;
 }
 
@@ -107,13 +125,28 @@ function buildCardDefs(tipo: TraspasoTipo): CardDef[] {
       match: t => t.status === 'Pendiente' },
     { key: 'pendienteRevision', label: 'Pendiente\nrevisión', sub: 'surtido, por revisar', color: '#7c3aed', icon: 'fact_check',
       match: t => t.status === 'Surtido' },
-    // Pendientes por envío queda INMEDIATAMENTE antes de Enviados.
-    // (La antigua card "Surtido con parcialidad" desaparece: ahora la parcialidad
-    // se muestra como badge azul sobre las cards que contengan parciales.)
-    { key: 'pendientesEnvio', label: 'Pendientes\npor envío', sub: 'documentación pendiente', color: '#0d9488', icon: 'outbox',
-      match: t => PENDIENTE_ENVIO_STATUS.includes(t.status) },
-    { key: 'enviados', label: 'Enviados', sub: 'en tránsito', color: '#2563eb', icon: 'local_shipping',
-      match: t => t.status === 'Enviado' },
+    // Pendiente de embarque: cualquier traspaso que aún NO tiene embarque
+    // asignado (embarqueId vacío) y ya pasó las etapas de surtir/revisar.
+    // Es el estado justo antes de "Embarcar". Cubre principalmente Revisado
+    // sin embarque, pero también Documentado/Embarcado sin embarqueId (caso
+    // defensivo). Excluye Pendiente/Surtido (los cubren las cards previas)
+    // y estados finales.
+    { key: 'embarcadosSinDocumentar', label: 'Pendiente\nde embarque', sub: 'sin embarque asignado', color: '#ea580c', icon: 'inventory_2',
+      match: t => !t.embarqueId
+        && t.status !== 'Pendiente'
+        && t.status !== 'Surtido'
+        && t.status !== 'Cancelado'
+        && t.status !== 'Enviado'
+        && t.status !== 'EntregadoAPaqueteria'
+        && t.status !== 'RepartoFinalizado'
+        && t.status !== 'Recibido'
+        && t.status !== 'Entregado' },
+    // Pendiente de envío = ya tiene embarque asignado pero aún no ha salido.
+    // (Revisado o Documentado + embarqueId presente, y no marcado Enviado.)
+    { key: 'pendientesEnvio', label: 'Pendiente\nde envío', sub: 'con embarque, listo por salir', color: '#0d9488', icon: 'outbox',
+      match: t => !!t.embarqueId && PENDIENTE_ENVIO_STATUS.includes(t.status) },
+    { key: 'enviados', label: 'Entregados a\npaquetería', sub: 'en tránsito con la paquetería', color: '#2563eb', icon: 'local_shipping',
+      match: t => t.status === 'Enviado' || t.status === 'EntregadoAPaqueteria' || t.status === 'RepartoFinalizado' },
   ];
   // "Confirmación de recepción" solo aplica en Por recibir: la sucursal ya
   // confirmó físicamente la recepción, falta darle entrada al inventario.
@@ -132,14 +165,19 @@ function buildCardDefs(tipo: TraspasoTipo): CardDef[] {
 
 // Pipeline de una petición y su posición actual. Devuelve una barra segmentada
 // para mostrar visualmente en qué etapa está el traspaso.
-const PIPELINE_SUCURSAL: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Documentado', 'Enviado', 'Recibido', 'Entregado'];
-const PIPELINE_CEDIS:    TraspasoStatus[] = ['Pendiente', 'Documentado', 'Enviado', 'Recibido', 'Entregado'];
+// Pipeline extendido a 8 pasos con Embarcado, EntregadoAPaqueteria y
+// RepartoFinalizado como pasos intermedios entre Revisado y Recibido/Entregado.
+const PIPELINE_SUCURSAL: TraspasoStatus[] = ['Pendiente', 'Surtido', 'Revisado', 'Embarcado', 'Documentado', 'EntregadoAPaqueteria', 'RepartoFinalizado', 'Recibido', 'Entregado'];
+const PIPELINE_CEDIS:    TraspasoStatus[] = ['Pendiente', 'Documentado', 'EntregadoAPaqueteria', 'RepartoFinalizado', 'Recibido', 'Entregado'];
 function pipelineDe(t: TraspasoPeticion): TraspasoStatus[] {
   return t.categoria === 'CEDIS' ? PIPELINE_CEDIS : PIPELINE_SUCURSAL;
 }
 function avanceDe(t: TraspasoPeticion): { step: number; total: number; pct: number } {
   const p = pipelineDe(t);
-  const idx = p.indexOf(t.status);
+  // Normalización de legado: 'Enviado' se mapea a 'EntregadoAPaqueteria' para
+  // que datos previos al refactor sigan encontrando su posición en el pipeline.
+  const statusNorm: TraspasoStatus = t.status === 'Enviado' ? 'EntregadoAPaqueteria' : t.status;
+  const idx = p.indexOf(statusNorm);
   const step = idx < 0 ? 0 : idx + 1;
   const total = p.length;
   return { step, total, pct: Math.round((step / total) * 100) };
@@ -178,8 +216,8 @@ function calcularRecibido(t: TraspasoPeticion, tipoEfectivo: TraspasoTipo) {
   return { num: totalRecibida, den: totalSolicitada, unidad: 'piezas' as const, estatus };
 }
 
-export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis, onReasignar }: Props) {
-  const { traspasos, sucursalActual, reasignarPeticion, generarSolicitudRestante, darEntradaInventario } = useApp();
+export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitud, onSolicitarCedis, onEnviarCedis, onReasignar, onVerPedido, onVerEmbarque }: Props) {
+  const { traspasos, sucursalActual, reasignarPeticion, generarSolicitudRestante, darEntradaInventario, embarquesTraspaso, crearEmbarqueParaTraspaso, agregarTraspasoAEmbarque, guardarDocumentacionEmbarque, generarGuiaPaqueteria, confirmarEntregadoAPaqueteriaManual, confirmarRepartoFinalizado, cancelarEmbarque, duplicarEmbarque } = useApp();
 
   // Perspectiva desde la sucursal actual: un traspaso es "Por enviar"/"Por recibir"
   // según sea su origen o su destino. Solo se ven los que involucran a la sucursal.
@@ -195,19 +233,30 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
 
   // Etiquetas de columna: la tabla es una recepción (Entrante) o un envío (Saliente)
   const colFechaSegunda = tipoFilter === 'Entrante' ? 'Fecha Arribo' : 'Fecha Envío';
-  const colRecibido = tipoFilter === 'Entrante' ? 'Recibido' : 'Enviado';
-  const COLUMNS = [
-    'Tipo', 'Solicitud', 'Almacén', 'Pedido cliente', 'No. Papeleta',
-    'Fecha traspaso', colFechaSegunda, colRecibido, 'Estado / Avance', 'SLA',
-  ];
+  // Antes "Enviado" (Saliente) / "Recibido" (Entrante). Unificado como "Piezas"
+  // porque el valor mostrado es siempre el conteo de piezas (num/den unidad).
+  const colRecibido = 'Piezas';
+  // Columnas de la tabla. En "Por enviar" (Saliente) se ocultan "Solicitud"
+  // y "Pedido cliente" — el donante consulta esa info desde el DETALLE.
+  // En "Por recibir" (Entrante) se mantienen para trazabilidad del solicitante.
+  const COLUMNS = tipoFilter === 'Saliente'
+    ? ['Tipo', 'Petición ID', 'Almacén', 'No. Papeleta', 'Fecha traspaso', colFechaSegunda, colRecibido, 'Embarque', 'Estatus', 'SLA']
+    : ['Tipo', 'Solicitud', 'Almacén', 'Pedido cliente', 'No. Papeleta', 'Fecha traspaso', colFechaSegunda, colRecibido, 'Embarque', 'Estatus', 'SLA'];
 
   // Filtros — al entrar: mes en curso y SIN filtros de estado/etapa
+  // Estado aplicado al filtro (se actualiza SOLO cuando el usuario pulsa
+  // "Filtrar"). Los inputs editan un `draft` — el filtro no se recalcula
+  // hasta que el usuario confirme el cambio.
   const [fechaInicial, setFechaInicial] = useState(MONTH_START);
   const [fechaFinal, setFechaFinal] = useState(MONTH_END);
+  const [fechaInicialDraft, setFechaInicialDraft] = useState(MONTH_START);
+  const [fechaFinalDraft, setFechaFinalDraft] = useState(MONTH_END);
+  const hayCambiosFecha = fechaInicial !== fechaInicialDraft || fechaFinal !== fechaFinalDraft;
   const [filterTipo, setFilterTipo] = useState<FilterTipo>('ALL');
   const [searchText, setSearchText] = useState('');
   // Búsqueda dinámica: el usuario elige por qué campo buscar (papeleta por defecto).
-  type CampoBusqueda = 'papeleta' | 'pedido' | 'peticion' | 'solicitud';
+  // F31 — Añadida búsqueda por embarque/guía.
+  type CampoBusqueda = 'papeleta' | 'pedido' | 'peticion' | 'solicitud' | 'embarque' | 'guia';
   const [searchField, setSearchField] = useState<CampoBusqueda>('papeleta');
   // Sort manual por columna: null = default (agrupado por solicitud).
   const [sortCol, setSortCol] = useState<string | null>(null);
@@ -226,12 +275,28 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Modales
   const [detailPetId, setDetailPetId] = useState<string | null>(null);
   const [surtirPetId, setSurtirPetId] = useState<string | null>(null);
+  // Bloqueo de surtido: aparece cuando el usuario intenta surtir una petición
+  // consolidadora intermedia con dependencias aún no Entregadas.
+  const [bloqueoSurtidoPetId, setBloqueoSurtidoPetId] = useState<string | null>(null);
   const [revisarPetId, setRevisarPetId] = useState<string | null>(null);
   const [recepcionPetId, setRecepcionPetId] = useState<string | null>(null);
   const [embarcarPetId, setEmbarcarPetId] = useState<string | null>(null);
+  // F6/F7 — documentar embarque (abre modal de pesado + cotizador).
+  const [documentarEmbarqueId, setDocumentarEmbarqueId] = useState<string | null>(null);
+  // F50 — loading state para botón "Generar guía"
+  const [generandoGuiaId, setGenerandoGuiaId] = useState<string | null>(null);
+  // Estado de carga para el botón "Refrescar" (simula consulta al servidor).
+  const [refrescando, setRefrescando] = useState(false);
+  // Estados intermedios del flujo documentar → cotizar → aceptar.
+  const [documentacionDraft, setDocumentacionDraft] = useState<DocumentacionPorPedido[] | null>(null);
+  const [modoPesoDraft, setModoPesoDraft] = useState<'Consolidado' | 'CadaCajaSeparado'>('Consolidado');
   // Prompt de continuación del flujo continuo (surtido → revisión → embarque
   // en Por enviar; recepción → dar entrada en Por recibir).
-  const [continueFlow, setContinueFlow] = useState<{ petId: string; next: 'revisar' | 'embarcar' | 'entrada' } | null>(null);
+  const [continueFlow, setContinueFlow] = useState<{ petId: string; next: 'revisar' | 'embarcar' | 'entrada'; origenManual?: boolean } | null>(null);
+  // Sub-fases del flujo post-revisión (solo aplica cuando next === 'embarcar').
+  type FaseEmb = 'inicio' | 'elegir' | 'confirmarCreacion' | 'exito';
+  const [faseEmb, setFaseEmb] = useState<FaseEmb>('inicio');
+  const [embarqueResultado, setEmbarqueResultado] = useState<{ id: string; unificado: boolean } | null>(null);
 
   const selectedPeticion = useMemo(
     () => traspasos.find(t => t.id === selectedId) ?? null,
@@ -292,16 +357,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       if (searchText) {
         const q = searchText.toLowerCase();
         // Búsqueda dinámica: se aplica SOLO al campo seleccionado por el usuario.
+        const embarqueT = t.embarqueId ? embarquesTraspaso.find(e => e.id === t.embarqueId) : undefined;
         const field =
           searchField === 'papeleta'  ? t.noPapeleta :
           searchField === 'pedido'    ? (t.pedidoOrigen ?? '') :
           searchField === 'peticion'  ? t.id :
+          searchField === 'embarque'  ? (t.embarqueId ?? '') :
+          searchField === 'guia'      ? (embarqueT?.guiaId ?? '') :
           /* solicitud */               t.solicitudId;
         if (!field.toLowerCase().includes(q)) return false;
       }
       return true;
     });
-  }, [traspasosDelTipo, filterTipo, fechaInicial, fechaFinal, searchText, searchField, sucursalActual]);
+  }, [traspasosDelTipo, filterTipo, fechaInicial, fechaFinal, searchText, searchField, sucursalActual, embarquesTraspaso]);
 
   // Cards del tab actual (Por enviar / Por recibir).
   const cardDefs = useMemo(() => buildCardDefs(tipoFilter), [tipoFilter]);
@@ -312,6 +380,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     cardDefs.forEach(def => { c[def.key] = filteredTraspasos.filter(def.match).length; });
     return c;
   }, [filteredTraspasos, cardDefs]);
+
 
   // Vencidos por card: indicador (badge rojo) que muestra cuántos de esa card
   // están vencidos. En "Finalizados" no aplica (ya salieron del pipeline).
@@ -349,15 +418,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
     switch (col) {
       case 'Tipo':           return t.motivoEnvioCedis ?? (t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : t.categoria);
       case 'Solicitud':      return `${t.solicitudId}-${t.id}`;
+      case 'Petición ID':    return t.id;
       case 'Almacén':        return per.contraparte;
-      case 'Pedido cliente': return t.pedidoOrigen || 'zzz'; // "sin pedido" al final
+      case 'Pedido cliente': return t.pedidoOrigen || 'zzz';
       case 'No. Papeleta':   return t.noPapeleta;
       case 'Fecha traspaso': return t.fechaCreacion;
       case 'Fecha Arribo':
       case 'Fecha Envío':    return t.fechaArribo ?? '';
-      case 'Recibido':
-      case 'Enviado':        return calcularRecibido(t, per.tipo).num;
-      case 'Estado / Avance':return avanceDe(t).step;
+      case 'Piezas':         return calcularRecibido(t, per.tipo).num;
+      case 'Embarque':       return t.embarqueId || 'zzz';
+      case 'Estatus':return avanceDe(t).step;
       case 'SLA':            return slaTags(t).length; // más tags = "menos en tiempo"
       default:               return '';
     }
@@ -376,11 +446,19 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         return sortDir === 'asc' ? cmp : -cmp;
       });
     } else {
-      arr = [...filteredConCard].sort((a, b) =>
-        a.solicitudId === b.solicitudId
+      // F34 — Los embarques atorados suben al top.
+      const atoradoDe = (t: TraspasoPeticion) => {
+        const e = t.embarqueId ? embarquesTraspaso.find(x => x.id === t.embarqueId) : undefined;
+        return e && embarqueAtorado(e);
+      };
+      arr = [...filteredConCard].sort((a, b) => {
+        const aA = atoradoDe(a) ? 0 : 1;
+        const bA = atoradoDe(b) ? 0 : 1;
+        if (aA !== bA) return aA - bA;
+        return a.solicitudId === b.solicitudId
           ? (a.intento ?? 0) - (b.intento ?? 0)
-          : a.solicitudId.localeCompare(b.solicitudId)
-      );
+          : a.solicitudId.localeCompare(b.solicitudId);
+      });
     }
     const count: Record<string, number> = {};
     arr.forEach(t => { count[t.solicitudId] = (count[t.solicitudId] ?? 0) + 1; });
@@ -398,9 +476,15 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const handleClearFilters = () => {
     setFechaInicial(MONTH_START);
     setFechaFinal(MONTH_END);
+    setFechaInicialDraft(MONTH_START);
+    setFechaFinalDraft(MONTH_END);
     setFilterTipo('ALL');
     setSearchText('');
     setCardFilter(null);
+  };
+  const aplicarFiltros = () => {
+    setFechaInicial(fechaInicialDraft);
+    setFechaFinal(fechaFinalDraft);
   };
 
   // Exporta a Excel lo que se ve en la tabla (filtrada) + el desglose de piezas.
@@ -411,13 +495,16 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       const tipo = t.motivoEnvioCedis ?? (t.categoria === 'CEDIS' && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria]);
       return {
         Tipo: tipo,
+        // El Excel conserva Solicitud y Pedido cliente para trazabilidad
+        // aunque la tabla ya no los muestre — el detalle sigue teniéndolos.
         Solicitud: t.solicitudId,
-        Traspaso: t.id,
+        'Petición ID': t.id,
         Almacén: `${per.tipo === 'Entrante' ? 'De: ' : 'A: '}${per.contraparte}`,
         'Pedido cliente': t.pedidoOrigen || 'Sin pedido',
         'No. papeleta': t.noPapeleta,
         'Fecha traspaso': formatFechaCorta(t.fechaCreacion),
         [colRecibido]: `${num}/${den} ${unidad}`,
+        Embarque: t.embarqueId || 'Sin embarque',
         Estado: etapaTraspaso(t.status),
         SLA: slaTags(t).map(s => s.label).join(', ') || 'En tiempo',
       };
@@ -457,19 +544,32 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   const canSurtir = esSurtibleEnPlataforma && sel!.status === 'Pendiente';
   const canRevisar = noEsCedis && sel!.status === 'Surtido';
   const canEmbarcar = noEsCedis && sel!.status === 'Revisado';
+  // Botones nuevos del refactor de embarque:
+  const canDocumentar = noEsCedis && sel!.status === 'Embarcado';
+  // Recotizar: solo mientras esté Documentado y aún no se haya generado guía
+  // ni entregado a paquetería (después ya no tiene sentido cambiar).
+  const embarqueSel = sel?.embarqueId ? embarquesTraspaso.find(e => e.id === sel.embarqueId) : undefined;
+  const canRecotizar = !!sel && sel.status === 'Documentado' && !embarqueSel?.guiaId;
+  const canGenerarGuia = !!sel && sel.status === 'Documentado' && tipoPaqueteriaDe(sel.metodoEnvio) === 'WebService';
+  // Regla sep-2026: aplica tanto a Manual como a WebService — el logístico
+  // confirma manualmente la entrega física a la paquetería.
+  const canEntregadoAPaqueteria = !!sel && sel.status === 'Documentado' &&
+    (tipoPaqueteriaDe(sel.metodoEnvio) === 'Manual' || tipoPaqueteriaDe(sel.metodoEnvio) === 'WebService');
+  const canSolicitarReparto = !!sel && sel.status === 'Documentado' && (tipoPaqueteriaDe(sel.metodoEnvio) === 'Uber' || tipoPaqueteriaDe(sel.metodoEnvio) === 'BlueGo');
+  const canConfirmarReparto = !!sel && sel.status === 'EntregadoAPaqueteria' && (tipoPaqueteriaDe(sel.metodoEnvio) === 'Manual' || tipoPaqueteriaDe(sel.metodoEnvio) === 'WebService');
   // Escenarios de recálculo por la sucursal solicitante:
-  // - Rechazada en su totalidad → reasignar (nueva petición por el faltante).
-  // - Surtida/revisada parcialmente → nueva solicitud por el restante.
+  // - RECHAZADA en su totalidad  → REASIGNAR (asignar toda la mercancía a otra sucursal).
+  // - REVISADA parcialmente      → GENERAR SOLICITUD por la mercancía restante.
+  //   El surtido parcial NO da opción: solo se muestra el indicador de SLA (splitscreen).
   const faltanteDe = (t: TraspasoPeticion) => t.piezas.reduce((s, p) => s + Math.max(0, p.qtySolicitada - p.qtySurtida), 0);
   const esRechazadaTotal = !!sel && sel.status === 'Cancelado' && sel.resultado === 'rechazada';
-  const esParcial = !!sel && sel.parcial === true && sel.status !== 'Cancelado' && faltanteDe(sel) > 0;
+  const esRevisadoParcial = !!sel && sel.parcial === true && sel.status === 'Revisado' && faltanteDe(sel) > 0;
   // El recálculo (reasignar / generar restante) SOLO existe en "Por recibir": lo
   // decide la sucursal que SOLICITÓ. En "Por enviar" la sucursal que ve el traspaso
   // es la que rechazó/surtió, así que esas opciones no aplican.
   const esPorRecibir = tipoFilter === 'Entrante';
-  // Rechazo total → solo reasignar. Parcial → el logístico decide: reasignar o generar solicitud por el restante.
-  const canReasignar = esPorRecibir && !!sel && !sel.peticionSiguienteId && (esRechazadaTotal || esParcial);
-  const canGenerarRestante = esPorRecibir && !!sel && !sel.peticionSiguienteId && esParcial;
+  const canReasignar = esPorRecibir && !!sel && !sel.peticionSiguienteId && esRechazadaTotal;
+  const canGenerarRestante = esPorRecibir && !!sel && !sel.peticionSiguienteId && esRevisadoParcial;
 
   const handleReasignar = () => {
     if (!sel) return;
@@ -491,7 +591,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   // Reabasto de CEDIS es de recepción ciega: sin modal de escaneo, entrada directa.
   // Confirmar recepción: disponible cuando ya fue Enviado (por confirmar) o ya
   // Recibido (para cambiar completa/parcial; queda registro).
-  const canConfirmarRecepcion = !!sel && (sel.status === 'Enviado' || sel.status === 'Recibido');
+  const canConfirmarRecepcion = !!sel && (sel.status === 'Enviado' || sel.status === 'EntregadoAPaqueteria' || sel.status === 'RepartoFinalizado' || sel.status === 'Recibido');
   // Dar entrada al inventario: disponible cuando la petición ya se confirmó
   // (Recibido) y falta darle entrada. Pronto abrirá una ventana propia; por
   // ahora solo mueve la petición a Entregado (Finalizados).
@@ -510,6 +610,38 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
   return (
     <div className="flex flex-col h-full" style={{ background: '#f4f6fa', fontFamily: 'Roboto, sans-serif' }}>
 
+      {/* ── Header de vista actual — arriba de todo, neutro y legible.
+             Sin colores llamativos: fondo blanco, borde inferior sutil.
+             Icono de la vista (flecha), título grande, chip de perspectiva
+             con la flecha y color propio (azul/morado), sucursal a la derecha
+             como contexto secundario. */}
+      <div
+        className="flex items-center gap-3 px-6 py-2.5"
+        style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#1a2b6b' }}>swap_horiz</span>
+        <h1 className="text-base font-extrabold" style={{ color: '#1a2b6b', letterSpacing: '0.2px' }}>Traspasos</h1>
+        <span style={{ color: '#d1d5db' }}>/</span>
+        <span
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold"
+          style={{
+            background: tipoFilter === 'Entrante' ? 'rgba(37,99,235,0.10)' : 'rgba(124,58,237,0.10)',
+            color: tipoFilter === 'Entrante' ? '#2563eb' : '#7c3aed',
+            border: `1px solid ${tipoFilter === 'Entrante' ? 'rgba(37,99,235,0.28)' : 'rgba(124,58,237,0.28)'}`,
+          }}
+          title="Vista actual del módulo de Traspasos"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+            {tipoFilter === 'Entrante' ? 'call_received' : 'call_made'}
+          </span>
+          {tipoFilter === 'Entrante' ? 'Por recibir' : 'Por enviar'}
+        </span>
+        <div className="ml-auto flex items-center gap-1.5 text-[11px]" style={{ color: '#6b7280' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>store</span>
+          <span className="font-semibold" style={{ color: '#374151' }}>{sucursalActual}</span>
+        </div>
+      </div>
+
       {/* ── Cards de control (filtros sobre la respuesta) ──
           Cada card muestra su conteo. Si alguno de sus registros está VENCIDO,
           se muestra un badge rojo (event_busy + conteo) en la esquina superior
@@ -527,20 +659,18 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           return (
             <button
               key={c.key}
-              onClick={() => setCardFilter(activa ? null : c.key)}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 flex-shrink-0 transition-all text-left relative"
+              onClick={() => { setCardFilter(activa ? null : c.key); setSelectedId(null); }}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 flex-shrink-0 transition-all text-left relative"
               title={tip}
-              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, width: 128, height: 78, cursor: 'pointer' }}
+              style={{ background: activa ? `${c.color}12` : '#fff', border: `1.5px solid ${activa ? c.color : '#e5e7eb'}`, width: 108, height: 62, cursor: 'pointer' }}
             >
-              <div className="flex items-center justify-center rounded-md" style={{ width: 30, height: 30, background: `${c.color}14`, flexShrink: 0 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: c.color }}>{c.icon}</span>
+              <div className="flex items-center justify-center rounded-md" style={{ width: 24, height: 24, background: `${c.color}14`, flexShrink: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15, color: c.color }}>{c.icon}</span>
               </div>
-              {/* Reservamos altura fija para que labels de 1 o 2 líneas y subs de
-                  1 o 2 líneas ocupen siempre el mismo espacio → cards uniformes. */}
+              {/* Cards compactas — label de máx. 2 líneas sin sub para reducir alto. */}
               <div className="flex-1 min-w-0">
-                <span className="block text-lg font-extrabold leading-none" style={{ color: val > 0 ? c.color : '#9ca3af' }}>{val}</span>
-                <div className="text-[11px] font-semibold" style={{ color: '#374151', whiteSpace: 'pre-line', lineHeight: '1.15', height: '2.3em', overflow: 'hidden' }}>{c.label}</div>
-                <div className="text-[9px]" style={{ color: '#9ca3af', lineHeight: '1.2', height: '2.4em', overflow: 'hidden' }}>{c.sub}</div>
+                <span className="block text-base font-extrabold leading-none" style={{ color: val > 0 ? c.color : '#9ca3af' }}>{val}</span>
+                <div className="text-[10px] font-semibold mt-0.5" style={{ color: '#374151', whiteSpace: 'pre-line', lineHeight: '1.1', height: '2.2em', overflow: 'hidden' }}>{c.label}</div>
               </div>
               {/* Indicadores superpuestos: rojo (vencidos) y azul (parcialidad). */}
               {(venc > 0 || parc > 0) && (
@@ -572,11 +702,12 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         })}
 
         {cardFilter && (
-          <button onClick={() => setCardFilter(null)} className="flex items-center gap-1 text-xs font-semibold flex-shrink-0 px-2 py-1 rounded" style={{ color: '#6b7280' }}>
+          <button onClick={() => { setCardFilter(null); setSelectedId(null); }} className="flex items-center gap-1 text-xs font-semibold flex-shrink-0 px-2 py-1 rounded" style={{ color: '#6b7280' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
             Quitar filtro
           </button>
         )}
+
       </div>
 
       {/* ── Filter bar ── */}
@@ -589,20 +720,20 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             <label className="text-xs text-gray-500 whitespace-nowrap">Fecha inicial</label>
             <input
               type="date"
-              value={fechaInicial}
-              onChange={e => setFechaInicial(e.target.value)}
+              value={fechaInicialDraft}
+              onChange={e => setFechaInicialDraft(e.target.value)}
               className="text-xs rounded border px-2 py-1"
-              style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
+              style={{ borderColor: hayCambiosFecha ? '#d97706' : '#d1d5db', accentColor: '#1a2b6b' }}
             />
           </div>
           <div className="flex items-center gap-1.5">
             <label className="text-xs text-gray-500 whitespace-nowrap">Fecha final</label>
             <input
               type="date"
-              value={fechaFinal}
-              onChange={e => setFechaFinal(e.target.value)}
+              value={fechaFinalDraft}
+              onChange={e => setFechaFinalDraft(e.target.value)}
               className="text-xs rounded border px-2 py-1"
-              style={{ borderColor: '#d1d5db', accentColor: '#1a2b6b' }}
+              style={{ borderColor: hayCambiosFecha ? '#d97706' : '#d1d5db', accentColor: '#1a2b6b' }}
             />
           </div>
 
@@ -617,9 +748,17 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               title="Elige el campo por el que quieres buscar"
             >
               <option value="papeleta">Papeleta</option>
-              <option value="pedido">Pedido ID</option>
+              {/* "Pedido ID" se oculta en la vista Saliente si el donante es
+                  consolidador intermedio de al menos una petición (no debe
+                  ver el linaje del pedido cliente). Se mantiene siempre en
+                  Entrante (el solicitante final sí conoce su pedido). */}
+              {(tipoFilter !== 'Saliente' || !traspasosDelTipo.some(t => esConsolidadorIntermedio(t, sucursalActual, traspasos))) && (
+                <option value="pedido">Pedido ID</option>
+              )}
               <option value="peticion">Petición</option>
               <option value="solicitud">Solicitud</option>
+              <option value="embarque">Embarque</option>
+              <option value="guia">Guía</option>
             </select>
             <div className="relative flex items-center">
               <span className="material-symbols-outlined absolute left-2" style={{ fontSize: 15, color: '#9ca3af' }}>search</span>
@@ -660,13 +799,44 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
             )}
           </select>
 
+          {/* Refrescar / Filtrar — cuando hay cambios pendientes en las
+              fechas (draft ≠ aplicado), el botón cambia a "Filtrar" en
+              ámbar para invitar a confirmar el cambio. Al hacer click se
+              aplican las fechas del draft y el botón vuelve a "Refrescar". */}
           <button
-            onClick={() => setSearchText(searchText)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
-            style={{ border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }}
+            disabled={refrescando}
+            onClick={() => {
+              if (hayCambiosFecha) {
+                aplicarFiltros();
+                return;
+              }
+              // Simulación de consulta al servidor: da feedback visual al
+              // usuario durante ~700 ms antes de re-renderizar la vista.
+              setRefrescando(true);
+              showToast('Consultando cambios…', 'info');
+              window.setTimeout(() => {
+                setSearchText(searchText);
+                setRefrescando(false);
+                showToast('Vista actualizada.', 'success');
+              }, 700);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all"
+            style={
+              refrescando
+                ? { border: '1.5px solid #94a3b8', color: '#fff', background: '#94a3b8', cursor: 'wait' }
+                : hayCambiosFecha
+                ? { border: '1.5px solid #d97706', color: '#fff', background: '#d97706', boxShadow: '0 2px 6px rgba(217,119,6,0.35)' }
+                : { border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }
+            }
+            title={refrescando ? 'Consultando…' : hayCambiosFecha ? 'Aplicar el nuevo rango de fechas' : 'Refrescar la vista'}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>refresh</span>
-            Refrescar
+            <span
+              className="material-symbols-outlined"
+              style={{ fontSize: 14, animation: refrescando ? 'spin 0.9s linear infinite' : 'none' }}
+            >
+              {refrescando ? 'progress_activity' : hayCambiosFecha ? 'filter_alt' : 'refresh'}
+            </span>
+            {refrescando ? 'Consultando…' : hayCambiosFecha ? 'Filtrar' : 'Refrescar'}
           </button>
 
           <button
@@ -678,43 +848,49 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           </button>
         </div>
 
-        <div className="flex items-center gap-2 md:ml-auto">
+        {/* Acciones — compactadas para caber en una sola fila (sobre todo
+            en "Por recibir" donde conviven Excel + Solicitar CEDIS + Nueva
+            solicitud). Padding y font reducidos; label queda visible. */}
+        <div className="flex items-center gap-1.5 md:ml-auto">
           <button
             onClick={handleExportExcel}
-            className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all"
+            className="flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition-all"
             style={{ border: '1.5px solid #16a34a', color: '#16a34a', background: 'white' }}
             title="Exportar a Excel la tabla filtrada y el desglose de piezas"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>
-            Exportar Excel
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>table_view</span>
+            Excel
           </button>
           {onEnviarCedis && (
             <button
               onClick={onEnviarCedis}
-              className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all"
+              className="flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition-all"
               style={{ border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }}
+              title="Enviar mercancía a CEDIS"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>local_shipping</span>
               Enviar a CEDIS
             </button>
           )}
           {onSolicitarCedis && (
             <button
               onClick={onSolicitarCedis}
-              className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all"
+              className="flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition-all"
               style={{ border: '1.5px solid #1a2b6b', color: '#1a2b6b', background: 'white' }}
+              title="Solicitar mercancía a CEDIS"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>warehouse</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>warehouse</span>
               Solicitar a CEDIS
             </button>
           )}
           {onNuevaSolicitud && (
             <button
               onClick={onNuevaSolicitud}
-              className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold text-white transition-all"
-              style={{ background: '#1a2b6b', boxShadow: '0 2px 8px rgba(26,43,107,0.3)' }}
+              className="flex items-center justify-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold text-white transition-all"
+              style={{ background: '#1a2b6b', boxShadow: '0 2px 6px rgba(26,43,107,0.25)' }}
+              title="Nueva solicitud de traspaso"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>add</span>
               Nueva solicitud
             </button>
           )}
@@ -771,11 +947,18 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const esCedis = t.categoria === 'CEDIS';
               const esUnificada = t.resultado === 'unificada';
               const esReabastoUnificado = esCedis && t.subtipoCedis === 'Reabasto' && !!t.reabastoUnifica?.length;
+              // Nuevo tipo visual: "Aut. SMC Unificación" para peticiones
+              // Automáticas que forman parte de una unificación (petición
+              // consolidada dentro de un reabasto o marcada como unificada).
+              // Sigue las mismas reglas que las Automáticas SMC.
+              const esAutUnificacion = t.categoria === 'Automático' && (esUnificada || !!t.unificadaEnTraspaso);
               const tipoLabel = t.motivoEnvioCedis
                 ? t.motivoEnvioCedis
                 : esReabastoUnificado
                   ? 'Reabasto/unificado'
-                  : esCedis && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
+                  : esAutUnificacion
+                    ? 'Aut. SMC Unificación'
+                    : esCedis && t.subtipoCedis ? t.subtipoCedis : TRASPASO_CATEGORIA_LABELS[t.categoria];
               const tipoColor = t.motivoEnvioCedis
                 ? MOTIVO_ENVIO_CEDIS_COLORS[t.motivoEnvioCedis]
                 : t.categoria === 'CEDIS' && t.subtipoCedis
@@ -785,6 +968,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                 ? TRASPASO_CATEGORIA_TOOLTIP[t.motivoEnvioCedis]
                 : esReabastoUnificado
                 ? 'Reabasto generado por CEDIS que además trae mercancía unificada de una solicitud a CEDIS con pedido de cliente.'
+                : esAutUnificacion
+                ? 'Automático SMC — Unificación: petición unificada dentro de otro traspaso. Sigue las mismas reglas que Automático SMC.'
                 : t.categoria === 'CEDIS' && t.subtipoCedis
                 ? TRASPASO_CATEGORIA_TOOLTIP[t.subtipoCedis]
                 : TRASPASO_CATEGORIA_TOOLTIP[t.categoria] ?? '';
@@ -797,52 +982,90 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
               const tagsSla = slaTags(t);
               const pct = recibidoDen > 0 ? Math.round((recibidoNum / recibidoDen) * 100) : 0;
 
+              // F64 — Fondo tenue rojo si el embarque está atorado.
+              const embRow = t.embarqueId ? embarquesTraspaso.find(e => e.id === t.embarqueId) : undefined;
+              const atorado = embRow && embarqueAtorado(embRow);
               return (
                 <tr
                   key={t.id}
                   onClick={() => handleRowClick(t.id)}
                   onDoubleClick={() => handleRowDoubleClick(t.id)}
                   style={{
-                    background: isSelected ? 'rgba(26,43,107,0.08)' : '#fff',
-                    borderLeft: `3px solid ${isSelected ? '#1a2b6b' : (enGrupo ? groupColor : 'transparent')}`,
+                    background: isSelected
+                      ? 'rgba(26,43,107,0.08)'
+                      : atorado
+                      ? 'rgba(220,38,38,0.05)'
+                      : '#fff',
+                    borderLeft: `3px solid ${isSelected ? '#1a2b6b' : atorado ? '#dc2626' : (enGrupo ? groupColor : 'transparent')}`,
                     borderBottom: '1px solid #f3f4f6',
                     borderTop: esInicioGrupo ? '2px solid #e5e7eb' : undefined,
                     cursor: 'pointer',
                     transition: 'background 0.1s',
                   }}
+                  ref={isSelected ? (el => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })) : undefined}
                 >
                   <td className="px-3 py-2.5">
-                    <span
-                      className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                      title={tipoTooltip}
-                      style={{
-                        background: tipoColor.bg,
-                        color: tipoColor.text,
-                        border: `1px solid ${tipoColor.border}`,
-                        cursor: 'help',
-                      }}
-                    >
-                      {tipoLabel}
-                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span
+                        className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                        title={tipoTooltip}
+                        style={{
+                          background: tipoColor.bg,
+                          color: tipoColor.text,
+                          border: `1px solid ${tipoColor.border}`,
+                          cursor: 'help',
+                        }}
+                      >
+                        {tipoLabel}
+                      </span>
+                      {/* Sub-etiqueta "Consolidadora · N por recibir" cuando
+                          esta petición Saliente requiere apoyo de otras
+                          peticiones por recibir. Antes vivía en la celda de
+                          Pedido cliente (ya no existe en Saliente). */}
+                      {esConsolidadorIntermedio(t, sucursalActual, traspasos) && (() => {
+                        const nPend = peticionesDependientesPendientesDe(t, traspasos).length;
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap"
+                            title={`Consolidadora — ${nPend} traspaso(s) por recibir aún no entregados. No se puede surtir hasta completar.`}
+                            style={{ background: '#7c3aed', color: '#fff' }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 11 }}>merge</span>
+                            Consolidadora · {nPend}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
-                    {/* Solicitud + Petición separados por guión medio.
-                        Si la solicitud agrupa varias peticiones, un icono de
-                        enlace pegado al texto con el color del grupo. */}
-                    {enGrupo ? (
-                      <span
-                        className="inline-flex items-center gap-0.5 text-xs font-semibold whitespace-nowrap"
-                        style={{ color: groupColor }}
-                        title={`Solicitud ${t.solicitudId} — ${solCount[t.solicitudId]} peticiones relacionadas (se muestran juntas). Petición ${t.id}`}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>link</span>
-                        {t.solicitudId} <span style={{ color: '#9ca3af' }}>–</span> {t.id}
-                      </span>
-                    ) : (
-                      <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }} title={`Solicitud ${t.solicitudId} · Petición ${t.id}`}>
-                        {t.solicitudId} <span style={{ color: '#9ca3af' }}>–</span> {t.id}
-                      </span>
-                    )}
+                    {/* Celda "Petición" (Saliente) o "Solicitud - Petición"
+                        (Entrante). En Saliente el donante SIEMPRE ve solo su
+                        peticionId — la Solicitud y el Pedido se consultan en
+                        el detalle. En Entrante se conserva el par para el
+                        solicitante final que sí necesita agrupar. */}
+                    {(() => {
+                      if (tipoFilter === 'Saliente') {
+                        return (
+                          <span className="text-xs whitespace-nowrap font-semibold" style={{ color: '#374151' }} title={`Petición ${t.id} · Solicitud ${t.solicitudId} (consulta el detalle)`}>
+                            {t.id}
+                          </span>
+                        );
+                      }
+                      return enGrupo ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-xs font-semibold whitespace-nowrap"
+                          style={{ color: groupColor }}
+                          title={`Solicitud ${t.solicitudId} — ${solCount[t.solicitudId]} peticiones relacionadas (se muestran juntas). Petición ${t.id}`}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>link</span>
+                          {t.solicitudId} <span style={{ color: '#9ca3af' }}>–</span> {t.id}
+                        </span>
+                      ) : (
+                        <span className="text-xs whitespace-nowrap" style={{ color: '#374151' }} title={`Solicitud ${t.solicitudId} · Petición ${t.id}`}>
+                          {t.solicitudId} <span style={{ color: '#9ca3af' }}>–</span> {t.id}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>
@@ -850,26 +1073,29 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                       {per.contraparte} ({SUCURSAL_ALMACEN_CODIGOS[per.contraparte] ?? '—'})
                     </span>
                   </td>
-                  <td className="px-3 py-2.5">
-                    {/* Pedido de cliente como texto plano; si no tiene, la leyenda "Sin pedido". */}
-                    {t.pedidoOrigen ? (
-                      <span
-                        className="text-xs font-medium whitespace-nowrap"
-                        style={{ color: '#166534' }}
-                        title={`Ligado al pedido de cliente ${t.pedidoOrigen}`}
-                      >
-                        #{t.pedidoOrigen}
-                      </span>
-                    ) : (
-                      <span
-                        className="text-xs italic whitespace-nowrap"
-                        style={{ color: '#9ca3af' }}
-                        title="Sin pedido de cliente (reabasto / urgencia interna)"
-                      >
-                        Sin pedido
-                      </span>
-                    )}
-                  </td>
+                  {/* Celda "Pedido cliente" — SOLO en Entrante (Por recibir).
+                      En Saliente se omite por regla de matriz cerrada. */}
+                  {tipoFilter === 'Entrante' && (
+                    <td className="px-3 py-2.5">
+                      {t.pedidoOrigen ? (
+                        <span
+                          className="text-xs font-medium whitespace-nowrap"
+                          style={{ color: '#166534' }}
+                          title={`Ligado al pedido de cliente ${t.pedidoOrigen}`}
+                        >
+                          #{t.pedidoOrigen}
+                        </span>
+                      ) : (
+                        <span
+                          className="text-xs italic whitespace-nowrap"
+                          style={{ color: '#9ca3af' }}
+                          title="Sin pedido de cliente (reabasto / urgencia interna)"
+                        >
+                          Sin pedido
+                        </span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-3 py-2.5">
                     <span className="text-xs font-medium" style={{ color: '#374151' }}>{t.noPapeleta}</span>
                   </td>
@@ -888,11 +1114,117 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                       {recibidoNum}/{recibidoDen} {recibidoUnidad}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5" style={{ minWidth: 160 }}>
-                    {/* Estado + barra de avance del pipeline. La barra segmentada
-                        muestra en qué etapa está el traspaso (paso N de M). Los
-                        estados especiales (Draft, Unificada, Cancelado) reemplazan
-                        la barra por su badge propio. */}
+                  {/* Columna EMBARQUE — todos los traspasos requieren embarque
+                      para poder enviarse. Sin embarque = badge gris con leyenda.
+                      Si el embarque es WebService y aún no tiene guía → badge
+                      amarillo "guía pendiente" (regla sep-2026). */}
+                  <td className="px-3 py-2.5">
+                    {t.embarqueId ? (() => {
+                      const emb = embarquesTraspaso.find(e => e.id === t.embarqueId);
+                      const esWS = emb && tipoPaqueteriaDe(emb.paqueteria) === 'WebService';
+                      const guiaPendiente = !!esWS && !emb!.guiaId && t.status === 'Documentado';
+                      return (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(t.embarqueId!).then(
+                                () => showToast(`ID ${t.embarqueId} copiado`, 'success'),
+                                () => {},
+                              );
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap cursor-pointer"
+                            style={{ background: 'rgba(37,99,235,0.08)', color: '#1d4ed8', border: '1px solid rgba(37,99,235,0.30)' }}
+                            title={`Click para copiar: ${t.embarqueId}\nPaquetería: ${emb?.paqueteria ?? '—'}\nDestino: ${emb?.sucursalDestino ?? '—'}\nTraspasos: ${emb?.traspasos.length ?? 0}\nEdad: ${emb ? Math.round(horasSinMovimiento(emb)) : 0}h`}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>local_shipping</span>
+                            {t.embarqueId}
+                          </button>
+                          {guiaPendiente && (
+                            <>
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap"
+                                style={{ background: 'rgba(234,179,8,0.15)', color: '#a16207', border: '1px solid rgba(234,179,8,0.40)' }}
+                                title="Paquetería WebService · falta generar guía"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 11 }}>pending</span>
+                                Guía pendiente
+                              </span>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  showToast(`Solicitando guía ${emb!.paqueteria}…`, 'info');
+                                  const g = await generarGuiaPaqueteria(emb!.id);
+                                  if (g) showToast(`Guía ${g} generada.`, 'success');
+                                }}
+                                title="Generar la guía ahora (mock API)"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap text-white"
+                                style={{ background: '#0891b2' }}
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 11 }}>qr_code_2</span>
+                                Generar
+                              </button>
+                            </>
+                          )}
+                          {emb?.guiaId && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(emb.guiaId!).then(
+                                  () => showToast(`Guía ${emb.guiaId} copiada al portapapeles`, 'success'),
+                                  () => showToast('No se pudo copiar', 'error'),
+                                );
+                              }}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono whitespace-nowrap cursor-pointer"
+                              style={{ background: 'rgba(22,163,74,0.10)', color: '#166534', border: '1px solid rgba(22,163,74,0.30)' }}
+                              title={`Click para copiar: ${emb.guiaId}`}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>content_copy</span>
+                              {emb.guiaId}
+                            </button>
+                          )}
+                          {/* F86 — Aviso si la cotización aceptada tiene >24h (tarifas pueden haber cambiado) */}
+                          {emb && cotizacionCaducada(emb) && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap"
+                              style={{ background: 'rgba(124,58,237,0.12)', color: '#6d28d9', border: '1px solid rgba(124,58,237,0.40)' }}
+                              title="Cotización con más de 24 h — considera recotizar"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>schedule</span>
+                              Cotización caducada
+                            </span>
+                          )}
+                          {/* F25 — Alerta si el embarque lleva > 24h sin avanzar */}
+                          {emb && embarqueAtorado(emb) && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap"
+                              style={{ background: 'rgba(220,38,38,0.12)', color: '#b91c1c', border: '1px solid rgba(220,38,38,0.45)' }}
+                              title={`Sin movimiento hace ${Math.round(horasSinMovimiento(emb))} h`}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>warning</span>
+                              Atorado {Math.round(horasSinMovimiento(emb))}h
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })() : (
+                      <span
+                        className="inline-flex items-center gap-1 text-[11px] italic whitespace-nowrap"
+                        style={{ color: '#9ca3af' }}
+                        title="Aún no tiene embarque. Se crea al finalizar la revisión."
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
+                        Sin embarque
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5" style={{ minWidth: 128 }}>
+                    {/* Estado + barra de avance del pipeline (N barritas
+                        segmentadas de 6px cada una, a la derecha del badge).
+                        Los estados especiales (Draft, Unificada, Cancelado)
+                        reemplazan la barra por su badge propio. */}
                     {t.esDraft ? (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
@@ -911,21 +1243,42 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                         <span className="material-symbols-outlined" style={{ fontSize: 13 }}>merge</span>
                         Unificada
                       </span>
-                    ) : t.status === 'Cancelado' ? (
-                      <span
-                        className="px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
-                        title={TRASPASO_ETAPA_TOOLTIP[etapa]}
-                        style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
-                      >
-                        {etapa}
-                      </span>
-                    ) : (() => {
+                    ) : t.status === 'Cancelado' ? (() => {
+                      // Diferenciación visual: RECHAZADO (donante rechazó, el
+                      // solicitante puede reasignarlo) vs CANCELADO (cerrado por
+                      // el solicitante o cancelación sin opción de reasignar).
+                      const esRechazado = t.resultado === 'rechazada';
+                      const label = esRechazado ? 'Rechazado' : 'Cancelado';
+                      const tip = esRechazado
+                        ? 'Rechazado por la sucursal donante. El solicitante puede reasignarlo a otra sucursal.'
+                        : 'Cancelado. La petición se cerró sin opción de reasignación.';
+                      return (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap"
+                          title={tip}
+                          style={
+                            esRechazado
+                              ? { background: 'rgba(220,38,38,0.12)', color: '#dc2626', border: '1px solid rgba(220,38,38,0.3)', cursor: 'help' }
+                              : { background: 'rgba(107,114,128,0.14)', color: '#4b5563', border: '1px solid rgba(107,114,128,0.35)', cursor: 'help' }
+                          }
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
+                            {esRechazado ? 'block' : 'do_not_disturb_on'}
+                          </span>
+                          {label}
+                        </span>
+                      );
+                    })() : (() => {
                       const av = avanceDe(t);
                       const pipeline = pipelineDe(t);
                       return (
-                        <div className="flex flex-col gap-1" style={{ minWidth: 140 }}>
+                        // Badge + barra en la MISMA línea (barra a la derecha
+                        // del estado). En flex-row cada barrita necesita
+                        // `width` fijo + `flex-shrink:0` (con `flex:1` en
+                        // horizontal se colapsan a 0 sin un ancho asignado).
+                        <div className="flex items-center gap-2">
                           <span
-                            className="px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap self-start"
+                            className="px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap"
                             title={TRASPASO_ETAPA_TOOLTIP[etapa]}
                             style={{ background: etapaColor.bg, color: etapaColor.text, border: `1px solid ${etapaColor.border}`, cursor: 'help' }}
                           >
@@ -933,13 +1286,14 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                           </span>
                           <div
                             className="flex items-center gap-0.5"
+                            style={{ flexShrink: 0, maxWidth: 60 }}
                             title={`Paso ${av.step} de ${av.total} — ${pipeline[av.step - 1] ?? ''} (${av.pct}%)`}
                           >
                             {pipeline.map((_, i) => {
                               const alcanzado = i < av.step;
                               return (
                                 <div key={i} style={{
-                                  flex: 1, height: 5, borderRadius: 3,
+                                  width: 4, height: 12, borderRadius: 3, flexShrink: 0,
                                   background: alcanzado ? etapaColor.text : '#e5e7eb',
                                   transition: 'background 0.2s',
                                 }} />
@@ -1002,70 +1356,259 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         {/* Separador */}
         <span style={{ color: '#e5e7eb', margin: '0 4px', fontSize: 18 }}>|</span>
 
+        {/* Sin selección: pista para el usuario. */}
+        {!sel && (
+          <span style={{ color: '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+            Selecciona un traspaso para ver las acciones disponibles.
+          </span>
+        )}
+
         {tipoFilter === 'Entrante' ? (
           <>
-            <button
-              disabled={!canConfirmarRecepcion}
-              onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canConfirmarRecepcion, '#0891b2')}
-              title="Confirmar que la sucursal ya recibió la mercancía (no da entrada al inventario)"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>how_to_reg</span>
-              Confirmar recepción
-            </button>
-            <button
-              disabled={!canDarEntrada}
-              onClick={() => {
-                if (!sel) return;
-                darEntradaInventario(sel.id);
-                showToast(`Traspaso ${sel.id} finalizado — entrada al inventario registrada.`, 'success');
-                setSelectedId(null);
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canDarEntrada, '#16a34a')}
-              title="Dar entrada al inventario (Finalizado). Pronto abrirá una ventana dedicada."
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>inventory</span>
-              Dar entrada
-            </button>
+            {canConfirmarRecepcion && (
+              <button
+                onClick={() => { if (sel) setRecepcionPetId(sel.id); }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#0891b2')}
+                title="Confirmar que la sucursal ya recibió la mercancía (no da entrada al inventario)"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>how_to_reg</span>
+                Confirmar recepción
+              </button>
+            )}
+            {canDarEntrada && (
+              <button
+                onClick={() => {
+                  if (!sel) return;
+                  darEntradaInventario(sel.id);
+                  showToast(`Traspaso ${sel.id} finalizado — entrada al inventario registrada.`, 'success');
+                  setSelectedId(null);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#16a34a')}
+                title="Dar entrada al inventario (Finalizado). Pronto abrirá una ventana dedicada."
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>inventory</span>
+                Dar entrada
+              </button>
+            )}
           </>
         ) : (
           <>
-            <button
-              disabled={!canSurtir}
-              onClick={() => { if (sel) setSurtirPetId(sel.id); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canSurtir, '#7c3aed')}
-              title={surtidoEnHH ? 'Los traspasos automáticos SMC se surten desde la aplicación HH.' : undefined}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>package_2</span>
-              Surtir
-            </button>
+            {canSurtir && (
+              <button
+                onClick={() => {
+                  if (!sel) return;
+                  if (!puedeSurtirPeticion(sel, traspasos)) {
+                    setBloqueoSurtidoPetId(sel.id);
+                    return;
+                  }
+                  setSurtirPetId(sel.id);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#7c3aed')}
+                title={surtidoEnHH ? 'Los traspasos automáticos SMC se surten desde la aplicación HH.' : undefined}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>package_2</span>
+                Surtir
+              </button>
+            )}
 
-            <button
-              disabled={!canRevisar}
-              onClick={() => { if (sel) setRevisarPetId(sel.id); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canRevisar, '#2563eb')}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>qr_code_scanner</span>
-              Revisar
-            </button>
+            {canRevisar && (
+              <button
+                onClick={() => { if (sel) setRevisarPetId(sel.id); }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#2563eb')}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>qr_code_scanner</span>
+                Revisar
+              </button>
+            )}
 
-            <button
-              disabled={!canEmbarcar}
-              onClick={() => { if (sel) setEmbarcarPetId(sel.id); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={btnEnabled(canEmbarcar, '#d97706')}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
-              Embarcar
-            </button>
+            {canEmbarcar && (
+              <button
+                onClick={() => {
+                  if (!sel) return;
+                  if (sel.embarqueId) {
+                    showToast(`Este traspaso ya pertenece al embarque ${sel.embarqueId}.`, 'info');
+                    return;
+                  }
+                  // Wizard NUEVO unificado. Si hay compatibles muestra la
+                  // pantalla "elegir" (unificar o crear); si no, pasa directo
+                  // a la confirmación de creación.
+                  const compat = embarquesCompatiblesParaTraspaso(sel, embarquesTraspaso);
+                  setContinueFlow({ petId: sel.id, next: 'embarcar', origenManual: true });
+                  setFaseEmb(compat.length > 0 ? 'elegir' : 'confirmarCreacion');
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#d97706')}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>local_shipping</span>
+                Embarcar
+              </button>
+            )}
 
-            {/* Leyenda cuando el traspaso seleccionado es Automático SMC: sólo
-                el SURTIDO se hace desde la HH (revisar/embarcar sí en esta app). */}
-            {surtidoEnHH && (
+            {/* F37 — Cancelar embarque (solo Generado, aún sin documentar/guía) */}
+            {sel?.embarqueId && embarqueSel?.status === 'Generado' && (
+              <button
+                onClick={() => {
+                  const motivo = window.prompt(`Cancelar embarque ${sel.embarqueId}\n\n¿Motivo?`, '');
+                  if (motivo == null || !motivo.trim()) return;
+                  cancelarEmbarque(sel.embarqueId!, motivo.trim());
+                  showToast(`Embarque ${sel.embarqueId} cancelado. Traspasos liberados.`, 'warning');
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-white"
+                style={{ background: '#dc2626' }}
+                title="Cancelar el embarque y liberar sus traspasos"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>cancel</span>
+                Cancelar emb.
+              </button>
+            )}
+
+            {/* F96 — Duplicar embarque (solo si ya tiene paquetería configurada) */}
+            {sel?.embarqueId && embarqueSel?.paqueteriaSeleccionada && (
+              <button
+                onClick={() => {
+                  const ok = window.confirm(`Duplicar embarque ${sel.embarqueId}\n\nSe creará un nuevo embarque en la misma sucursal destino y misma paquetería, sin traspasos. ¿Continuar?`);
+                  if (!ok) return;
+                  const nuevoId = duplicarEmbarque(sel.embarqueId!);
+                  if (nuevoId) showToast(`Embarque ${nuevoId} creado (duplicado de ${sel.embarqueId}).`, 'success');
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-white"
+                style={{ background: '#8b5cf6' }}
+                title="Crear un nuevo embarque copiando destino y paquetería"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
+                Duplicar
+              </button>
+            )}
+
+            {/* F24 — Imprimir embarque (disponible una vez documentado). */}
+            {sel?.embarqueId && embarqueSel?.paqueteriaSeleccionada && (
+              <button
+                onClick={() => imprimirEmbarque(embarqueSel, sucursalActual)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-white"
+                style={{ background: '#475569' }}
+                title="Imprimir resumen del embarque con desglose y guía"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>print</span>
+                Imprimir
+              </button>
+            )}
+
+            {/* Recotizar — reabre el cotizador saltando directo al Paso 3
+                (documentación ya guardada). Solo antes de generar guía. */}
+            {canRecotizar && (
+              <button
+                onClick={() => {
+                  if (!sel?.embarqueId || !embarqueSel?.documentacion) return;
+                  // F58 — Aviso antes de reabrir el cotizador
+                  const ok = window.confirm(
+                    `Vas a recotizar el embarque ${sel.embarqueId}.\n\n` +
+                    `La cotización actual (${embarqueSel.paqueteriaSeleccionada} · $${(embarqueSel.paqueteriaCosto ?? 0).toFixed(2)}) ` +
+                    `se archivará en el histórico. ¿Continuar?`
+                  );
+                  if (!ok) return;
+                  setDocumentarEmbarqueId(sel.embarqueId);
+                  setDocumentacionDraft(embarqueSel.documentacion);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all text-white"
+                style={{ background: '#7c3aed' }}
+                title="Cambiar paquetería sin volver a pesar"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>compare_arrows</span>
+                Recotizar
+              </button>
+            )}
+
+            {canDocumentar && (
+              <button
+                onClick={() => { if (sel?.embarqueId) setDocumentarEmbarqueId(sel.embarqueId); }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#ea580c')}
+                title="Pesar cajas + seleccionar paquetería"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>scale</span>
+                Documentar
+              </button>
+            )}
+
+            {canGenerarGuia && (
+              <button
+                disabled={generandoGuiaId === sel?.embarqueId}
+                onClick={async () => {
+                  if (!sel?.embarqueId) return;
+                  setGenerandoGuiaId(sel.embarqueId);
+                  showToast('Solicitando guía a la paquetería…', 'info');
+                  try {
+                    const g = await generarGuiaPaqueteria(sel.embarqueId);
+                    if (g) showToast(`Guía ${g} generada (pendiente entrega a paquetería).`, 'success');
+                  } finally {
+                    setGenerandoGuiaId(null);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(generandoGuiaId !== sel?.embarqueId, '#0891b2')}
+                title="Genera la guía WebService (queda pendiente hasta entrega manual)"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                  {generandoGuiaId === sel?.embarqueId ? 'progress_activity' : 'qr_code_2'}
+                </span>
+                {generandoGuiaId === sel?.embarqueId ? 'Generando…' : 'Generar guía'}
+              </button>
+            )}
+
+            {canEntregadoAPaqueteria && (
+              <button
+                onClick={() => {
+                  if (!sel?.embarqueId) return;
+                  confirmarEntregadoAPaqueteriaManual(sel.embarqueId);
+                  showToast(`Traspaso ${sel.id} entregado a la paquetería.`, 'success');
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#0d9488')}
+                title="Confirma que la mercancía se entregó a la paquetería/chofer"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>outbox</span>
+                Entregado a paq.
+              </button>
+            )}
+
+            {/* Solicitar reparto (Uber / BlueGo) — reutiliza el modal existente
+                del módulo de embarques. Aquí solo redirigimos. */}
+            {canSolicitarReparto && (
+              <button
+                onClick={() => { if (sel?.embarqueId && onVerEmbarque) onVerEmbarque(sel.embarqueId); }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#2563eb')}
+                title="Abre el embarque para solicitar el reparto"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>directions_car</span>
+                Solicitar reparto
+              </button>
+            )}
+
+            {canConfirmarReparto && (
+              <button
+                onClick={() => {
+                  if (!sel?.embarqueId) return;
+                  confirmarRepartoFinalizado(sel.embarqueId);
+                  showToast(`Reparto finalizado para ${sel.id}.`, 'success');
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={btnEnabled(true, '#16a34a')}
+                title="Confirma que la paquetería/chofer entregó al cliente"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>done_all</span>
+                Reparto finalizado
+              </button>
+            )}
+
+            {/* Leyenda cuando el traspaso seleccionado es Automático SMC y aún
+                está PENDIENTE de surtir (una vez surtido no aplica). El SURTIDO
+                se hace desde la HH; revisar/embarcar sí en esta plataforma. */}
+            {surtidoEnHH && sel!.status === 'Pendiente' && (
               <span
                 className="flex items-center gap-1 ml-2 text-xs font-semibold underline"
                 title="El SURTIDO de los traspasos automáticos SMC solo se realiza desde la aplicación HH. La revisión y embarque sí se hacen en esta plataforma."
@@ -1098,9 +1641,7 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
                 onClick={handleReasignar}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
                 style={btnEnabled(true, '#2563eb')}
-                title={esRechazadaTotal
-                  ? 'Petición rechazada en su totalidad: SMC reasigna toda la mercancía a otra sucursal.'
-                  : 'Reasigna la mercancía restante a otra sucursal (misma solicitud, siguiente intento).'}
+                title="Petición rechazada en su totalidad: SMC reasigna toda la mercancía a otra sucursal."
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>autorenew</span>
                 Reasignar a otra sucursal
@@ -1122,8 +1663,76 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
           peticion={detailPeticion}
           onClose={() => setDetailPetId(null)}
           showToast={showToast}
+          onVerPedido={onVerPedido}
         />
       )}
+
+      {/* Bloqueo de surtido — consolidador intermedio con dependencias no
+          Entregadas. Similar en tono al aviso "no puedes surtir un pedido
+          cliente con traspasos pendientes": muestra la tabla de dependencias
+          y sus estados; solo permite Cerrar. */}
+      {bloqueoSurtidoPetId && (() => {
+        const p = traspasos.find(t => t.id === bloqueoSurtidoPetId);
+        if (!p) return null;
+        const deps = peticionesDependientesDe(p, traspasos);
+        return (
+          <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={e => { if (e.target === e.currentTarget) setBloqueoSurtidoPetId(null); }}>
+            <div className="w-full bg-white overflow-hidden flex flex-col" style={{ maxWidth: 560, maxHeight: '86vh', borderRadius: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div className="flex items-center gap-2 px-5 py-3.5" style={{ background: '#7c3aed' }}>
+                <span className="material-symbols-outlined text-white" style={{ fontSize: 20 }}>lock</span>
+                <span className="font-bold text-sm text-white">No se puede surtir aún</span>
+                <button onClick={() => setBloqueoSurtidoPetId(null)} className="ml-auto w-7 h-7 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                </button>
+              </div>
+              <div className="p-5 overflow-y-auto flex-1 flex flex-col gap-3">
+                <p className="text-xs" style={{ color: '#374151' }}>
+                  La petición <strong>{p.id}</strong> es <strong style={{ color: '#7c3aed' }}>consolidadora</strong>: depende de {deps.length} traspaso(s)
+                  por recibir de sus sucursales locales. No se puede surtir hasta que <strong>todas</strong> estén <strong>Entregadas</strong>.
+                </p>
+                <div className="overflow-x-auto rounded-md" style={{ border: '1px solid #e5e7eb' }}>
+                  <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8f9fb', borderBottom: '1px solid #e5e7eb' }}>
+                        <th className="text-left px-2.5 py-1.5 font-semibold uppercase tracking-wider" style={{ color: '#6b7280' }}>Petición</th>
+                        <th className="text-left px-2.5 py-1.5 font-semibold uppercase tracking-wider" style={{ color: '#6b7280' }}>Sucursal donante</th>
+                        <th className="text-left px-2.5 py-1.5 font-semibold uppercase tracking-wider" style={{ color: '#6b7280' }}>Estado</th>
+                        <th className="text-left px-2.5 py-1.5 font-semibold uppercase tracking-wider" style={{ color: '#6b7280' }}>Alerta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deps.map(d => {
+                        const entregada = d.status === 'Entregado' || d.status === 'Recibido';
+                        return (
+                          <tr key={d.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <td className="px-2.5 py-1.5 font-semibold" style={{ color: '#5b21b6' }}>{d.id}</td>
+                            <td className="px-2.5 py-1.5" style={{ color: '#374151' }}>{d.sucursalOrigen ?? d.sucursalContraparte}</td>
+                            <td className="px-2.5 py-1.5">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: entregada ? '#16a34a' : '#d97706' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{entregada ? 'check_circle' : 'schedule'}</span>
+                                {d.status}
+                              </span>
+                            </td>
+                            <td className="px-2.5 py-1.5 text-[11px]" style={{ color: entregada ? '#166534' : '#b45309' }}>
+                              {entregada ? 'Lista para consolidar' : 'Pendiente por recibir'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] italic mt-1" style={{ color: '#6b7280' }}>
+                  Cuando todas las dependencias estén Entregadas podrás surtir esta petición como un traspaso normal.
+                </p>
+              </div>
+              <div className="flex justify-end px-5 py-3" style={{ borderTop: '1px solid #e5e7eb' }}>
+                <button onClick={() => setBloqueoSurtidoPetId(null)} className="px-4 py-2 rounded-lg text-xs font-semibold text-white" style={{ background: '#7c3aed' }}>Entendido</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {surtirPeticion && (
         <ModalSurtidoHH
@@ -1135,9 +1744,8 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
       )}
 
       {revisarPeticion && (
-        <ModalSurtidoHH
+        <ModalRevisionHH
           peticion={revisarPeticion}
-          modo="revision"
           onClose={() => { setRevisarPetId(null); setSelectedId(null); }}
           showToast={showToast}
           onFinalizado={() => setContinueFlow({ petId: revisarPeticion.id, next: 'embarcar' })}
@@ -1161,49 +1769,303 @@ export default function ScreenTraspasos({ showToast, tipoFilter, onNuevaSolicitu
         />
       )}
 
+      {/* F4/F5 — Documentar embarque: modal de pesado → cotizador. */}
+      {documentarEmbarqueId && !documentacionDraft && (() => {
+        const emb = embarquesTraspaso.find(e => e.id === documentarEmbarqueId);
+        if (!emb) return null;
+        return (
+          <ModalDocumentacionCajas
+            embarque={emb}
+            showToast={showToast}
+            onClose={() => setDocumentarEmbarqueId(null)}
+            onContinuar={(doc) => {
+              setDocumentacionDraft(doc);
+              // El modo se toma del primer pedido (el modal ya lo aplicó a todos).
+              const md = doc[0]?.modoPeso ?? 'Consolidado';
+              setModoPesoDraft(md);
+            }}
+          />
+        );
+      })()}
+
+      {documentarEmbarqueId && documentacionDraft && (() => {
+        const emb = embarquesTraspaso.find(e => e.id === documentarEmbarqueId);
+        if (!emb) return null;
+        return (
+          <ModalCotizador
+            embarque={emb}
+            documentacion={documentacionDraft}
+            origen={sucursalActual}
+            modoPeso={modoPesoDraft}
+            onClose={() => { setDocumentarEmbarqueId(null); setDocumentacionDraft(null); }}
+            onRegresar={() => setDocumentacionDraft(null)}
+            onSeleccionar={(cot) => {
+              guardarDocumentacionEmbarque(emb.id, documentacionDraft, cot);
+              // F65 — Toast positivo si eligió la opción MÁS BARATA / no cara.
+              const mensaje = cot.muyCara
+                ? `Embarque ${emb.id} documentado con ${cot.paqueteria} (marcada como "muy cara").`
+                : `Embarque ${emb.id} documentado con ${cot.paqueteria} — mejor opción disponible.`;
+              showToast(mensaje, cot.muyCara ? 'warning' : 'success');
+              setDocumentarEmbarqueId(null);
+              setDocumentacionDraft(null);
+            }}
+          />
+        );
+      })()}
+
       {/* Continuación del flujo: aparece tras cada paso exitoso ofreciendo la
           siguiente acción del pipeline. El usuario elige continuar o cerrar. */}
       {continueFlow && (() => {
-        const nextMeta = {
-          revisar:  { titulo: '¡Surtido finalizado!',           siguiente: 'Continuar con la revisión',  icono: 'fact_check',  color: '#2563eb' },
-          embarcar: { titulo: '¡Revisión finalizada!',          siguiente: 'Continuar con embarque',     icono: 'local_shipping', color: '#d97706' },
-          entrada:  { titulo: '¡Recepción confirmada!',         siguiente: 'Dar entrada al inventario',  icono: 'inventory',   color: '#16a34a' },
-        }[continueFlow.next];
-        const doContinue = () => {
-          const { petId, next } = continueFlow;
+        // Los flujos 'revisar' y 'entrada' conservan el modal simple; el
+        // flujo 'embarcar' es un mini-wizard de 3 pasos con validación.
+        const cerrarFlujo = () => {
           setContinueFlow(null);
-          if (next === 'revisar') setRevisarPetId(petId);
-          else if (next === 'embarcar') setEmbarcarPetId(petId);
-          else if (next === 'entrada') {
-            darEntradaInventario(petId);
-            showToast(`Traspaso ${petId} finalizado — entrada al inventario registrada.`, 'success');
-            setSelectedId(null);
-          }
+          setFaseEmb('inicio');
+          setEmbarqueResultado(null);
+          setSelectedId(null);
         };
-        return (
-          <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
-            <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
-              <div className="flex flex-col items-center gap-3 pt-6 px-6">
-                <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(22,163,74,0.14)' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#16a34a' }}>check_circle</span>
+        // ── Flujos simples: revisar / entrada ──
+        if (continueFlow.next !== 'embarcar') {
+          const nextMeta = {
+            revisar:  { titulo: '¡Surtido finalizado!',   siguiente: 'Continuar con la revisión', icono: 'fact_check', color: '#2563eb' },
+            entrada:  { titulo: '¡Recepción confirmada!', siguiente: 'Dar entrada al inventario', icono: 'inventory',  color: '#16a34a' },
+          }[continueFlow.next];
+          const doContinue = () => {
+            const { petId, next } = continueFlow;
+            setContinueFlow(null);
+            if (next === 'revisar') setRevisarPetId(petId);
+            else if (next === 'entrada') {
+              darEntradaInventario(petId);
+              showToast(`Traspaso ${petId} finalizado — entrada al inventario registrada.`, 'success');
+              setSelectedId(null);
+            }
+          };
+          return (
+            <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+              <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
+                <div className="flex flex-col items-center gap-3 pt-6 px-6">
+                  <div className="flex items-center justify-center rounded-full" style={{ width: 52, height: 52, background: 'rgba(22,163,74,0.14)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#16a34a' }}>check_circle</span>
+                  </div>
+                  <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>{nextMeta.titulo}</div>
                 </div>
-                <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>{nextMeta.titulo}</div>
-              </div>
-              <p className="text-xs mt-3 px-6 text-center" style={{ color: '#555' }}>
-                Traspaso <strong>{continueFlow.petId}</strong>. ¿Quieres continuar con el siguiente paso?
-              </p>
-              <div className="flex gap-2 px-6 py-5 mt-2">
-                <button onClick={() => { setContinueFlow(null); setSelectedId(null); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>
-                  Cerrar
-                </button>
-                <button onClick={doContinue} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: nextMeta.color }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{nextMeta.icono}</span>
-                  {nextMeta.siguiente}
-                </button>
+                <p className="text-xs mt-3 px-6 text-center" style={{ color: '#555' }}>
+                  Traspaso <strong>{continueFlow.petId}</strong>. ¿Quieres continuar con el siguiente paso?
+                </p>
+                <div className="flex gap-2 px-6 py-5 mt-2">
+                  <button onClick={cerrarFlujo} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cerrar</button>
+                  <button onClick={doContinue} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: nextMeta.color }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{nextMeta.icono}</span>
+                    {nextMeta.siguiente}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        );
+          );
+        }
+
+        // ── Wizard EMBARQUE ──
+        const peticion = traspasos.find(t => t.id === continueFlow.petId);
+        if (!peticion) return null;
+        const compatibles = embarquesCompatiblesParaTraspaso(peticion, embarquesTraspaso);
+        const yaTeniaEmbarque = !!peticion.embarqueId;
+        const iniciarValidacion = () => {
+          if (yaTeniaEmbarque) {
+            // Validación interna: ya tiene embarque, no debería llegar aquí.
+            setEmbarqueResultado({ id: peticion.embarqueId!, unificado: true });
+            setFaseEmb('exito');
+            return;
+          }
+          if (compatibles.length > 0) setFaseEmb('elegir');
+          else setFaseEmb('confirmarCreacion');
+        };
+        const crearNuevo = () => {
+          // Flujo unificado (manual y post-revisión automático): crear el
+          // embarque directamente y ofrecer continuar a documentación con el
+          // wizard NUEVO. La paquetería y los detalles se definen en el
+          // cotizador (Paso 3) tras documentar cajas.
+          const id = crearEmbarqueParaTraspaso(peticion.id);
+          if (!id) { showToast('No se pudo crear el embarque.', 'error'); cerrarFlujo(); return; }
+          setEmbarqueResultado({ id, unificado: false });
+          setFaseEmb('exito');
+        };
+        const agregarA = (embId: string) => {
+          agregarTraspasoAEmbarque(peticion.id, embId);
+          setEmbarqueResultado({ id: embId, unificado: true });
+          setFaseEmb('exito');
+        };
+        // Regla: si el embarque es NUEVO (recién creado) → abrir el modal de
+        // documentación (pesado + cotizador) aquí mismo en ScreenTraspasos.
+        // Si el traspaso se UNIFICÓ a un embarque existente → sí navegar a
+        // ScreenEmbarques para editar el embarque ya existente.
+        const irADocumentacion = () => {
+          if (!embarqueResultado) { cerrarFlujo(); return; }
+          if (embarqueResultado.unificado) {
+            if (onVerEmbarque) onVerEmbarque(embarqueResultado.id);
+          } else {
+            setDocumentarEmbarqueId(embarqueResultado.id);
+          }
+          cerrarFlujo();
+        };
+
+        // ── Paso 1: "¡Revisión finalizada!" con número de traspaso arriba ──
+        if (faseEmb === 'inicio') {
+          return (
+            <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+              <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
+                <div className="flex flex-col items-center gap-2 pt-6 px-6">
+                  {/* Traspaso ARRIBA (más prominente que antes). */}
+                  <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#9ca3af' }}>Traspaso</div>
+                  <div className="text-lg font-extrabold" style={{ color: '#1a2b6b' }}>{peticion.id}</div>
+                  <div className="flex items-center justify-center rounded-full mt-1" style={{ width: 48, height: 48, background: 'rgba(22,163,74,0.14)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#16a34a' }}>check_circle</span>
+                  </div>
+                  <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>¡Revisión finalizada!</div>
+                </div>
+                <p className="text-xs mt-3 px-6 text-center" style={{ color: '#555' }}>
+                  ¿Deseas continuar con la <strong>creación del embarque</strong>?
+                </p>
+                <div className="flex gap-2 px-6 py-5 mt-2">
+                  <button onClick={cerrarFlujo} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Después</button>
+                  <button onClick={iniciarValidacion} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#d97706' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>local_shipping</span>
+                    Sí, continuar
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // ── Paso 2a: hay compatibles → elegir agregar o crear nuevo ──
+        if (faseEmb === 'elegir') {
+          const destinoLabel = peticion.sucursalDestino ?? peticion.sucursalContraparte;
+          return (
+            <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+              <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 440, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
+                <div className="flex flex-col items-center gap-2 pt-6 px-6">
+                  <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#9ca3af' }}>Traspaso</div>
+                  <div className="text-lg font-extrabold" style={{ color: '#1a2b6b' }}>{peticion.id}</div>
+                  <div className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, background: 'rgba(37,99,235,0.14)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#2563eb' }}>local_shipping</span>
+                  </div>
+                  <div className="text-sm font-extrabold text-center" style={{ color: '#1a1a2e' }}>Embarques compatibles hacia {destinoLabel}</div>
+                  <p className="text-xs text-center" style={{ color: '#555' }}>
+                    Encontramos <strong>{compatibles.length}</strong> embarque(s) abiertos. ¿Agregar este traspaso a uno existente o generar uno nuevo?
+                  </p>
+                </div>
+                <div className="px-5 mt-3 flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                  {compatibles.map(e => (
+                    <button
+                      key={e.id}
+                      onClick={() => agregarA(e.id)}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-gray-50"
+                      style={{ border: '1px solid #d7dbe6', background: '#fff' }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#2563eb' }}>local_shipping</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold" style={{ color: '#1a1a2e' }}>{e.id}</div>
+                        <div className="text-[10px]" style={{ color: '#6b7280' }}>
+                          {e.traspasos.length} traspaso(s) · {e.paqueteria || 'Sin paquetería'} · {e.fecha}
+                        </div>
+                      </div>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#9ca3af' }}>arrow_forward</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2 px-5 py-4 mt-2">
+                  <button onClick={cerrarFlujo} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
+                  <button onClick={crearNuevo} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#1a2b6b' }}>Generar nuevo</button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // ── Paso 2b: sin compatibles → confirmar creación ──
+        if (faseEmb === 'confirmarCreacion') {
+          const destinoLabel = peticion.sucursalDestino ?? peticion.sucursalContraparte;
+          return (
+            <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+              <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 380, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
+                <div className="flex flex-col items-center gap-2 pt-6 px-6">
+                  <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#9ca3af' }}>Traspaso</div>
+                  <div className="text-lg font-extrabold" style={{ color: '#1a2b6b' }}>{peticion.id}</div>
+                  <div className="flex items-center justify-center rounded-full" style={{ width: 48, height: 48, background: 'rgba(37,99,235,0.14)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#2563eb' }}>add_box</span>
+                  </div>
+                  <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>Crear embarque</div>
+                </div>
+                <p className="text-xs mt-3 px-6 text-center" style={{ color: '#555' }}>
+                  No hay embarques abiertos hacia <strong>{destinoLabel}</strong>. Se generará un <strong>embarque nuevo</strong> para apartar este traspaso.
+                </p>
+                <div className="flex gap-2 px-6 py-5 mt-2">
+                  <button onClick={cerrarFlujo} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Cancelar</button>
+                  <button onClick={crearNuevo} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#2563eb' }}>Sí, crear</button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // ── Paso 3: éxito — "Embarque creado" o "Traspaso unificado" ──
+        if (faseEmb === 'exito' && embarqueResultado) {
+          const emb = embarquesTraspaso.find(e => e.id === embarqueResultado.id);
+          const traspasosDelEmbarque = emb?.traspasos ?? [];
+          const titulo = embarqueResultado.unificado ? 'Traspaso unificado a embarque existente' : 'Embarque creado con éxito';
+          const accionCTA = embarqueResultado.unificado ? 'Sí, editar' : 'Sí, documentar';
+          const preguntaFlujo = embarqueResultado.unificado ? 'edición' : 'documentación';
+          return (
+            <div className="fixed inset-0 z-[85] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.45)' }}>
+              <div className="w-full bg-white overflow-hidden" style={{ maxWidth: 440, borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: 'Roboto, sans-serif' }}>
+                {/* Header: embarque ID + lista de traspasos que contiene. */}
+                <div className="px-6 pt-5 pb-4" style={{ background: 'rgba(37,99,235,0.06)', borderBottom: '1px solid rgba(37,99,235,0.15)' }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#6b7280' }}>Embarque</div>
+                      <div className="text-lg font-extrabold" style={{ color: '#1a2b6b' }}>#{embarqueResultado.id}</div>
+                    </div>
+                    <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#2563eb' }}>local_shipping</span>
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: '#6b7280' }}>
+                      Traspasos ({traspasosDelEmbarque.length})
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {traspasosDelEmbarque.map(tid => (
+                        <span
+                          key={tid}
+                          className="px-2 py-0.5 rounded text-[11px] font-semibold"
+                          style={{
+                            background: tid === peticion.id ? 'rgba(22,163,74,0.14)' : 'rgba(37,99,235,0.10)',
+                            color: tid === peticion.id ? '#16a34a' : '#1d4ed8',
+                            border: tid === peticion.id ? '1px solid rgba(22,163,74,0.35)' : '1px solid rgba(37,99,235,0.25)',
+                          }}
+                        >
+                          {tid}{tid === peticion.id ? ' (nuevo)' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-center gap-2 pt-4 px-6">
+                  <div className="flex items-center justify-center rounded-full" style={{ width: 44, height: 44, background: 'rgba(22,163,74,0.14)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#16a34a' }}>check_circle</span>
+                  </div>
+                  <div className="text-base font-extrabold text-center" style={{ color: '#1a1a2e' }}>{titulo}</div>
+                </div>
+                <p className="text-xs mt-3 px-6 text-center" style={{ color: '#555' }}>
+                  ¿Desea continuar con la <strong>{preguntaFlujo} del embarque</strong>?
+                </p>
+                <div className="flex gap-2 px-6 py-5 mt-2">
+                  <button onClick={cerrarFlujo} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#f2f4f8', color: '#6b7280' }}>Después</button>
+                  <button onClick={irADocumentacion} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: '#16a34a' }}>{accionCTA}</button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return null;
       })()}
 
     </div>

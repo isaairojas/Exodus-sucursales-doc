@@ -8,10 +8,12 @@ import {
   AppState, AppScreen, ScannedItem, initialAppState,
   ORDERS_DB, OrderStatus,
   TraspasoPeticion, TraspasoPiezaDetalle, TraspasoStatus, TRASPASOS_DB,
-  EmbarqueTraspaso, EMBARQUES_TRASPASO_DB, MotivoCancelacion,
+  EmbarqueTraspaso, EMBARQUES_TRASPASO_DB, generarIdEmbarque, tipoPaqueteriaDe, MotivoCancelacion,
+  DocumentacionPorPedido, CotizacionPaqueteria, ShipmentStatus, EmbarqueEvento,
   SUCURSALES_EJERCICIO, MotivoEnvioCedis, calcularSucursalRecomendada, RecepcionLogEntry,
 } from '@/lib/data';
 import { TIEMPO_APROBACION_TOKEN_MS } from '@/lib/traspasoConfig';
+import { mockGenerarGuiaEstafeta, mockSolicitarUber, mockSolicitarBlueGo } from '@/lib/paqueterias';
 
 export interface DiscrepancyResolution {
   code: string;
@@ -66,7 +68,11 @@ interface AppContextValue {
   surtirTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[]) => void;
   finalizarSurtidoTraspaso: (petId: string, piezasSurtidas: TraspasoPiezaDetalle[], nota?: string) => string | null;
   finalizarRevisionTraspaso: (petId: string, piezasRevisadas: TraspasoPiezaDetalle[], nota?: string) => string | null;
-  negarTraspaso: (petId: string, motivo: string) => string | null;
+  // `esRechazo=true` (default): la sucursal DONANTE rechaza el traspaso → resultado 'rechazada'
+  //                              (la sucursal solicitante puede REASIGNARLO a otra sucursal).
+  // `esRechazo=false`: cancelación (p. ej. Manual sin pedido o envío a CEDIS) → resultado 'cancelada'
+  //                    (NO se puede reasignar; solo cierra la petición).
+  negarTraspaso: (petId: string, motivo: string, esRechazo?: boolean) => string | null;
   reasignarPeticion: (petId: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   reasignarPeticionA: (petId: string, donante: string) => { ok: boolean; mensaje: string; derivadaId?: string };
   cancelarSolicitud: (petId: string) => { ok: boolean; mensaje: string };
@@ -88,6 +94,30 @@ interface AppContextValue {
   // Embarques de traspasos
   embarquesTraspaso: EmbarqueTraspaso[];
   embarcarTraspaso: (petId: string, data: EmbarcarTraspasoData) => string;
+  // Flujo post-revisión: al finalizar revisión se ofrece crear/agregar
+  // embarque. Estos handlers son atómicos y devuelven el id del embarque.
+  crearEmbarqueParaTraspaso: (petId: string) => string;
+  agregarTraspasoAEmbarque: (petId: string, embarqueId: string) => void;
+  // Handlers del refactor de embarque (docs/flujo-embarque-cambios.md §4.1)
+  guardarDocumentacionEmbarque: (embarqueId: string, doc: DocumentacionPorPedido[], cotizacion: CotizacionPaqueteria) => void;
+  // Genera guía asincrónica (llamada MOCK a la paquetería WebService).
+  // La guía queda ANOTADA pero el shipment NO transita a EntregadoAPaqueteria:
+  // esa transición la dispara el logístico con confirmarEntregadoAPaqueteria().
+  generarGuiaPaqueteria: (embarqueId: string) => Promise<string>;
+  // Manual + WebService: el logístico confirma que ya entregó / la paquetería recolectó.
+  confirmarEntregadoAPaqueteria: (embarqueId: string) => void;
+  // Alias legacy (Manual únicamente) — se mantiene por compat con F6.
+  confirmarEntregadoAPaqueteriaManual: (embarqueId: string) => void;
+  // Uber / BlueGo — MOCK de la API que despacha una unidad.
+  solicitarRepartoUber: (embarqueId: string) => Promise<string>;
+  solicitarRepartoBlueGo: (embarqueId: string) => Promise<string>;
+  confirmarRepartoFinalizado: (embarqueId: string) => void;
+  // F27 — Notas/observaciones libres del embarque.
+  actualizarObservacionesEmbarque: (embarqueId: string, texto: string) => void;
+  // F30 — Duplicar un embarque (copia destino/paquetería, sin traspasos ni guía).
+  duplicarEmbarque: (embarqueId: string) => string;
+  // F33 — Cancelar embarque (solo cuando aún está Generado). Libera los traspasos.
+  cancelarEmbarque: (embarqueId: string, motivo: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -95,7 +125,20 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(initialAppState);
   const [sucursalActual, setSucursalActual] = useState<string>(SUCURSALES_EJERCICIO[0]);
-  const [traspasos, setTraspasos] = useState<TraspasoPeticion[]>(TRASPASOS_DB);
+  const [traspasos, setTraspasos] = useState<TraspasoPeticion[]>(() => {
+    // Aplica la promoción de status (Revisado+embarqueId → Embarcado/Documentado)
+    // sobre el seed también, para no depender del snapshot compartido.
+    const byId = new Map(EMBARQUES_TRASPASO_DB.map(e => [e.id, e]));
+    return TRASPASOS_DB.map(t => {
+      if (!t.embarqueId) return t;
+      const e = byId.get(t.embarqueId);
+      if (!e) return t;
+      const tieneDoc = !!e.paqueteriaSeleccionada;
+      if (t.status === 'Revisado') return { ...t, status: (tieneDoc ? 'Documentado' : 'Embarcado') as TraspasoStatus };
+      if (t.status === 'Embarcado' && tieneDoc) return { ...t, status: 'Documentado' as TraspasoStatus };
+      return t;
+    });
+  });
   const [embarquesTraspaso, setEmbarquesTraspaso] = useState<EmbarqueTraspaso[]>(EMBARQUES_TRASPASO_DB);
 
   // ── Estado compartido en tiempo real (multi-computadora) ──
@@ -108,17 +151,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     tr: TraspasoPeticion[], emb: EmbarqueTraspaso[], os: Record<string, OrderStatus>,
   ) => JSON.stringify({ traspasos: tr, embarquesTraspaso: emb, orderStatuses: os });
 
+  // Promueve el status del traspaso según el embarque al que pertenece:
+  //   • Revisado + embarqueId → Embarcado (tiene embarque pero sin documentar)
+  //   • Revisado/Embarcado + embarque con paqueteriaSeleccionada → Documentado
+  // Data cargada (seed o snapshot compartido) con el viejo modelo colapsado
+  // llegaba como "Revisado" con embarqueId, y por eso se veía en la card
+  // "Pendiente de envío" en vez de "Embarcado".
+  const migrarStatusTraspasos = (
+    tr: TraspasoPeticion[], emb: EmbarqueTraspaso[],
+  ): TraspasoPeticion[] => {
+    const byId = new Map(emb.map(e => [e.id, e]));
+    return tr.map(t => {
+      if (!t.embarqueId) return t;
+      const e = byId.get(t.embarqueId);
+      if (!e) return t;
+      const tieneDoc = !!e.paqueteriaSeleccionada;
+      if (t.status === 'Revisado') {
+        return { ...t, status: (tieneDoc ? 'Documentado' : 'Embarcado') as TraspasoStatus };
+      }
+      if (t.status === 'Embarcado' && tieneDoc) {
+        return { ...t, status: 'Documentado' as TraspasoStatus };
+      }
+      return t;
+    });
+  };
+
   const aplicarSnapshot = (snap: any) => {
     if (!snap) return;
-    lastSyncedRef.current = buildSnapshotJson(snap.traspasos ?? [], snap.embarquesTraspaso ?? [], snap.orderStatuses ?? {});
-    setTraspasos(snap.traspasos ?? []);
-    setEmbarquesTraspaso(snap.embarquesTraspaso ?? []);
+    // Migración silenciosa: 'En reparto' (legacy) → 'Entregado a paquetería'.
+    // Aplica a shipments cargados del snapshot compartido. Ver §2.4 del md.
+    const embarquesMigrados: EmbarqueTraspaso[] = (snap.embarquesTraspaso ?? []).map((e: EmbarqueTraspaso) =>
+      (e as unknown as { status: string }).status === 'En reparto'
+        ? { ...e, status: 'Entregado a paquetería' as ShipmentStatus }
+        : e
+    );
+    const traspasosMigrados = migrarStatusTraspasos(snap.traspasos ?? [], embarquesMigrados);
+    lastSyncedRef.current = buildSnapshotJson(traspasosMigrados, embarquesMigrados, snap.orderStatuses ?? {});
+    setTraspasos(traspasosMigrados);
+    setEmbarquesTraspaso(embarquesMigrados);
     setState(s => ({ ...s, orderStatuses: snap.orderStatuses ?? {} }));
   };
 
   const restablecerSemilla = () => {
-    lastSyncedRef.current = buildSnapshotJson(TRASPASOS_DB, EMBARQUES_TRASPASO_DB, initialAppState.orderStatuses);
-    setTraspasos(TRASPASOS_DB);
+    const traspasosMigrados = migrarStatusTraspasos(TRASPASOS_DB, EMBARQUES_TRASPASO_DB);
+    lastSyncedRef.current = buildSnapshotJson(traspasosMigrados, EMBARQUES_TRASPASO_DB, initialAppState.orderStatuses);
+    setTraspasos(traspasosMigrados);
     setEmbarquesTraspaso(EMBARQUES_TRASPASO_DB);
     setState(s => ({ ...s, orderStatuses: initialAppState.orderStatuses }));
   };
@@ -377,13 +454,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return null;
   }, []);
 
-  // Negar un traspaso completo (desde la HH, solo flujo de traspasos): lo marca
-  // Cancelado/rechazado. NO reasigna automáticamente: la petición rechazada queda
-  // disponible para "Reasignar (SMC)" con el botón correspondiente.
-  const negarTraspaso = useCallback((petId: string, motivo: string): string | null => {
+  // Negar un traspaso completo desde la HH: lo marca Cancelado. Si es RECHAZO
+  // (resultado='rechazada'), la sucursal solicitante puede reasignarlo. Si es
+  // CANCELACIÓN (resultado='cancelada') solo cierra la petición.
+  const negarTraspaso = useCallback((petId: string, motivo: string, esRechazo: boolean = true): string | null => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const resultado: TraspasoPeticion['resultado'] = esRechazo ? 'rechazada' : 'cancelada';
     setTraspasos(prev => prev.map(t => t.id === petId
-      ? { ...t, status: 'Cancelado' as TraspasoStatus, fechaActualizacion: now, motivoRechazo: motivo, resultado: 'rechazada' as TraspasoPeticion['resultado'] }
+      ? { ...t, status: 'Cancelado' as TraspasoStatus, fechaActualizacion: now, motivoRechazo: motivo, resultado }
       : t));
     return null;
   }, []);
@@ -578,20 +656,247 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return embarqueId;
   }, [traspasos]);
 
+  // Post-revisión: crea un embarque NUEVO para el traspaso — solo generado,
+  // sin cambio de status del traspaso (queda en Revisado; el envío/tránsito
+  // se dispara desde el flujo de embarques). Devuelve el id creado.
+  const crearEmbarqueParaTraspaso = useCallback((petId: string): string => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const peticion = traspasos.find(t => t.id === petId);
+    if (!peticion) return '';
+    let embarqueId = '';
+    setEmbarquesTraspaso(prev => {
+      embarqueId = generarIdEmbarque(prev);
+      const nuevo: EmbarqueTraspaso = {
+        id: embarqueId,
+        sucursalDestino: peticion.sucursalDestino ?? peticion.sucursalContraparte,
+        paqueteria: '', // se define en la documentación posterior
+        traspasos: [petId],
+        status: 'Generado',
+        fecha: now,
+        usuario: sucursalActual,
+      };
+      return [nuevo, ...prev];
+    });
+    // Al vincular el traspaso al embarque recién creado, el status pasa a
+    // 'Embarcado' (tiene embarque asignado pero aún sin documentar cajas +
+    // método de envío). El paso a 'Documentado' se dispara en
+    // guardarDocumentacionEmbarque cuando ambas piezas ya están.
+    setTraspasos(prev => prev.map(t => t.id === petId
+      ? { ...t, fechaActualizacion: now, embarqueId, status: 'Embarcado' as TraspasoStatus }
+      : t));
+    return embarqueId;
+  }, [traspasos, sucursalActual]);
+
+  // Post-revisión: agrega este traspaso a un embarque EXISTENTE compatible
+  // (misma sucursal destino y aún en estado 'Generado').
+  const agregarTraspasoAEmbarque = useCallback((petId: string, embarqueId: string) => {
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? { ...e, traspasos: e.traspasos.includes(petId) ? e.traspasos : [...e.traspasos, petId] }
+      : e));
+    setTraspasos(prev => prev.map(t => t.id === petId
+      ? { ...t, fechaActualizacion: now, embarqueId, status: 'Embarcado' as TraspasoStatus }
+      : t));
+  }, []);
+
+  // ── Handlers del refactor de embarque ────────────────────────
+  // Ver docs/flujo-embarque-cambios.md §4.1
+
+  // Helper F19: agrega un evento inmutable a la bitácora del embarque.
+  const agregarEvento = (e: EmbarqueTraspaso, ev: EmbarqueEvento): EmbarqueTraspaso => ({
+    ...e, eventos: [...(e.eventos ?? []), ev],
+  });
+
+  // Paso 2+3 (Pesado + Cotización): guarda la documentación de cajas y la
+  // paquetería seleccionada, y mueve TODOS los traspasos del embarque a
+  // status 'Documentado' (monitor 4 — Pesado de cajas finalizado).
+  const guardarDocumentacionEmbarque = useCallback(
+    (embarqueId: string, doc: DocumentacionPorPedido[], cotizacion: CotizacionPaqueteria) => {
+      const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      let petIds: string[] = [];
+      setEmbarquesTraspaso(prev => prev.map(e => {
+        if (e.id !== embarqueId) return e;
+        petIds = e.traspasos;
+        const yaTenia = !!e.paqueteriaSeleccionada;
+        // F39: si había una cotización anterior distinta, la archivamos.
+        const previaDescartada = (yaTenia && e.paqueteriaSeleccionada !== cotizacion.paqueteria)
+          ? [{ ts: now, paqueteria: e.paqueteriaSeleccionada!, costo: e.paqueteriaCosto ?? 0, motivo: 'Recotizada' }]
+          : [];
+        const actualizado: EmbarqueTraspaso = {
+          ...e,
+          paqueteria: cotizacion.paqueteria,
+          paqueteriaSeleccionada: cotizacion.paqueteria,
+          paqueteriaCosto: cotizacion.costo,
+          paqueteriaDesglose: cotizacion.desglose,
+          paqueteriaTiempoEntrega: cotizacion.tiempoEntregaDias,
+          documentacion: doc,
+          cotizacionesDescartadas: [...(e.cotizacionesDescartadas ?? []), ...previaDescartada],
+        };
+        return agregarEvento(actualizado, {
+          ts: now, usuario: 'sistema',
+          tipo: yaTenia ? 'recotizado' : 'cotizado',
+          detalle: `${cotizacion.paqueteria} · $${cotizacion.costo.toFixed(2)} MXN`,
+        });
+      }));
+      setTraspasos(prev => prev.map(t => petIds.includes(t.id)
+        ? { ...t, status: 'Documentado' as TraspasoStatus, fechaActualizacion: now }
+        : t));
+    },
+    [],
+  );
+
+  // GENERAR GUÍA (WebService) — MOCK de la API oficial de la paquetería.
+  // Regla del cliente (sep-2026): la guía queda PENDIENTE hasta que el
+  // logístico decide generarla; una vez generada, el status del shipment NO
+  // cambia — solo se anota el guiaId. El paso a "Entregado a paquetería"
+  // lo dispara aparte confirmarEntregadoAPaqueteria() cuando la mercancía
+  // efectivamente sale de la sucursal.
+  const generarGuiaPaqueteria = useCallback(async (embarqueId: string): Promise<string> => {
+    const emb = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!emb) return '';
+    if (tipoPaqueteriaDe(emb.paqueteria) !== 'WebService') return '';
+    // F52 — Guardarraíl anti-duplicación: si en el snapshot compartido ya
+    // hay guía (otro operador la generó primero), no la re-solicites.
+    if (emb.guiaId) return emb.guiaId;
+    const { guiaId } = await mockGenerarGuiaEstafeta(embarqueId);
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? agregarEvento({ ...e, guiaId }, { ts: now, tipo: 'guiaGenerada', usuario: 'sistema', detalle: guiaId })
+      : e));
+    return guiaId;
+  }, [embarquesTraspaso]);
+
+  // ENTREGADO A PAQUETERÍA — Manual + WebService. Lo confirma el logístico
+  // cuando la mercancía ya salió a manos de la paquetería. Es independiente
+  // de si la guía WebService está o no generada (se puede subir después).
+  const confirmarEntregadoAPaqueteria = useCallback((embarqueId: string) => {
+    const emb = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!emb) return;
+    const tipo = tipoPaqueteriaDe(emb.paqueteria);
+    if (tipo !== 'Manual' && tipo !== 'WebService') return;
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? agregarEvento({ ...e, status: 'Entregado a paquetería' as ShipmentStatus, fechaEntregaAPaqueteria: now },
+          { ts: now, tipo: 'entregado', usuario: 'sistema', detalle: emb.paqueteria })
+      : e));
+    setTraspasos(prev => prev.map(t => emb.traspasos.includes(t.id)
+      ? { ...t, status: 'EntregadoAPaqueteria' as TraspasoStatus, fechaActualizacion: now }
+      : t));
+  }, [embarquesTraspaso]);
+
+  // Alias legacy — mantenido para compat con los botones existentes de F6.
+  const confirmarEntregadoAPaqueteriaManual = confirmarEntregadoAPaqueteria;
+
+  // SOLICITAR REPARTO Uber — MOCK API. Marca el embarque en tránsito.
+  const solicitarRepartoUber = useCallback(async (embarqueId: string): Promise<string> => {
+    const emb = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!emb) return '';
+    if (tipoPaqueteriaDe(emb.paqueteria) !== 'Uber') return '';
+    const { uberId } = await mockSolicitarUber(embarqueId, emb.sucursalDestino);
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? agregarEvento({ ...e, status: 'En tránsito' as ShipmentStatus, guiaId: uberId, fechaEntregaAPaqueteria: now },
+          { ts: now, tipo: 'reparto', usuario: 'sistema', detalle: `Uber ${uberId}` })
+      : e));
+    setTraspasos(prev => prev.map(t => emb.traspasos.includes(t.id)
+      ? { ...t, status: 'EntregadoAPaqueteria' as TraspasoStatus, fechaActualizacion: now }
+      : t));
+    return uberId;
+  }, [embarquesTraspaso]);
+
+  // SOLICITAR REPARTO BlueGo — MOCK API. Igual patrón que Uber.
+  const solicitarRepartoBlueGo = useCallback(async (embarqueId: string): Promise<string> => {
+    const emb = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!emb) return '';
+    if (tipoPaqueteriaDe(emb.paqueteria) !== 'BlueGo') return '';
+    const { solicitudId } = await mockSolicitarBlueGo(embarqueId, emb.sucursalDestino);
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? agregarEvento({ ...e, status: 'En tránsito' as ShipmentStatus, guiaId: solicitudId, fechaEntregaAPaqueteria: now },
+          { ts: now, tipo: 'reparto', usuario: 'sistema', detalle: `BlueGo ${solicitudId}` })
+      : e));
+    setTraspasos(prev => prev.map(t => emb.traspasos.includes(t.id)
+      ? { ...t, status: 'EntregadoAPaqueteria' as TraspasoStatus, fechaActualizacion: now }
+      : t));
+    return solicitudId;
+  }, [embarquesTraspaso]);
+
+  // F27 — Notas del embarque (campo libre editable por el logístico).
+  const actualizarObservacionesEmbarque = useCallback((embarqueId: string, texto: string) => {
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? { ...e, observaciones: texto } : e));
+  }, []);
+
+  // F33 — Cancelar embarque. Solo permitido en 'Generado' o 'Embarcado'.
+  // Los traspasos vuelven a Revisado y pierden su embarqueId.
+  const cancelarEmbarque = useCallback((embarqueId: string, motivo: string) => {
+    const emb = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!emb) return;
+    if (emb.status !== 'Generado') return;
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.filter(e => e.id !== embarqueId));
+    setTraspasos(prev => prev.map(t => emb.traspasos.includes(t.id)
+      ? { ...t, embarqueId: undefined, status: t.status === 'Embarcado' ? ('Revisado' as TraspasoStatus) : t.status,
+          fechaActualizacion: now, observaciones: `[Embarque ${embarqueId} cancelado: ${motivo}] ${t.observaciones ?? ''}`.trim() }
+      : t));
+  }, [embarquesTraspaso]);
+
+  // F30 — Duplicar embarque. Copia destino + paquetería seleccionada;
+  // NO copia traspasos, guía, ni bitácora — arranca de cero como "Generado".
+  const duplicarEmbarque = useCallback((embarqueId: string): string => {
+    const src = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!src) return '';
+    const nuevoId = generarIdEmbarque(embarquesTraspaso);
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const nuevo: EmbarqueTraspaso = {
+      id: nuevoId,
+      sucursalDestino: src.sucursalDestino,
+      paqueteria: src.paqueteria,
+      traspasos: [],
+      status: 'Generado',
+      fecha: now,
+      usuario: src.usuario,
+      observaciones: src.observaciones ? `[Duplicado de ${src.id}] ${src.observaciones}` : `Duplicado de ${src.id}`,
+    };
+    setEmbarquesTraspaso(prev => [...prev, nuevo]);
+    return nuevoId;
+  }, [embarquesTraspaso]);
+
+  // Monitor 6 (Manual + WebService): confirma que la paquetería finalizó el
+  // reparto. Uber/BlueGo se actualiza vía webhook mock (no llega aquí).
+  const confirmarRepartoFinalizado = useCallback((embarqueId: string) => {
+    const emb = embarquesTraspaso.find(e => e.id === embarqueId);
+    if (!emb) return;
+    const tipo = tipoPaqueteriaDe(emb.paqueteria);
+    if (tipo !== 'Manual' && tipo !== 'WebService') return;
+    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    setEmbarquesTraspaso(prev => prev.map(e => e.id === embarqueId
+      ? agregarEvento({ ...e, status: 'Entregado' as ShipmentStatus, fechaRepartoFinalizado: now },
+          { ts: now, tipo: 'finalizado', usuario: 'sistema' })
+      : e));
+    setTraspasos(prev => prev.map(t => emb.traspasos.includes(t.id)
+      ? { ...t, status: 'RepartoFinalizado' as TraspasoStatus, fechaActualizacion: now }
+      : t));
+  }, [embarquesTraspaso]);
+
   const crearSolicitudTraspaso = useCallback((data: CrearSolicitudData): string => {
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const ts = Date.now();
     const pad7 = (n: number) => String(Math.abs(Math.trunc(n)) % 10_000_000).padStart(7, '0');
     const solicitudId = `S${pad7(ts)}`;
-    // Regla: Automático SMC SIEMPRE lleva pedido; sin pedido es Manual (con token).
+    // Regla: TODO lo que crea este wizard es Manual (con o sin pedido). El
+    // flujo Automático SMC real lo genera el sistema por otro path cuando un
+    // pedido web no cabe en una sola sucursal — no por este modal.
+    // `conPedido` se conserva porque más abajo se usa para el token de
+    // autorización, pero no debe decidir categoría/flujo/prefijo del id.
     const conPedido = !!data.pedidoOrigen;
-    const categoria: TraspasoPeticion['categoria'] = conPedido ? 'Automático' : 'Manual';
-    const flujo: TraspasoPeticion['flujo'] = conPedido ? 'Automatico' : 'Manual';
+    const categoria: TraspasoPeticion['categoria'] = 'Manual';
+    const flujo: TraspasoPeticion['flujo'] = 'Manual';
     const nuevas: TraspasoPeticion[] = data.sucursales.map((suc, i) => {
       const piezas = (data.piezasPorSucursal[suc] ?? []).map(p => ({ ...p, qtySurtida: 0 }));
       const totalQty = piezas.reduce((s, p) => s + p.qtySolicitada, 0);
       return {
-        id: `T${conPedido ? 'A' : 'M'}${pad7(ts + i)}`,
+        id: `TM${pad7(ts + i)}`,
         solicitudId,
         tipo: 'Entrante' as const,
         categoria,
@@ -756,7 +1061,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPreSelectedOrder, updateOrderStatus,
       traspasos, surtirTraspaso, finalizarSurtidoTraspaso, finalizarRevisionTraspaso, negarTraspaso, reasignarPeticion, reasignarPeticionA, generarSolicitudRestante, cancelarSolicitud, revisarTraspaso, entregarTraspaso, darEntradaInventario, confirmarRecepcion, crearSolicitudTraspaso, crearSolicitudCedisUrgencia, aprobarSolicitudCedisDraft, crearEnvioCedis, cancelarPeticiones,
       reiniciarEstadoCompartido,
-      embarquesTraspaso, embarcarTraspaso,
+      embarquesTraspaso, embarcarTraspaso, crearEmbarqueParaTraspaso, agregarTraspasoAEmbarque,
+      guardarDocumentacionEmbarque, generarGuiaPaqueteria,
+      confirmarEntregadoAPaqueteria, confirmarEntregadoAPaqueteriaManual,
+      solicitarRepartoUber, solicitarRepartoBlueGo,
+      confirmarRepartoFinalizado,
+      actualizarObservacionesEmbarque, duplicarEmbarque, cancelarEmbarque,
     }}>
       {children}
     </AppContext.Provider>

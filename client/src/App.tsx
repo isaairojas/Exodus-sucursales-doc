@@ -16,6 +16,7 @@ import { Route, Switch, Router as WouterRouter } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppProvider } from "./contexts/AppContext";
+import ModalShortcutsHelp from "./components/ModalShortcutsHelp";
 import Home from "./pages/Home";
 import ModulesHome from "./pages/ModulesHome";
 import MobileAuth from "./pages/MobileAuth";
@@ -51,6 +52,7 @@ function App() {
         <AppProvider>
           <TooltipProvider>
             <Router />
+            <ModalShortcutsHelp />
           </TooltipProvider>
         </AppProvider>
       </ThemeProvider>

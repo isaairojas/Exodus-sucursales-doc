@@ -9,6 +9,12 @@ export interface Product {
   category: string;
   img: string | null;
   price: number;
+  // Producto "excepción" (misceláneo, múltiplo de empaque, costo unitario bajo,
+  // familia especial — regla externa ERB-47104). En la revisión HH, los productos
+  // excepción abren el modal simplificado (stepper con cantidad) y aceptan el
+  // escaneo del código corto de 7 dígitos. Los no-excepción exigen etiqueta de
+  // 18 o 51/52 dígitos.
+  esExcepcion?: boolean;
 }
 
 export interface OrderPartida {
@@ -65,9 +71,71 @@ export interface Order {
   horaInicioSurtido: string;
   horaFinSurtido: string;
   partidas: OrderPartida[];
+  // Pedido corporativo: no permite surtido parcial ni negación de productos.
+  // Debe surtirse en su totalidad; en HH bloquea "Finalizar" con pendientes
+  // (obliga a "sacar el pedido de la ronda") y también deshabilita rechazo.
+  corporativo?: boolean;
 }
 
-export type ShipmentStatus = 'Generado' | 'Solicitado' | 'En tránsito' | 'En reparto' | 'Entregado';
+// Estados del shipment. Rename: 'En reparto' → 'Entregado a paquetería' porque
+// aplica cuando la mercancía ya se entregó a la paquetería/chofer. El nombre
+// legacy 'En reparto' se conserva SOLO para retro-compat de datos existentes
+// (se migra en el reducer al cargar el snapshot).
+export type ShipmentStatus =
+  | 'Generado'
+  | 'Solicitado'
+  | 'En tránsito'
+  | 'Entregado a paquetería'  // RENOMBRADO desde 'En reparto'
+  | 'En reparto'               // LEGACY — no usar en código nuevo
+  | 'Entregado';
+
+// Tipo funcional de paquetería. Determina el flujo (botones, monitores).
+export type TipoPaqueteria = 'Uber' | 'BlueGo' | 'WebService' | 'Manual';
+
+// Mapa fijo entre nombre textual y su tipo funcional. Editable a futuro por
+// configuración; por ahora se sirve estáticamente para determinar qué botones
+// aparecen en el embarque.
+export const PAQUETERIA_TIPO: Record<string, TipoPaqueteria> = {
+  'Uber':               'Uber',
+  'BlueGo':             'BlueGo',
+  'Estafeta':           'WebService',
+  'DHL':                'WebService',
+  'FedEx':              'WebService',
+  'Paquetexpress':      'WebService',
+  '99 Minutos':         'WebService',
+  'Transporte interno': 'Manual',
+  'Transporte Interno': 'Manual',
+};
+
+export function tipoPaqueteriaDe(nombre: string | undefined | null): TipoPaqueteria {
+  if (!nombre) return 'Manual';
+  return PAQUETERIA_TIPO[nombre] ?? 'Manual';
+}
+
+// Coordenadas [lat, lng] por sucursal. Usadas por el mapa Leaflet+OSRM del
+// cotizador de paqueterías.
+// F32 — CP de cada sucursal (maestro de sucursales APYMSA, jul-2026).
+// Sirve para auto-poblar `destinoCP` en el cotizador y aplicar cobertura
+// regional real (Nox/GME/Ruiz/Salter/Logex).
+export const SUCURSAL_CP: Record<string, string> = {
+  'Federalismo': '44260',
+  'Tesistán':    '45138',
+  'Adolf Horn':  '45665',
+  'Colón':       '44950',
+  'Pelícano':    '44900',
+};
+
+// Coordenadas OFICIALES tomadas del maestro de sucursales APYMSA
+// (sucursales.xlsx, jul-2026). CEDIS se aproxima al polígono industrial
+// de Zapopan por no estar en el maestro (usar coord real cuando exista).
+export const SUCURSAL_COORDS: Record<string, [number, number]> = {
+  'Federalismo': [20.6355, -103.3499],
+  'Tesistán':    [20.7474, -103.4655],
+  'Adolf Horn':  [20.4217, -103.3853],
+  'Colón':       [20.6347, -103.4344],
+  'Pelícano':    [20.6347, -103.4344],
+  'CEDIS':       [20.7100, -103.4400], // aproximada — no está en el maestro
+};
 
 export interface UberData {
   uberId: string;
@@ -89,13 +157,63 @@ export interface BlueGoData {
 }
 
 export interface BoxItem {
-  id: string;          // 'C1', 'C2', ...
+  id: string;                // 'C1', 'C2', ...
   pedidoId: string;
-  peso: number;        // kg
-  largo?: number;      // cm
-  ancho?: number;      // cm
-  alto?: number;       // cm
+  peso: number;              // kg (peso real)
+  largo?: number;            // cm
+  ancho?: number;            // cm
+  alto?: number;             // cm
+  // NUEVOS — se calculan a partir de las dimensiones + factor volumétrico.
+  volumen?: number;          // cm³
+  pesoVolumetrico?: number;  // kg
+  pesoFacturable?: number;   // kg = max(peso real, volumétrico)
 }
+
+// Bloque de documentación de cajas/tarima por pedido dentro de un embarque.
+// Se llena en el Paso 2 del flujo (ver docs/flujo-embarque-cambios.md §5).
+export interface DocumentacionPorPedido {
+  pedidoId: string;
+  tipoEnvio: 'Caja' | 'Tarima';
+  cantidadCajas: number;                        // solo si tipoEnvio = 'Caja'
+  factorVolumetrico: number;                    // kg/m³ (default 250)
+  modoPeso: 'Consolidado' | 'CadaCajaSeparado';
+  cajas: BoxItem[];                              // si tipoEnvio = 'Caja'
+  tarima?: {                                     // si tipoEnvio = 'Tarima'
+    conocePesoTotal: boolean;
+    pesoTotal?: number;                          // si conocePesoTotal = true
+    cajasConteo?: { peso: number }[];            // si conocePesoTotal = false
+    largo: number; ancho: number; alto: number;  // dimensiones de la tarima
+  };
+}
+
+// Resultado del cotizador de paqueterías (Paso 3 del flujo). Se genera por
+// paquetería configurada; las que no cubren la ruta se descartan.
+export interface CotizacionPaqueteria {
+  paqueteria: string;
+  tipo: TipoPaqueteria;
+  costo: number;                 // sin IVA (los tarifarios oficiales están sin IVA)
+  moneda: 'MXN';
+  tiempoEntregaDias?: string;
+  notas?: string[];
+  cubierto: boolean;
+  // Regla APYMSA ago-2026: cualquier opción 25%+ más cara que la mejor se
+  // marca como "muy cara" — no debe usarse bajo ninguna circunstancia.
+  muyCara?: boolean;
+  advertencia?: string;
+  // Info opcional para el resumen: base + sobrepeso + cargos adicionales.
+  desglose?: { concepto: string; monto: number }[];
+}
+
+// Ruta calculada por el mapa (Leaflet+OSRM). Se persiste en el shipment para
+// no volver a llamar al servicio si el usuario reabre la ventana.
+export interface RutaEmbarque {
+  origenCoords: [number, number];
+  destinoCoords: [number, number];
+  distanciaKm: number;
+  tiempoMin?: number;
+  polyline?: string;             // encoded polyline de OSRM
+}
+
 export interface Shipment {
   id: string;
   paqueteria: string;
@@ -111,6 +229,16 @@ export interface Shipment {
   boxes?: BoxItem[];
   uberData?: UberData;
   blueGoData?: BlueGoData;
+  // NUEVOS — flujo de documentación de cajas + cotizador + monitores.
+  documentacion?: DocumentacionPorPedido[];    // Paso 2 (pesado)
+  paqueteriaSeleccionada?: string;              // Paso 3 (cotización aceptada)
+  paqueteriaCosto?: number;                     // costo cotizado en MXN
+  paqueteriaDesglose?: { concepto: string; monto: number }[]; // F15
+  paqueteriaTiempoEntrega?: string;
+  guiaId?: string;                              // paqueterías WebService
+  fechaEntregaAPaqueteria?: string;             // monitor 5 — timestamp
+  fechaRepartoFinalizado?: string;              // monitor 6 — timestamp
+  ruta?: RutaEmbarque;                          // caché de la ruta calculada
 }
 
 // ── Product catalog ──────────────────────────────────────────
@@ -120,9 +248,9 @@ export const PRODUCT_CATALOG: Record<string, Product> = {
   'AM-445': { code: 'AM-445', name: 'Amortiguador Trasero Nissan Sentra 2020',     category: 'Suspensión',   img: null, price: 680 },
   'BC-118': { code: 'BC-118', name: 'Bobina de Encendido VW Jetta 2.5',            category: 'Encendido',    img: null, price: 540 },
   'RD-772': { code: 'RD-772', name: 'Radiador Completo Chevrolet Aveo 1.6',        category: 'Enfriamiento', img: null, price: 1850 },
-  'XX-999': { code: 'XX-999', name: 'Cinta Aislante Negra 3M',                     category: 'Accesorios',   img: null, price: 45 },
+  'XX-999': { code: 'XX-999', name: 'Cinta Aislante Negra 3M',                     category: 'Accesorios',   img: null, price: 45,   esExcepcion: true },
   'LT-334': { code: 'LT-334', name: 'Llanta Michelin 185/65 R15',                  category: 'Llantas',      img: null, price: 1290 },
-  'AC-201': { code: 'AC-201', name: 'Aceite Motor 5W-30 Castrol 4L',               category: 'Lubricantes',  img: null, price: 410 },
+  'AC-201': { code: 'AC-201', name: 'Aceite Motor 5W-30 Castrol 4L',               category: 'Lubricantes',  img: null, price: 410,  esExcepcion: true },
   'BT-055': { code: 'BT-055', name: 'Batería Bosch 12V 60Ah',                      category: 'Eléctrico',    img: null, price: 2150 },
 };
 
@@ -178,13 +306,15 @@ export const ORDERS_DB: Record<string, Order> = {
     ],
   },
   '1064844': {
+    // Regla: si un pedido tiene peticiones de traspaso VIGENTES, su status
+    // debe estar en 'Creado'/'Capturado' — al intentar surtirlo con existencias
+    // se cancelan primero las peticiones. Antes estaba mal como 'Documentado'.
     id: '1064844', clienteId: '10244', cliente: 'AUTOPARTES ISAI',
     vendedorId: '79076', vendedor: 'ND REFACCIONARIAS PELICANO', plazo: '',
-    total: '$757.12', status: 'Documentado',
+    total: '$757.12', status: 'Creado',
     elaboro: 'Ángel', origen: 'Epico', observaciones: '',
-
-    fechaCaptura: '2026-04-22 14:32', fechaEntrega: '2026-04-22', horaEntrega: '14:32', horaReparto: '14:32', zona: '', local: false,
-    horaInicioSurtido: '14:35', horaFinSurtido: '14:55',
+    fechaCaptura: '2026-04-22 14:32', fechaEntrega: '', horaEntrega: '', horaReparto: '', zona: '', local: false,
+    horaInicioSurtido: '', horaFinSurtido: '',
     partidas: [
       { code: 'BT-055', qty: 1 },
       { code: 'BC-118', qty: 2 },
@@ -390,11 +520,12 @@ export const STATUS_COLORS: Record<OrderStatus, { bg: string; text: string; bord
 };
 
 export const SHIPMENT_STATUS_COLORS: Record<ShipmentStatus, { bg: string; text: string; border: string }> = {
-  'Generado':    { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
-  'Solicitado':  { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
-  'En tránsito': { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
-  'En reparto':  { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
-  'Entregado':   { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
+  'Generado':               { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
+  'Solicitado':             { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
+  'En tránsito':            { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
+  'Entregado a paquetería': { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
+  'En reparto':             { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  }, // legacy — mismo color
+  'Entregado':              { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
 };
 
 // ============================================================
@@ -406,8 +537,11 @@ export type TraspasoStatus =
   | 'Pendiente'
   | 'Surtido'
   | 'Revisado'
-  | 'Documentado'
-  | 'Enviado'
+  | 'Embarcado'              // NUEVO — traspaso agregado a un embarque, sin documentar/pesar
+  | 'Documentado'            // embarque con cajas pesadas y paquetería seleccionada
+  | 'EntregadoAPaqueteria'   // NUEVO — reparto iniciado, mercancía ya en poder de la paquetería
+  | 'Enviado'                // LEGACY — remapeado a EntregadoAPaqueteria; se conserva para retro-compat
+  | 'RepartoFinalizado'      // NUEVO — la paquetería entregó al cliente/sucursal
   | 'Recibido'
   | 'Entregado'
   | 'Cancelado';
@@ -418,7 +552,7 @@ export type TraspasoStatus =
 export type TraspasoEstadoAlto = 'Pendiente' | 'Finalizado' | 'Cancelado';
 export function estadoAltoTraspaso(status: TraspasoStatus): TraspasoEstadoAlto {
   if (status === 'Cancelado') return 'Cancelado';
-  if (status === 'Enviado' || status === 'Entregado' || status === 'Recibido') return 'Finalizado';
+  if (['Enviado', 'EntregadoAPaqueteria', 'RepartoFinalizado', 'Entregado', 'Recibido'].includes(status)) return 'Finalizado';
   return 'Pendiente';
 }
 
@@ -428,11 +562,12 @@ export type TraspasoEtapa =
   | 'Surtido'
   | 'Revisado'
   | 'Embarcado'
+  | 'Documentado'
   | 'Enviado'
   | 'Recibido'
   | 'Cancelado';
 export const TRASPASO_ETAPAS: TraspasoEtapa[] = [
-  'Sin surtir', 'Surtido', 'Revisado', 'Embarcado', 'Enviado', 'Recibido', 'Cancelado',
+  'Sin surtir', 'Surtido', 'Revisado', 'Embarcado', 'Documentado', 'Enviado', 'Recibido', 'Cancelado',
 ];
 
 // Descripciones (tooltips) para explicar cada etapa operativa del traspaso.
@@ -440,7 +575,8 @@ export const TRASPASO_ETAPA_TOOLTIP: Record<TraspasoEtapa, string> = {
   'Sin surtir': 'Pendiente de surtir: la sucursal origen aún no prepara la mercancía.',
   'Surtido': 'La mercancía ya fue surtida (preparada) en la sucursal origen.',
   'Revisado': 'La mercancía surtida fue revisada/validada antes de embarcar.',
-  'Embarcado': 'Documentado y asignado a un embarque, listo para salir.',
+  'Embarcado': 'El traspaso ya tiene un embarque asignado; falta completar cajas y método de envío.',
+  'Documentado': 'El embarque ya cuenta con la información de cajas y el método de envío seleccionado; listo para salir.',
   'Enviado': 'La mercancía salió de la sucursal origen y va en tránsito a la destino.',
   'Recibido': 'La sucursal destino ya dio entrada a la mercancía.',
   'Cancelado': 'El traspaso fue cancelado o negado; la necesidad se recalcula a otra sucursal.',
@@ -460,22 +596,31 @@ export const TRASPASO_CATEGORIA_TOOLTIP: Record<string, string> = {
 };
 export function etapaTraspaso(status: TraspasoStatus): TraspasoEtapa {
   switch (status) {
-    case 'Pendiente':   return 'Sin surtir';
-    case 'Surtido':     return 'Surtido';
-    case 'Revisado':    return 'Revisado';
-    case 'Documentado': return 'Embarcado';
-    case 'Enviado':     return 'Enviado';
+    case 'Pendiente':             return 'Sin surtir';
+    case 'Surtido':               return 'Surtido';
+    case 'Revisado':              return 'Revisado';
+    case 'Embarcado':             return 'Embarcado';
+    case 'Documentado':           return 'Documentado';
+    // Entregado a paquetería / Reparto finalizado / Enviado (legacy) →
+    // colapsan en la etapa "Enviado" del filtro (ya salieron de la sucursal).
+    case 'EntregadoAPaqueteria':  return 'Enviado';
+    case 'RepartoFinalizado':     return 'Enviado';
+    case 'Enviado':               return 'Enviado';
     case 'Recibido':
-    case 'Entregado':   return 'Recibido';
-    case 'Cancelado':   return 'Cancelado';
+    case 'Entregado':             return 'Recibido';
+    case 'Cancelado':             return 'Cancelado';
   }
 }
+// Colores por etapa: alineados con los colores de TRASPASO_STATUS_COLORS para
+// que los mismos conceptos (Embarcado/Documentado) se vean iguales sin importar
+// si se muestra por etapa o por status.
 export const TRASPASO_ETAPA_COLORS: Record<TraspasoEtapa, { bg: string; text: string; border: string }> = {
   'Sin surtir':          { bg: 'rgba(217,119,6,0.10)',  text: '#d97706', border: 'rgba(217,119,6,0.3)'  },
   'Surtido':             { bg: 'rgba(124,58,237,0.10)', text: '#7c3aed', border: 'rgba(124,58,237,0.3)' },
   'Revisado':            { bg: 'rgba(37,99,235,0.10)',  text: '#2563eb', border: 'rgba(37,99,235,0.3)'  },
-  'Embarcado':           { bg: 'rgba(13,148,136,0.10)', text: '#0d9488', border: 'rgba(13,148,136,0.3)' },
-  'Enviado': { bg: 'rgba(22,163,74,0.10)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  'Embarcado':           { bg: 'rgba(234,88,12,0.10)',  text: '#ea580c', border: 'rgba(234,88,12,0.3)'  },
+  'Documentado':         { bg: 'rgba(13,148,136,0.10)', text: '#0d9488', border: 'rgba(13,148,136,0.3)' },
+  'Enviado':             { bg: 'rgba(22,163,74,0.10)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
   'Recibido':            { bg: 'rgba(26,43,107,0.10)',  text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'  },
   'Cancelado':           { bg: 'rgba(220,38,38,0.10)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
 };
@@ -485,9 +630,12 @@ export type TraspasoTipo = 'Entrante' | 'Saliente';
 // Estatus válidos según el tipo de traspaso, en orden de flujo:
 // Entrante: la sucursal donante surte y envía; nosotros damos entrada (Recibido).
 // Saliente: nosotros surtimos y enviamos; la sucursal solicitante confirma (Entregado).
+// Pipeline extendido: se agregan Embarcado, Documentado, EntregadoAPaqueteria y
+// RepartoFinalizado como pasos intermedios entre Revisado y Recibido/Entregado.
+// Total 8 pasos por perspectiva.
 export const TRASPASO_STATUS_POR_TIPO: Record<TraspasoTipo, TraspasoStatus[]> = {
-  Entrante: ['Pendiente', 'Surtido', 'Enviado', 'Recibido'],
-  Saliente: ['Pendiente', 'Surtido', 'Enviado', 'Entregado'],
+  Entrante: ['Pendiente', 'Surtido', 'Revisado', 'Embarcado', 'Documentado', 'EntregadoAPaqueteria', 'RepartoFinalizado', 'Recibido'],
+  Saliente: ['Pendiente', 'Surtido', 'Revisado', 'Embarcado', 'Documentado', 'EntregadoAPaqueteria', 'RepartoFinalizado', 'Entregado'],
 };
 
 // Estatus válidos para traspasos categoria === 'CEDIS' (pipeline propio, distinto
@@ -628,6 +776,14 @@ export interface TraspasoPeticion {
   observaciones?: string;
   usuarioCreador: string;
   autorizacionToken?: string;   // solo Manual sin pedidoOrigen: token/PIN de autorización
+  // ── Consolidador intermedio ──────────────────────────────────
+  // Cuando SMC genera una solicitud NO relacionada a un pedido cliente, sino a
+  // OTRA petición (la sucursal donante también necesita completar su envío con
+  // apoyo de sus sucursales locales), la solicitud resultante apunta aquí a la
+  // petición padre. La sucursal donante intermedia NO debe ver el pedido cliente
+  // original ni las peticiones hermanas del solicitante final; solo su propia
+  // petición + estas dependencias "por recibir".
+  peticionOrigenId?: string;    // petición padre (sucursal consolidadora intermedia)
   cajas?: number;               // solo CEDIS Reabasto: recepción ciega por caja, sin desglose de piezas
   noPapeleta: string;           // folio de papeleta física (vista unificada estilo almacén)
   fechaArribo?: string;         // fecha esperada de llegada; solo una vez enviado ('YYYY-MM-DD HH:mm')
@@ -684,6 +840,65 @@ export function perspectivaTraspaso(t: TraspasoPeticion, sucursal: string): Pers
   return { visible: sucursal === SUCURSAL_LOCAL, tipo: t.tipo, contraparte: t.sucursalContraparte };
 }
 
+// ── Consolidador intermedio (solicitud relacionada a una petición) ───────────
+// Tipo de solicitud según su origen:
+//  • ConPedido   — solicitud generada a partir de un pedido cliente (caso clásico).
+//  • ConPeticion — solicitud generada por una sucursal donante para completar SU
+//                  petición pidiendo apoyo a sus locales (consolidador intermedio).
+//  • SinPedido   — solicitud manual sin pedido (urgencia, ajuste, garantía).
+export type SolicitudTipo = 'ConPedido' | 'ConPeticion' | 'SinPedido';
+
+export function tipoSolicitudDe(t: TraspasoPeticion): SolicitudTipo {
+  if (t.peticionOrigenId) return 'ConPeticion';
+  if (t.pedidoOrigen && t.pedidoOrigen.trim() !== '') return 'ConPedido';
+  return 'SinPedido';
+}
+
+// Peticiones dependientes: son las que apuntan a `peticion` como su padre. Son
+// "por recibir" para la sucursal donante intermedia — bloquean el surtido hasta
+// estar Entregadas.
+export function peticionesDependientesDe(
+  peticion: TraspasoPeticion,
+  universo: TraspasoPeticion[],
+): TraspasoPeticion[] {
+  return universo.filter(t => t.peticionOrigenId === peticion.id);
+}
+
+// ¿La sucursal actual actúa como CONSOLIDADORA INTERMEDIA de esta petición?
+// - Es el ORIGEN (donante) de la petición.
+// - Existen peticiones dependientes AÚN NO ENTREGADAS (si todas ya llegaron
+//   la sucursal deja de ser "consolidadora activa": puede surtir libremente).
+export function esConsolidadorIntermedio(
+  peticion: TraspasoPeticion,
+  sucursalActual: string,
+  universo: TraspasoPeticion[],
+): boolean {
+  if (peticion.sucursalOrigen !== sucursalActual) return false;
+  const deps = peticionesDependientesDe(peticion, universo);
+  if (deps.length === 0) return false;
+  return deps.some(d => d.status !== 'Entregado');
+}
+
+// Cuenta las dependencias que aún faltan por recibir (no Entregadas). Útil
+// para el badge "Consolidadora · N por recibir".
+export function peticionesDependientesPendientesDe(
+  peticion: TraspasoPeticion,
+  universo: TraspasoPeticion[],
+): TraspasoPeticion[] {
+  return peticionesDependientesDe(peticion, universo).filter(d => d.status !== 'Entregado');
+}
+
+// ¿Puede surtirse esta petición? — false cuando existen dependencias que aún
+// no llegaron (status ≠ 'Entregado').
+export function puedeSurtirPeticion(
+  peticion: TraspasoPeticion,
+  universo: TraspasoPeticion[],
+): boolean {
+  const deps = peticionesDependientesDe(peticion, universo);
+  if (deps.length === 0) return true;
+  return deps.every(d => d.status === 'Entregado');
+}
+
 // Convierte 'YYYY-MM-DD HH:mm' a 'DD/MM/YY' para la vista unificada estilo almacén.
 export function formatFechaCorta(fechaIso: string): string {
   const [y, m, d] = fechaIso.slice(0, 10).split('-');
@@ -726,6 +941,46 @@ export const EXISTENCIA_POR_SUCURSAL: Record<string, Record<string, number>> = {
   "Forum Tlaquepaque": { "BP-001": 3, "FT-223": 6, "AM-445": 0, "BC-118": 2, "RD-772": 5, "XX-999": 9, "LT-334": 25, "AC-201": 7, "BT-055": 0 },
   "Tesistán": { "BP-001": 18, "FT-223": 22, "AM-445": 9, "BC-118": 7, "RD-772": 0, "XX-999": 14, "LT-334": 3, "AC-201": 20, "BT-055": 5 },
 };
+
+// ── Proyecto "Planta / Pasillo / Torre / Nivel" por sucursal ────────────────
+// Bandera que indica si la sucursal tiene activado el proyecto de ubicaciones
+// detalladas por producto (Planta baja, Pasillo, Torre, Nivel). Cuando está
+// activada, el detalle de producto en surtido muestra esas cajas navy con
+// la ubicación exacta; cuando no, se omiten. Es actualizable en el futuro
+// por sucursal cuando el proyecto se despliegue en más lugares.
+export const SUCURSAL_PROYECTO_UBICACION: Record<string, boolean> = {
+  'Federalismo':  true,
+  'Tesistán':     true,
+  'Adolf Horn':   false,
+  'Colón':        false,
+  'CEDIS':        false,
+  'Pelícano':     false,
+};
+
+export interface UbicacionProducto {
+  planta: string;      // p.ej. "Planta baja", "Piso 1"
+  pasillo: string;     // p.ej. "18"
+  torre: string;       // p.ej. "5"
+  nivel: string;       // p.ej. "1"
+}
+
+// Ubicaciones concretas por (sucursal, código). Solo tiene sentido cuando la
+// bandera SUCURSAL_PROYECTO_UBICACION[suc] es true. Demo: se genera de forma
+// determinística por hash del código en el IIFE al final de este archivo, para
+// no tener que capturar cada combinación manualmente.
+export const UBICACION_POR_SUCURSAL_PRODUCTO: Record<string, Record<string, UbicacionProducto>> = {};
+
+export function ubicacionDe(sucursal: string, code: string): UbicacionProducto | null {
+  if (!SUCURSAL_PROYECTO_UBICACION[sucursal]) return null;
+  return UBICACION_POR_SUCURSAL_PRODUCTO[sucursal]?.[code] ?? null;
+}
+
+// ¿El pedido es corporativo? Requiere surtido completo, no permite negar
+// productos, y bloquea el rechazo desde el donante.
+export function esCorporativo(pedidoId: string): boolean {
+  const key = pedidoId.replace(/^P/, '');
+  return ORDERS_DB[key]?.corporativo === true;
+}
 
 // Existencia disponible en CEDIS por código de producto (mock). Regla de negocio:
 // nunca se puede solicitar a CEDIS más de lo que CEDIS tiene en existencia.
@@ -775,13 +1030,16 @@ export function calcularSucursalRecomendada(
 }
 
 export const TRASPASO_STATUS_COLORS: Record<TraspasoStatus, { bg: string; text: string; border: string }> = {
-  'Pendiente':  { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
-  'Surtido':    { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
-  'Revisado':   { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
-  'Documentado':{ bg: 'rgba(13,148,136,0.12)',  text: '#0d9488', border: 'rgba(13,148,136,0.3)'  },
-  'Enviado':    { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
-  'Recibido':   { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
-  'Entregado':  { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
+  'Pendiente':            { bg: 'rgba(217,119,6,0.12)',   text: '#d97706', border: 'rgba(217,119,6,0.3)'   },
+  'Surtido':              { bg: 'rgba(124,58,237,0.12)',  text: '#7c3aed', border: 'rgba(124,58,237,0.3)'  },
+  'Revisado':             { bg: 'rgba(37,99,235,0.12)',   text: '#2563eb', border: 'rgba(37,99,235,0.3)'   },
+  'Embarcado':            { bg: 'rgba(234,88,12,0.12)',   text: '#ea580c', border: 'rgba(234,88,12,0.3)'   },
+  'Documentado':          { bg: 'rgba(13,148,136,0.12)',  text: '#0d9488', border: 'rgba(13,148,136,0.3)'  },
+  'EntregadoAPaqueteria': { bg: 'rgba(6,182,212,0.12)',   text: '#0891b2', border: 'rgba(6,182,212,0.3)'   },
+  'Enviado':              { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   }, // legacy
+  'RepartoFinalizado':    { bg: 'rgba(22,163,74,0.12)',   text: '#16a34a', border: 'rgba(22,163,74,0.3)'   },
+  'Recibido':             { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
+  'Entregado':            { bg: 'rgba(26,43,107,0.12)',   text: '#1a2b6b', border: 'rgba(26,43,107,0.3)'   },
   'Cancelado':  { bg: 'rgba(220,38,38,0.12)',   text: '#dc2626', border: 'rgba(220,38,38,0.3)'   },
 };
 
@@ -812,11 +1070,98 @@ export interface EmbarqueTraspaso {
   id: string;
   sucursalDestino: string;
   paqueteria: string;
-  traspasos: string[]; // ids de TraspasoPeticion (PET-...)
-  status: 'Generado' | 'En tránsito' | 'Entregado';
+  traspasos: string[];
+  // Estados ampliados con los del refactor (Entregado a paquetería +
+  // Solicitado). Ver docs/flujo-embarque-cambios.md §2.4.
+  status: 'Generado' | 'Solicitado' | 'En tránsito' | 'Entregado a paquetería' | 'En reparto' | 'Entregado' | 'Cancelado';
   fecha: string;
   observaciones?: string;
   usuario: string;
+  // NUEVOS — mismos campos que Shipment (Paso 2 + Paso 3 + monitores).
+  documentacion?: DocumentacionPorPedido[];
+  paqueteriaSeleccionada?: string;
+  paqueteriaCosto?: number;
+  paqueteriaDesglose?: { concepto: string; monto: number }[];
+  paqueteriaTiempoEntrega?: string;
+  guiaId?: string;
+  fechaEntregaAPaqueteria?: string;
+  fechaRepartoFinalizado?: string;
+  ruta?: RutaEmbarque;
+  // F19 — bitácora ordenada de eventos del embarque.
+  eventos?: EmbarqueEvento[];
+  // F39 — Cotizaciones descartadas (histórico de recotizaciones).
+  // Cada entrada guarda paquetería, costo y timestamp; útil para auditoría
+  // ("¿por qué no elegimos la más barata?").
+  cotizacionesDescartadas?: { ts: string; paqueteria: string; costo: number; motivo?: string }[];
+}
+
+// Un evento del ciclo de vida del embarque. Se agrega al arreglo `eventos`
+// del EmbarqueTraspaso cada vez que un handler avanza el flujo.
+export interface EmbarqueEvento {
+  ts: string;        // 'YYYY-MM-DD HH:mm'
+  tipo: 'documentado' | 'cotizado' | 'guiaGenerada' | 'entregado' | 'reparto' | 'finalizado' | 'recotizado';
+  usuario: string;
+  detalle?: string;
+}
+
+// F25 — Alerta de embarques atorados. Un embarque está "atorado" si lleva
+// más de UMBRAL_HORAS sin avanzar a un status posterior. Se calcula desde
+// el último evento (o desde fecha, si no hay eventos).
+export const EMBARQUE_UMBRAL_ATORADO_HORAS = 24;
+
+export function horasSinMovimiento(e: EmbarqueTraspaso): number {
+  const ref = e.eventos && e.eventos.length > 0
+    ? e.eventos[e.eventos.length - 1].ts
+    : e.fecha;
+  if (!ref) return 0;
+  const [d, t] = ref.split(' ');
+  const dt = new Date(`${d}T${(t ?? '00:00')}:00`);
+  const ms = Date.now() - dt.getTime();
+  return Math.max(0, ms / (1000 * 60 * 60));
+}
+
+// Un embarque atorado NO es el que ya se entregó (Entregado, RepartoFinalizado).
+export function embarqueAtorado(e: EmbarqueTraspaso, umbralHoras: number = EMBARQUE_UMBRAL_ATORADO_HORAS): boolean {
+  if (e.status === 'Entregado') return false;
+  return horasSinMovimiento(e) >= umbralHoras;
+}
+
+// F76 — Una cotización aceptada se considera "caducada" si tiene más de N
+// horas: en ese lapso las tarifas de la paquetería pueden haber cambiado.
+// Se calcula desde el evento `cotizado` más reciente.
+export function cotizacionCaducada(e: EmbarqueTraspaso, umbralHoras: number = 24): boolean {
+  if (!e.paqueteriaSeleccionada) return false;
+  if (e.status === 'Entregado' || e.status === 'Cancelado') return false;
+  const cot = (e.eventos ?? []).filter(ev => ev.tipo === 'cotizado' || ev.tipo === 'recotizado').pop();
+  if (!cot) return false;
+  const [d, t] = cot.ts.split(' ');
+  const dt = new Date(`${d}T${(t ?? '00:00')}:00`);
+  return (Date.now() - dt.getTime()) / (1000 * 60 * 60) >= umbralHoras;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Helpers de embarque
+// ─────────────────────────────────────────────────────────────────
+
+// Un embarque es COMPATIBLE con un traspaso si:
+//  • Tiene la misma sucursalDestino (misma dirección de entrega = misma sucursal).
+//  • Aún NO se ha confirmado el envío (status = 'Generado', no en tránsito ni entregado).
+export function embarquesCompatiblesParaTraspaso(
+  peticion: TraspasoPeticion,
+  embarques: EmbarqueTraspaso[],
+): EmbarqueTraspaso[] {
+  const destino = peticion.sucursalDestino;
+  if (!destino) return [];
+  return embarques.filter(e => e.sucursalDestino === destino && e.status === 'Generado');
+}
+
+// Genera un id secuencial de embarque estilo "EM0000001".
+export function generarIdEmbarque(existentes: EmbarqueTraspaso[]): string {
+  const nums = existentes
+    .map(e => Number(e.id.replace(/\D/g, '')))
+    .filter(n => !isNaN(n));
+  const nextNum = (nums.length > 0 ? Math.max(...nums) : 0) + 1;
+  return 'EM' + String(nextNum).padStart(7, '0');
 }
 
 export const EMBARQUES_TRASPASO_DB: EmbarqueTraspaso[] = [
@@ -828,6 +1173,55 @@ export const EMBARQUES_TRASPASO_DB: EmbarqueTraspaso[] = [
     status: 'Generado',
     fecha: '2026-07-26 20:40',
     usuario: 'MPENICHE07',
+  },
+  // F8 §9.3 — Embarque Manual en "Entregado a paquetería" pendiente de confirmar
+  {
+    id: 'EM0090001',
+    sucursalDestino: 'Adolf Horn',
+    paqueteria: 'Transporte interno',
+    traspasos: ['DEMO-S-DOC'],
+    status: 'Entregado a paquetería',
+    fecha: '2026-08-04 09:15',
+    usuario: 'JMORENO11',
+    paqueteriaSeleccionada: 'Transporte interno',
+    paqueteriaCosto: 100,
+    fechaEntregaAPaqueteria: '2026-08-04 12:30',
+  },
+  // F8 §9.3 — Embarque WebService (Estafeta) con guía generada
+  {
+    id: 'EM0090002',
+    sucursalDestino: 'Colón',
+    paqueteria: 'Estafeta',
+    traspasos: ['DEMO-S-ENV'],
+    status: 'En tránsito',
+    fecha: '2026-08-05 11:00',
+    usuario: 'JMORENO11',
+    paqueteriaSeleccionada: 'Estafeta',
+    paqueteriaCosto: 320,
+    guiaId: 'EST-2026080500042',
+    fechaEntregaAPaqueteria: '2026-08-05 14:20',
+  },
+  // F8 §9.3 — Embarque "Embarcado" sin documentar (dispara card nueva)
+  {
+    id: 'EM0090004',
+    sucursalDestino: 'Tesistán',
+    paqueteria: 'Estafeta',
+    traspasos: ['DEMO-S-EMB'],
+    status: 'Generado',
+    fecha: '2026-08-06 10:15',
+    usuario: 'JMORENO11',
+  },
+  // F8 §9.3 — Embarque Uber en tránsito
+  {
+    id: 'EM0090003',
+    sucursalDestino: 'Federalismo',
+    paqueteria: 'Uber',
+    traspasos: ['DEMO-S-REV'],
+    status: 'En tránsito',
+    fecha: '2026-08-06 08:45',
+    usuario: 'JMORENO11',
+    paqueteriaSeleccionada: 'Uber',
+    paqueteriaCosto: 145,
   },
 ];
 
@@ -869,6 +1263,13 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     fechaCreacion: '2026-07-05 08:15', fechaActualizacion: '2026-07-05 09:05',
     piezas: [{ code: 'AC-201', qtySolicitada: 5, qtySurtida: 5 }], pedidoOrigen: '1064847', parcial: false,
     usuarioCreador: 'JMORENO11', noPapeleta: '410103', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
+  // F8 §9.3 — Traspaso "Embarcado" sin documentar (para probar la nueva card).
+  { id: 'DEMO-S-EMB', solicitudId: 'SOL-D-EMB', tipo: 'Saliente', categoria: 'Automático', flujo: 'Automatico',
+    sucursalContraparte: 'Tesistán', sucursalDestino: 'Tesistán', status: 'Embarcado', resultado: 'revisada',
+    fechaCreacion: '2026-08-06 08:00', fechaActualizacion: '2026-08-06 10:15',
+    piezas: [{ code: 'BP-042', qtySolicitada: 4, qtySurtida: 4 }], pedidoOrigen: '1064920', parcial: false,
+    embarqueId: 'EM0090004', metodoEnvio: 'Estafeta',
+    usuarioCreador: 'JMORENO11', noPapeleta: '410120', packingList: true, cajasTotal: 2, cajasRecibidas: 0 },
   { id: 'DEMO-S-DOC', solicitudId: 'SOL-D104', tipo: 'Saliente', categoria: 'Manual', flujo: 'Manual',
     sucursalContraparte: 'Pelícano', status: 'Documentado', resultado: 'documentada',
     fechaCreacion: '2026-07-07 14:00', fechaActualizacion: '2026-07-07 15:10',
@@ -2565,6 +2966,59 @@ export const TRASPASOS_DB: TraspasoPeticion[] = [
     noPapeleta: '480703', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
     flujo: 'Manual', intento: 1,
   },
+
+  // ══════════════════════════════════════════════════════════════
+  // Escenario CONSOLIDADOR INTERMEDIO
+  // Tesistán (solicitante final) generó pedido cliente 1064772. SMC creó una
+  // solicitud (con pedido) que derivó en la petición DEMO-CI-P1 hacia Federalismo.
+  // Federalismo no tenía stock completo → SMC generó una nueva solicitud
+  // relacionada A LA PETICIÓN DEMO-CI-P1 (no al pedido cliente) y creó dos
+  // peticiones dependientes desde sus locales (Adolf Horn y Colón) HACIA
+  // Federalismo. Federalismo es el "consolidador intermedio": recibe de sus
+  // locales y luego envía a Tesistán. Regla: no puede surtir DEMO-CI-P1 hasta
+  // que las dependencias estén Entregadas.
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'DEMO-CI-P1', solicitudId: 'SOL-CI-CLIENTE', tipo: 'Saliente', categoria: 'Automático',
+    sucursalContraparte: 'Tesistán', sucursalOrigen: 'Federalismo', sucursalDestino: 'Tesistán',
+    status: 'Pendiente',
+    fechaCreacion: '2026-07-08 09:00', fechaActualizacion: '2026-07-08 09:00',
+    piezas: [
+      { code: 'BP-001', qtySolicitada: 8, qtySurtida: 0 },
+      { code: 'FT-223', qtySolicitada: 5, qtySurtida: 0 },
+    ],
+    pedidoOrigen: '1064772', parcial: false,
+    usuarioCreador: 'SMC',
+    noPapeleta: '480810', packingList: false, cajasTotal: 2, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'vigente',
+  },
+  // Dependencia 1 — Adolf Horn → Federalismo (Enviado, ya viene en camino)
+  {
+    id: 'DEMO-CI-D1', solicitudId: 'SOL-CI-INTERNA', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Adolf Horn', sucursalOrigen: 'Adolf Horn', sucursalDestino: 'Federalismo',
+    status: 'Enviado',
+    fechaCreacion: '2026-07-08 09:05', fechaActualizacion: '2026-07-08 12:30', fechaArribo: '2026-07-09 10:00',
+    piezas: [{ code: 'BP-001', qtySolicitada: 4, qtySurtida: 4 }],
+    pedidoOrigen: '', parcial: false,
+    peticionOrigenId: 'DEMO-CI-P1',           // ← dependencia de la petición padre
+    embarqueId: '88860', metodoEnvio: 'Transporte Interno',
+    usuarioCreador: 'SMC',
+    noPapeleta: '480811', packingList: true, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'enviada',
+  },
+  // Dependencia 2 — Colón → Federalismo (aún Surtido, no ha embarcado)
+  {
+    id: 'DEMO-CI-D2', solicitudId: 'SOL-CI-INTERNA', tipo: 'Entrante', categoria: 'Automático',
+    sucursalContraparte: 'Colón', sucursalOrigen: 'Colón', sucursalDestino: 'Federalismo',
+    status: 'Surtido',
+    fechaCreacion: '2026-07-08 09:05', fechaActualizacion: '2026-07-08 10:15',
+    piezas: [{ code: 'FT-223', qtySolicitada: 3, qtySurtida: 3 }],
+    pedidoOrigen: '', parcial: false,
+    peticionOrigenId: 'DEMO-CI-P1',           // ← dependencia de la petición padre
+    usuarioCreador: 'SMC',
+    noPapeleta: '480812', packingList: false, cajasTotal: 1, cajasRecibidas: 0,
+    flujo: 'Automatico', intento: 1, resultado: 'surtida',
+  },
 ];
 
 // Reubica los escenarios DEMO-* al MES EN CURSO para que sean visibles por
@@ -2676,6 +3130,49 @@ export function mapProductCode(code: string): string { return PRODUCT_CODE_MAP[c
   TRASPASOS_DB.forEach(t => t.piezas.forEach(p => { p.code = m(p.code); }));
   // Productos de alta rotación.
   for (let i = 0; i < PRODUCTOS_ALTA_ROTACION.length; i++) PRODUCTOS_ALTA_ROTACION[i] = m(PRODUCTOS_ALTA_ROTACION[i]);
+})();
+
+// ── Ubicaciones demo por (sucursal, código) — solo para sucursales con la
+// bandera SUCURSAL_PROYECTO_UBICACION activada. Determinístico por hash del
+// código: mismos valores en cada carga. Plantas: baja/1/2; Pasillos 1–20;
+// Torres 1–8; Niveles 1–4.
+(() => {
+  const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); };
+  const plantas = ['Planta baja', 'Piso 1', 'Piso 2'];
+  Object.keys(SUCURSAL_PROYECTO_UBICACION).forEach(suc => {
+    if (!SUCURSAL_PROYECTO_UBICACION[suc]) return;
+    UBICACION_POR_SUCURSAL_PRODUCTO[suc] ??= {};
+    Object.keys(PRODUCT_CATALOG).forEach(code => {
+      const h = hash(suc + '|' + code);
+      UBICACION_POR_SUCURSAL_PRODUCTO[suc][code] = {
+        planta:  plantas[h % plantas.length],
+        pasillo: String((h % 20) + 1),
+        torre:   String((h % 8) + 1),
+        nivel:   String((h % 4) + 1),
+      };
+    });
+  });
+})();
+
+// ── Marcar 1 pedido como CORPORATIVO en la demo (para poder probar el flujo).
+(() => {
+  if (ORDERS_DB['1064772']) ORDERS_DB['1064772'].corporativo = true;
+})();
+
+// ── Coherencia demo: existencia de la sucursal SOLICITANTE debe ser MENOR a la
+// cantidad solicitada de cada pieza de un traspaso vigente. Si tuviera suficiente,
+// el traspaso no existiría. Se topa a `qtySolicitada - 1` cuando quede alto.
+(() => {
+  TRASPASOS_DB.forEach(t => {
+    if (t.status === 'Cancelado') return;
+    const destino = t.sucursalDestino;
+    if (!destino || !EXISTENCIA_POR_SUCURSAL[destino]) return;
+    t.piezas.forEach(p => {
+      const actual = EXISTENCIA_POR_SUCURSAL[destino][p.code] ?? 0;
+      const tope = Math.max(0, p.qtySolicitada - 1);
+      if (actual > tope) EXISTENCIA_POR_SUCURSAL[destino][p.code] = tope;
+    });
+  });
 })();
 
 // ── Tipo de envío por pedido ──

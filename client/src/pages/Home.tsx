@@ -50,7 +50,33 @@ export default function Home() {
     setOpenCreateShipmentSignal(0);
   };
 
-  const handleNavigateToTraspasosEntreSucursales = () => setDesktopView('traspasos-entre-sucursales');
+  const [traspasosInitialTab, setTraspasosInitialTab] = useState<'Entrante' | 'Saliente' | null>(null);
+  const handleNavigateToTraspasosEntreSucursales = (tab?: 'Entrante' | 'Saliente') => {
+    if (tab) setTraspasosInitialTab(tab);
+    setDesktopView('traspasos-entre-sucursales');
+  };
+
+  // Canal de navegación: SOLO abre el detalle del pedido cliente sin disparar
+  // el modal de facturación (openFacturaOrderId sí lo disparaba). Cuando está
+  // activo, ScreenOrders muestra "Regresar a petición" en vez de "Regresar a
+  // pedidos" y ese botón nos devuelve a la vista de Traspasos.
+  const [openDetailOrderIdFromTraspaso, setOpenDetailOrderIdFromTraspaso] = useState<string | null>(null);
+  const handleVerPedidoDesdeTraspaso = (pedidoId: string) => {
+    const clean = pedidoId.replace(/^P/, '');
+    setOpenDetailOrderIdFromTraspaso(clean);
+    setDesktopView('orders');
+  };
+  const handleRegresarAPeticion = () => {
+    setOpenDetailOrderIdFromTraspaso(null);
+    setDesktopView('traspasos-entre-sucursales');
+  };
+
+  // Salta desde el flujo post-revisión a la ventana de Embarques con el
+  // embarque preseleccionado para su documentación.
+  const handleVerEmbarqueDesdeTraspaso = (embarqueId: string) => {
+    setPreSelectedShipmentId(embarqueId);
+    setDesktopView('embarques');
+  };
 
   const isReviewFlowOpen = state.currentScreen === 'review' || state.currentScreen === 'summary';
   const canShowMainPanels = state.currentScreen === 'orders' || state.currentScreen === 'select' || isReviewFlowOpen;
@@ -74,6 +100,8 @@ export default function Home() {
             onNavigateToEmbarques={handleNavigateToEmbarques}
             openFacturaOrderId={openFacturaOrderId}
             onFacturaOrderHandled={() => setOpenFacturaOrderId(null)}
+            openDetailOrderId={openDetailOrderIdFromTraspaso}
+            onRegresarAPeticion={openDetailOrderIdFromTraspaso ? handleRegresarAPeticion : undefined}
           />
         )}
 
@@ -90,7 +118,12 @@ export default function Home() {
 
         {/* Traspasos */}
         {canShowMainPanels && desktopView === 'traspasos-entre-sucursales' && (
-          <ScreenTraspasosEntreSucursales showToast={showToast} />
+          <ScreenTraspasosEntreSucursales
+            showToast={showToast}
+            initialTab={traspasosInitialTab ?? undefined}
+            onVerPedido={handleVerPedidoDesdeTraspaso}
+            onVerEmbarque={handleVerEmbarqueDesdeTraspaso}
+          />
         )}
       </main>
 

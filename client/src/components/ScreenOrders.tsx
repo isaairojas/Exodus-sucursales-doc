@@ -17,6 +17,14 @@ interface Props {
   onNavigateToEmbarques: (target?: { orderId?: string; shipmentId?: string; openCreate?: boolean }) => void;
   openFacturaOrderId?: string | null;
   onFacturaOrderHandled?: () => void;
+  // Canal separado: abrir SOLO el detalle del pedido (sin disparar el modal
+  // de facturación). Se usa al navegar desde el módulo de Traspasos.
+  openDetailOrderId?: string | null;
+  onDetailOrderHandled?: () => void;
+  // Callback opcional: si viene, el botón "Regresar" del detalle vuelve al
+  // origen (p.ej. la petición del módulo de traspasos) en lugar de solo
+  // cerrar el detalle. Reetiqueta el botón como "Regresar a petición".
+  onRegresarAPeticion?: () => void;
 }
 
 const ALL_STATUSES: OrderStatus[] = ['Creado', 'Surtido', 'Revisado', 'Revisado con incidencias', 'Documentado', 'Enviado', 'Facturado', 'Cancelado'];
@@ -756,7 +764,7 @@ function ModalEmbarcar({
 }
 
 // ── Main ScreenOrders ─────────────────────────────────────────
-export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFacturaOrderId, onFacturaOrderHandled }: Props) {
+export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFacturaOrderId, onFacturaOrderHandled, openDetailOrderId, onDetailOrderHandled, onRegresarAPeticion }: Props) {
   const { state, goToScreen, loadOrder, updateOrderStatus, traspasos, cancelarPeticiones, sucursalActual } = useApp();
 
   // Peticiones de traspaso relacionadas a un pedido (por convención de IDs: P + folio).
@@ -830,6 +838,15 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
     setDetailOrderId(openFacturaOrderId);
     setShowFacturaModal(true);
   }, [openFacturaOrderId]);
+
+  // Canal separado para ABRIR SOLO EL DETALLE (sin disparar facturación).
+  // Se usa cuando se navega desde una petición de traspaso.
+  useEffect(() => {
+    if (!openDetailOrderId) return;
+    setSelectedId(openDetailOrderId);
+    setDetailOrderId(openDetailOrderId);
+    onDetailOrderHandled?.();
+  }, [openDetailOrderId, onDetailOrderHandled]);
 
   // Action button logic
   const canSurtir       = activeOrder?.status === 'Creado';
@@ -1091,12 +1108,17 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                 <div className="w-full flex items-start justify-between">
                   <div>
                     <button
-                      onClick={() => setDetailOrderId(null)}
+                      onClick={() => {
+                        // Si venimos desde una petición de traspaso, regresa al
+                        // módulo de origen; si no, comportamiento clásico.
+                        if (onRegresarAPeticion) { onRegresarAPeticion(); return; }
+                        setDetailOrderId(null);
+                      }}
                       className="inline-flex items-center gap-2 text-sm font-bold mb-3 rounded-lg text-white transition-all"
                       style={{ background: '#f97316', padding: '10px 18px', boxShadow: '0 3px 10px rgba(249,115,22,0.4)' }}
                     >
                       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M15 18l-6-6 6-6"/></svg>
-                      Regresar a pedidos
+                      {onRegresarAPeticion ? 'Regresar a petición' : 'Regresar a pedidos'}
                     </button>
                     <div className="flex items-center gap-2 mb-3">
                       <button
@@ -1133,7 +1155,23 @@ export default function ScreenOrders({ showToast, onNavigateToEmbarques, openFac
                         Exportar Excel
                       </button>
                     </div>
-                    <h2 className="text-2xl font-black" style={{ color: '#1a2b6b' }}>Detalle de Pedido #{detailOrder.id}</h2>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-2xl font-black" style={{ color: '#1a2b6b' }}>Detalle de Pedido #{detailOrder.id}</h2>
+                      {/* Tag "Requiere traspasos": aparece cuando el pedido tiene al
+                          menos una petición de traspaso relacionada. Ayuda al
+                          asesor a saber que la cobertura del pedido depende de
+                          mercancía de otras sucursales. */}
+                      {peticionesDePedido(detailOrder.id).length > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold"
+                          style={{ background: 'rgba(124,58,237,0.10)', color: '#7c3aed', border: '1px solid rgba(124,58,237,0.35)' }}
+                          title={`Este pedido tiene ${peticionesDePedido(detailOrder.id).length} petición(es) de traspaso relacionadas`}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>swap_horiz</span>
+                          Requiere traspasos
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-500 mt-1">{detailOrder.cliente}</p>
                   </div>
                   <div className="w-full max-w-[650px] justify-self-end">

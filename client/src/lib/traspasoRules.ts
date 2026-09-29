@@ -27,8 +27,11 @@ export function etapaDeStatus(status: TraspasoStatus): EtapaOperativa {
     case 'Pendiente': return 'antes-movimientos';
     case 'Surtido':
     case 'Revisado': return 'movimientos';
+    case 'Embarcado':
     case 'Documentado': return 'documentado';
-    case 'Enviado': return 'enviado';
+    case 'Enviado':                 // legacy
+    case 'EntregadoAPaqueteria':
+    case 'RepartoFinalizado':       return 'enviado';
     case 'Recibido':
     case 'Entregado':
     case 'Cancelado': return 'recibido';
